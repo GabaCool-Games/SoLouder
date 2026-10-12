@@ -2,10 +2,11 @@
 //!
 //! Add [`SolouderPlugin`] (after Bevy's asset plugin), load `.wav` files as
 //! [`AudioClip`]s, and spawn entities with a [`SoundPlayer`]. A sound plays
-//! while its player exists: despawning the entity or removing the component
-//! stops it. [`PlaybackSettings`] holds the requested volume, pan, speed,
-//! pause, looping and protection; [`SoundStatus`] holds what the mixer has
-//! applied, and [`SoundFinished`] / [`SoundFailed`] messages report endings.
+//! while its player exists: despawning the entity, removing the component or
+//! inserting a new one stops it. [`PlaybackSettings`] holds the requested
+//! volume, pan, speed, pause, looping and protection; [`SoundStatus`] shows
+//! what the mixer has applied, and [`SoundFinished`] / [`SoundFailed`]
+//! messages report endings.
 //!
 //! The mixer runs on the audio device's thread. Systems never wait for it:
 //! one system in [`SolouderSystems::Sync`] (in `PostUpdate`, after transform

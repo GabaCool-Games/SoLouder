@@ -1,35 +1,40 @@
-//! Playback components, messages and the hook that stops a voice when its
-//! player goes away.
+//! Playback components and messages.
 
-use bevy::ecs::lifecycle::HookContext;
-use bevy::ecs::world::DeferredWorld;
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use solouder_core::{FinishReason, VoiceId};
 
+use super::records::{Record, player_discarded, player_inserted, status_inserted};
 use crate::features::decoded_audio::AudioClip;
 
 /// Plays a clip for as long as this component stays on the entity.
 ///
 /// Removing the component, replacing it, or despawning the entity stops the
-/// sound, including one still waiting for its asset to load.
+/// sound, including one still waiting for its asset to load. The component
+/// is immutable: insert a new one to play another clip.
 #[derive(Component, Clone, Debug)]
-#[component(on_discard = stop_voice)]
-#[require(PlaybackSettings, SoundStatus)]
+#[component(immutable, on_insert = player_inserted, on_discard = player_discarded)]
+#[require(PlaybackSettings, SoundStatus = SoundStatus::LOADING)]
 pub struct SoundPlayer(pub Handle<AudioClip>);
 
-/// What to do with the entity once its sound has played to the end.
+/// What to do with the entity once its sound is over.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum FinishBehavior {
-    /// Keep the entity; its status says the sound finished.
+    /// Keep the entity; its status says how the sound ended.
     #[default]
     Keep,
-    /// Despawn the entity.
+    /// Despawn the entity when the sound ends for any reason: played to the
+    /// end, stopped, stolen, or failed. The [`SoundFinished`] or
+    /// [`SoundFailed`] message still says why.
     Despawn,
 }
 
 /// Requested playback settings. Edits are sent to the mixer in the next
 /// sync; the mixer applies them with its usual volume and pan ramps.
+///
+/// Values the mixer cannot use are ignored and the voice keeps its current
+/// setting: a volume or pan that is not finite, or a speed that is not
+/// greater than 0. A sound that starts with one plays at volume 1, centre
+/// pan or speed 1.
 #[derive(Component, Clone, Copy, Debug, PartialEq)]
 pub struct PlaybackSettings {
     /// Voice volume; 1 plays the clip as recorded.
@@ -85,7 +90,8 @@ impl PlaybackSettings {
 pub enum PlaybackError {
     /// The clip failed to load.
     AssetFailed,
-    /// No output is open (see [`AudioOutput`](crate::AudioOutput)).
+    /// No output is open, or it stopped working (see
+    /// [`AudioOutput`](crate::AudioOutput)).
     OutputUnavailable,
     /// Every voice ID is in use.
     NoFreeVoice,
@@ -102,32 +108,29 @@ pub enum PlaybackState {
     Starting,
     /// The mixer is playing the voice (it may be paused).
     Playing,
-    /// The voice ended or was stopped.
+    /// The voice ended, was stopped, or was stolen.
     Finished(FinishReason),
-    /// The sound could not play.
+    /// The sound could not play, or the output failed while it played.
     Failed(PlaybackError),
 }
 
-/// Applied playback state, maintained by the plugin.
+/// Applied playback state, a read-only copy of the plugin's own record.
+///
+/// Removing or replacing this component does not affect playback; a new one
+/// shows the current state.
 #[derive(Component, Clone, Copy, Debug)]
+#[component(on_insert = status_inserted)]
 pub struct SoundStatus {
-    pub(crate) state: PlaybackState,
-    pub(crate) voice: Option<VoiceId>,
-    /// Settings last sent to the mixer; `None` until the play is sent.
-    pub(crate) sent: Option<PlaybackSettings>,
-}
-
-impl Default for SoundStatus {
-    fn default() -> Self {
-        Self {
-            state: PlaybackState::Loading,
-            voice: None,
-            sent: None,
-        }
-    }
+    state: PlaybackState,
+    voice: Option<VoiceId>,
 }
 
 impl SoundStatus {
+    pub(crate) const LOADING: Self = Self {
+        state: PlaybackState::Loading,
+        voice: None,
+    };
+
     /// The current state.
     pub fn state(&self) -> PlaybackState {
         self.state
@@ -137,43 +140,36 @@ impl SoundStatus {
     pub fn voice(&self) -> Option<VoiceId> {
         self.voice
     }
+
+    pub(crate) fn shows(&self, record: &Record) -> bool {
+        self.state == record.state && self.voice == record.voice
+    }
+
+    pub(crate) fn show(&mut self, record: &Record) {
+        self.state = record.state;
+        self.voice = record.voice;
+    }
 }
 
 /// A sound ended. Sent once per play, also when the entity is gone.
+///
+/// Like all Bevy messages it is kept for two updates, so a reader that does
+/// not run every frame can miss it; [`SoundStatus`] keeps the final state.
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SoundFinished {
     /// The player entity (it may since have been despawned).
     pub entity: Entity,
-    /// Played to the end, or stopped.
+    /// Played to the end, stopped, or stolen for a new sound.
     pub reason: FinishReason,
 }
 
-/// A sound could not play.
+/// A sound could not play, or stopped because the output failed.
+///
+/// Kept for two updates, like [`SoundFinished`].
 #[derive(Message, Clone, Copy, Debug, PartialEq, Eq)]
 pub struct SoundFailed {
-    /// The player entity.
+    /// The player entity (it may since have been despawned).
     pub entity: Entity,
     /// Why.
     pub error: PlaybackError,
-}
-
-/// Voices to stop at the next sync, queued by the player hook, and the
-/// entity each live voice belongs to.
-#[derive(Resource, Default, Debug)]
-pub(crate) struct Voices {
-    pub stops: Vec<VoiceId>,
-    pub owners: HashMap<VoiceId, Entity>,
-}
-
-fn stop_voice(mut world: DeferredWorld, context: HookContext) {
-    let Some(mut status) = world.get_mut::<SoundStatus>(context.entity) else {
-        return;
-    };
-    let voice = status.voice.take();
-    *status = SoundStatus::default();
-    if let Some(voice) = voice
-        && let Some(mut voices) = world.get_resource_mut::<Voices>()
-    {
-        voices.stops.push(voice);
-    }
 }

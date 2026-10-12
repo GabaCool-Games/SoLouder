@@ -352,11 +352,19 @@ Rules for the mapping:
 - Detached one-shot sounds (no entity) are an explicit, documented choice.
 - Several simultaneous listeners (split-screen) are a deliberate feature with a
   defined mixing policy, not an accident of spawning two listener components.
-- Bevy is pinned at 0.20. The plugin uses an `on_discard` component hook
-  (runs on replace, removal and despawn) to stop voices, `Message`s for
-  outcomes, and `insert_non_send` for the CPAL stream, which is not `Send` on
-  every platform. Dropping the app drops the stream, which stops the
-  callback before the mixer is freed.
+- Bevy is pinned at 0.20. `SoundPlayer` is an immutable component, so its
+  `on_insert` and `on_discard` hooks (discard runs on replace, removal and
+  despawn) see every change. The hooks keep the plugin's private record of
+  each player, which owns the voice; `SoundStatus` is only a copy of that
+  record, so removing or replacing it cannot orphan a voice. The sync only
+  visits new players, players whose `PlaybackSettings` changed, and work a
+  full command queue deferred. Starting settings travel inside the play
+  request, so a voice never renders a frame with defaults. When the output
+  fails or its renderer is gone, every waiting and playing sound fails with
+  `OutputUnavailable`.
+- Outcomes are `Message`s, and `insert_non_send` holds the CPAL stream,
+  which is not `Send` on every platform. Dropping the app drops the stream,
+  which stops the callback before the mixer is freed.
 
 ### Assets and playback
 
@@ -375,8 +383,10 @@ Rules for the mapping:
   component removal, including pending loads. Explicitly detached playback may
   outlive an entity, but must be a documented policy.
 - Deliver bounded lifecycle notifications through the selected Bevy version's
-  message/event facilities. Preserve completions for consumers that run less
-  frequently than the callback.
+  message/event facilities. Bevy keeps a message for two updates, so readers
+  that run less often than every frame can miss one; the status component
+  keeps the final state for them. The mixer's event ring is drained every
+  frame, so completions are never lost between the callback and the sync.
 - Define startup, device failure, and teardown. Offline/no-device mode permits
   headless Bevy lifecycle tests without hardware.
 
