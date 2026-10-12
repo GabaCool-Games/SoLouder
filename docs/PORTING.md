@@ -327,11 +327,17 @@ unpatched reference, and each needs a matching Rust test.
 | 0014 | PR #375 | `Wav` and `WavStream` are non-copyable (implicit copies double-freed owned buffers). | compile-time |
 | 0015 | — | Build only: `SOLOUD_BACKEND_MINIAUDIO` CMake option (GoreGrind's Linux library uses MiniAudio, which loads ALSA/PulseAudio/JACK at run time). | — |
 | 0016 | — (GoreGrind) | The MiniAudio backend kept one global `ma_device`: a second engine re-initialized the device the first was playing on, and deiniting any engine stopped all of them. The device is now per engine in `mBackendData`, as in 0001. | — (device only; checked with two engines on a PulseAudio null sink) |
+| 0017 | — | Build only: the static MSVC runtime (from 0003) is opt-in through `SOLOUD_MSVC_STATIC_RUNTIME`, so static-library users keep upstream's `/MD`. | — |
+
+The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
+(`master`, pushed from the `goregrind` branch). Its README lists every fix with
+credits. Commits after 0017 add build scripts and that README; they are not
+reference patches, so export with `--ref` set to the last code commit.
 
 GoreGrind's native libraries are built from the same branch: Windows with
-`build_windows.bat` (WASAPI, WinMM, Null), Linux with `build_linux.sh`
-(MiniAudio, Null; built in Ubuntu 20.04 so it needs at most glibc 2.29), and
-macOS with GoreGrind's `ci/soloud/build-macos.sh` (CoreAudio, Null; universal
+`build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
+`build_linux.sh` (MiniAudio, Null; built in Ubuntu 20.04 so it needs at most
+glibc 2.29), and macOS with `build_macos.sh` (CoreAudio, Null; universal
 arm64 + x86_64). The macOS build needs Apple's SDK and runs on a Mac.
 
 ### Still open in the reference

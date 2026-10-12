@@ -14,8 +14,11 @@ GitHub.
 ## Changing the reference
 
 1. Commit the change on a SoLoud branch that starts at the pinned commit
-   (currently the `goregrind` branch of the GoreGrind SoLoud fork). Keep one
-   fix per commit, and name the upstream issue or PR in the message.
+   (currently the `goregrind` branch of the GoreGrind SoLoud fork, published as
+   `master` of [kelo221/soloud](https://github.com/kelo221/soloud)). Keep one
+   fix per commit, and name the upstream issue or PR in the message. That
+   branch also carries build scripts and a README after the code commits; pass
+   `--ref <last code commit>` when exporting so they stay out of the patches.
 2. Add a test to [`tests/regressions.cpp`](tests/regressions.cpp) and to the
    list in [`tests/CMakeLists.txt`](tests/CMakeLists.txt). It must fail on the
    code before your fix and pass after it.

@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 13:02:13 +0300
+Subject: [PATCH] build: make the static MSVC runtime opt-in
+ (SOLOUD_MSVC_STATIC_RUNTIME)
+
+Forcing /MT broke anyone linking the static library into a /MD
+application (LNK2038 runtime mismatch). The default is the upstream /MD
+again; GoreGrind's self-contained DLL turns the option on.
+---
+ contrib/CMakeLists.txt | 5 ++++-
+ 1 file changed, 4 insertions(+), 1 deletion(-)
+
+diff --git a/contrib/CMakeLists.txt b/contrib/CMakeLists.txt
+index dbf924f..618aa0d 100644
+--- a/contrib/CMakeLists.txt
++++ b/contrib/CMakeLists.txt
+@@ -23,7 +23,10 @@ if (UNIX AND NOT WIN32 AND NOT APPLE)
+ endif ()
+ if (MSVC)
+ 	add_definitions (-D_CRT_SECURE_NO_WARNINGS)
+-	set (CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
++	option (SOLOUD_MSVC_STATIC_RUNTIME "Link the MSVC runtime statically (/MT) instead of as a DLL (/MD)" OFF)
++	if (SOLOUD_MSVC_STATIC_RUNTIME)
++		set (CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
++	endif ()
+ endif()
+ if (NOT DEFINED LIB_POSTFIX)
+ 	set (LIB_POSTFIX "")

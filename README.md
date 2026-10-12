@@ -14,7 +14,7 @@ Jari Komppa and developed with many contributors; see
 Early. The Rust crates do not exist yet. What is here today:
 
 - **A patched C++ reference.** Upstream SoLoud, pinned in
-  `reference/upstream.json`, plus 16 patches in `reference/patches/`. They fix
+  `reference/upstream.json`, plus 17 patches in `reference/patches/`. They fix
   upstream crashes, hangs, and memory-safety bugs that were never merged
   upstream, including the WavStream seek heap corruption
   ([#405](https://github.com/jarikomppa/soloud/issues/405)). Every behavioral
