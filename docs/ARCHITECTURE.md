@@ -289,6 +289,46 @@ asset, a thread-safe controller resource, playback components, and listener/
 emitter components. These are design names, not existing APIs. Keep each
 feature's components, systems, validation, and tests within its slice.
 
+### ECS model (proposed)
+
+The port has two layers with different jobs:
+
+- `solouder-core` is plain Rust with an imperative, C-API-shaped interface
+  (create, play, set volume, mix). It knows nothing about Bevy. C API parity is
+  proven at this layer, and non-Bevy users can embed it directly.
+- `bevy_solouder` is ECS-first: entities, components, assets, relationships and
+  events are the primary API. An imperative system parameter is an escape hatch
+  for fire-and-forget sounds, not the main path.
+
+| SoLoud concept | ECS form |
+|---|---|
+| Audio source (`Wav`, `WavStream`, generators) | Asset handle. Generator parameters are an asset or a component. |
+| Voice handle | An entity with a sound-player component and playback-setting components. The core voice ID stays internal. |
+| `play` / `stop` | Spawn / despawn (or remove the player component). A removal hook stops the voice. |
+| Volume, pan, speed, pause, looping, protect, inaudible behavior | Component fields. Change detection turns edits into bounded commands. |
+| Fades and oscillators | Explicit fade components or commands carried out by the mixer at audio rate, never tweened once per frame. |
+| Bus | An entity with a bus component. Routing is a relationship from voice or bus to its target bus; cycles are rejected. |
+| Voice and bus filters (8 slots) | Filter components on the voice or bus entity, in a defined slot order. |
+| Global settings and filters | A settings resource and a master-bus entity. |
+| Voice groups | Usually unnecessary: queries and relationships select sets of sounds. Group operations remain available as bulk commands. |
+| 3D listener and source | Listener and spatial-emitter components read from `GlobalTransform`; velocity explicit or derived. |
+| Playback status, stream time, finished | A status component updated from the status handoff, a finished event, and an opt-in despawn-when-finished policy. |
+| Visualization and FFT | A snapshot component on the bus or master entity. |
+| `playClocked`, scheduling | Explicit commands in audio-clock time. |
+
+Rules for the mapping:
+
+- Components hold requested state; the mixer owns applied state, which flows
+  back through status. Systems never wait for the audio thread.
+- One sync system set runs after transform propagation, collects every change
+  for the frame, and submits one bounded command batch.
+- Detached one-shot sounds (no entity) are an explicit, documented choice.
+- Several simultaneous listeners (split-screen) are a deliberate feature with a
+  defined mixing policy, not an accident of spawning two listener components.
+- Bevy is pinned (0.20 at the time of writing). Check the exact names for
+  observers, relationships, hooks and messages against that version when the
+  crate is written in milestone C.
+
 ### Assets and playback
 
 - Register a custom asset and `AssetLoader` using the selected Bevy version's
