@@ -5,6 +5,7 @@
 
 mod convert;
 mod error;
+mod riff;
 mod wav;
 
 pub use error::{DecodeError, DecodeLimits};

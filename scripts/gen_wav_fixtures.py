@@ -32,16 +32,16 @@ def chunk(tag: bytes, body: bytes, declared: int | None = None) -> bytes:
 
 
 def fmt_chunk(tag: int, channels: int, rate: int, bits: int, *, cb_size: bool = False) -> bytes:
-    block = channels * bits // 8
-    body = struct.pack("<HHIIHH", tag, channels, rate, rate * block, block, bits)
+    block = (channels * bits // 8) & 0xFFFF
+    body = struct.pack("<HHIIHH", tag, channels, rate, (rate * block) & 0xFFFFFFFF, block, bits)
     if cb_size:
         body += struct.pack("<H", 0)
     return chunk(b"fmt ", body)
 
 
 def fmt_extensible(sub_format: int, channels: int, rate: int, bits: int, valid_bits: int, mask: int) -> bytes:
-    block = channels * bits // 8
-    body = struct.pack("<HHIIHH", EXTENSIBLE, channels, rate, rate * block, block, bits)
+    block = (channels * bits // 8) & 0xFFFF
+    body = struct.pack("<HHIIHH", EXTENSIBLE, channels, rate, (rate * block) & 0xFFFFFFFF, block, bits)
     body += struct.pack("<HHI", 22, valid_bits, mask) + struct.pack("<H", sub_format) + GUID_TAIL
     return chunk(b"fmt ", body)
 
@@ -166,6 +166,17 @@ def fixtures() -> dict[str, bytes]:
     files["bad_no_frames.wav"] = riff(fmt_chunk(PCM, 1, 44100, 16), chunk(b"data", b""))
     files["bad_zero_rate.wav"] = riff(fmt_chunk(PCM, 1, 0, 16), chunk(b"data", pack_ints(int_frames(8, 1, 16, 11), 16)))
     files["bad_cut_header.wav"] = riff(fmt_chunk(PCM, 2, 44100, 16))[:30]
+
+    # Extensible companded audio, every code twice.
+    files["ext_alaw_mono_8000.wav"] = riff(fmt_extensible(ALAW, 1, 8000, 8, 8, 0x4), chunk(b"data", codes))
+    files["ext_mulaw_stereo_8000.wav"] = riff(fmt_extensible(MULAW, 2, 8000, 8, 8, 0x3), chunk(b"data", codes))
+    # Channel masks are ignored: a single high bit, and none at all.
+    odd = pack_ints(int_frames(64, 2, 16, 13), 16)
+    files["ext_mask_high_s16_stereo_8000.wav"] = riff(fmt_extensible(PCM, 2, 8000, 16, 16, 0x80000000), chunk(b"data", odd))
+    files["ext_mask_zero_s16_stereo_8000.wav"] = riff(fmt_extensible(PCM, 2, 8000, 16, 16, 0), chunk(b"data", odd))
+    # Headers whose arithmetic overflows 16 bits, or claim more channels than a mask holds.
+    files["bad_65535_channels.wav"] = riff(fmt_chunk(PCM, 65535, 8000, 32), chunk(b"data", bytes(64)))
+    files["bad_33_channels_ext.wav"] = riff(fmt_extensible(PCM, 33, 8000, 16, 16, 0), chunk(b"data", bytes(66 * 4)))
     return files
 
 

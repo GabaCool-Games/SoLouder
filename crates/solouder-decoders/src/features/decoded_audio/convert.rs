@@ -1,12 +1,9 @@
-//! Integer and float samples to the `f32` the mixer plays.
+//! Stored samples to the `f32` the mixer plays.
 //!
 //! Except for 8-bit audio, these are the conversions SoLoud's WAV loader
 //! (dr_wav) uses, so decoded files match the reference bit for bit.
 
-use symphonia::core::audio::sample::Sample;
-use symphonia::core::audio::{Audio, AudioBuffer, GenericAudioBufferRef};
-
-use super::DecodeError;
+use super::riff::Encoding;
 
 /// Unsigned 8-bit, centered on 128. dr_wav scales by 2/255 instead, which maps
 /// silence (128) to +1/255.
@@ -42,44 +39,63 @@ pub(crate) fn from_f64(sample: f64) -> f32 {
     from_f32(sample as f32)
 }
 
-/// Appends every plane of `buffer` to the matching entry of `planes`.
-pub(crate) fn append(
-    buffer: &GenericAudioBufferRef<'_>,
-    planes: &mut [Vec<f32>],
-) -> Result<(), DecodeError> {
-    match buffer {
-        GenericAudioBufferRef::U8(buf) => append_with(buf, planes, |s| from_u8(*s)),
-        GenericAudioBufferRef::S16(buf) => append_with(buf, planes, |s| from_i16(*s)),
-        GenericAudioBufferRef::S24(buf) => append_with(buf, planes, |s| from_i24(s.inner())),
-        GenericAudioBufferRef::S32(buf) => append_with(buf, planes, |s| from_i32(*s)),
-        GenericAudioBufferRef::F32(buf) => append_with(buf, planes, |s| from_f32(*s)),
-        GenericAudioBufferRef::F64(buf) => append_with(buf, planes, |s| from_f64(*s)),
-        _ => Err(DecodeError::Unsupported(
-            "sample format not used by WAV".to_owned(),
-        )),
+/// G.711 A-law to 16-bit linear (the values of dr_wav's `g_drwavAlawTable`).
+pub(crate) fn alaw(code: u8) -> i16 {
+    let code = code ^ 0x55;
+    let mantissa = i16::from(code & 0x0F) << 4;
+    let segment = (code & 0x70) >> 4;
+    let magnitude = match segment {
+        0 => mantissa + 8,
+        _ => (mantissa + 0x108) << (segment - 1),
+    };
+    if code & 0x80 != 0 {
+        magnitude
+    } else {
+        -magnitude
     }
 }
 
-fn append_with<S: Sample>(
-    buffer: &AudioBuffer<S>,
-    planes: &mut [Vec<f32>],
-    convert: impl Fn(&S) -> f32,
-) -> Result<(), DecodeError> {
-    if buffer.num_planes() != planes.len() {
-        return Err(DecodeError::Malformed(
-            "decoder changed the channel count".to_owned(),
-        ));
+/// G.711 mu-law to 16-bit linear (the values of dr_wav's
+/// `g_drwavMulawTable`).
+pub(crate) fn mulaw(code: u8) -> i16 {
+    const BIAS: i16 = 0x84;
+    let code = !code;
+    let magnitude = ((i16::from(code & 0x0F) << 3) + BIAS) << ((code & 0x70) >> 4);
+    if code & 0x80 != 0 {
+        BIAS - magnitude
+    } else {
+        magnitude - BIAS
     }
-    for (index, plane) in planes.iter_mut().enumerate() {
-        let source = buffer
-            .plane(index)
-            .ok_or_else(|| DecodeError::Malformed("missing channel".to_owned()))?;
-        plane
-            .try_reserve(source.len())
-            .map_err(|_| DecodeError::OutOfMemory)?;
-        plane.extend(source.iter().map(&convert));
+}
+
+/// Converts interleaved `data` into `out`, one plane per channel. `out` holds
+/// whole frames; `data` must hold at least as many samples.
+pub(crate) fn deinterleave(encoding: Encoding, data: &[u8], channels: usize, out: &mut [f32]) {
+    match encoding {
+        Encoding::U8 => planar(data, channels, out, |[s]| from_u8(s)),
+        Encoding::S16 => planar(data, channels, out, |s| from_i16(i16::from_le_bytes(s))),
+        Encoding::S24 => planar(data, channels, out, |[a, b, c]| {
+            from_i24(i32::from_le_bytes([0, a, b, c]) >> 8)
+        }),
+        Encoding::S32 => planar(data, channels, out, |s| from_i32(i32::from_le_bytes(s))),
+        Encoding::F32 => planar(data, channels, out, |s| from_f32(f32::from_le_bytes(s))),
+        Encoding::F64 => planar(data, channels, out, |s| from_f64(f64::from_le_bytes(s))),
+        Encoding::ALaw => planar(data, channels, out, |[s]| from_i16(alaw(s))),
+        Encoding::MuLaw => planar(data, channels, out, |[s]| from_i16(mulaw(s))),
     }
-    Ok(())
+}
+
+fn planar<const W: usize>(
+    data: &[u8],
+    channels: usize,
+    out: &mut [f32],
+    convert: impl Fn([u8; W]) -> f32,
+) {
+    let frames = out.len() / channels;
+    let (samples, _) = data.as_chunks::<W>();
+    for (i, &sample) in samples.iter().take(frames * channels).enumerate() {
+        out[(i % channels) * frames + i / channels] = convert(sample);
+    }
 }
 
 #[cfg(test)]
@@ -115,5 +131,44 @@ mod tests {
         assert_eq!(from_f32(1.5), 1.5);
         assert_eq!(from_f64(1e300), 0.0);
         assert_eq!(from_f64(0.1), 0.1f32);
+    }
+
+    #[test]
+    fn companding_matches_the_g711_tables() {
+        // First, middle and last entries of dr_wav's tables.
+        assert_eq!(alaw(0x00), -5504);
+        assert_eq!(alaw(0x55), -8);
+        assert_eq!(alaw(0xD5), 8);
+        assert_eq!(alaw(0x80), 5504);
+        assert_eq!(alaw(0xAA), 32256);
+        assert_eq!(alaw(0x2A), -32256);
+        assert_eq!(mulaw(0x00), -32124);
+        assert_eq!(mulaw(0x7F), 0);
+        assert_eq!(mulaw(0xFF), 0);
+        assert_eq!(mulaw(0x80), 32124);
+        assert_eq!(mulaw(0x7E), -8);
+    }
+
+    #[test]
+    fn s24_is_sign_extended() {
+        let mut out = [0.0; 2];
+        deinterleave(
+            Encoding::S24,
+            &[0x00, 0x00, 0x80, 0xFF, 0xFF, 0x7F],
+            1,
+            &mut out,
+        );
+        assert_eq!(out, [-1.0, 8_388_607.0 / 8_388_608.0]);
+    }
+
+    #[test]
+    fn channels_become_planes() {
+        let data: Vec<u8> = [1i16, -1, 2, -2, 3, -3]
+            .iter()
+            .flat_map(|s| (s * 1024).to_le_bytes())
+            .collect();
+        let mut out = [0.0; 6];
+        deinterleave(Encoding::S16, &data, 2, &mut out);
+        assert_eq!(out, [1.0, 2.0, 3.0, -1.0, -2.0, -3.0].map(|v| v / 32.0));
     }
 }

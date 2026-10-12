@@ -295,13 +295,26 @@ lossy formats and seek/preroll. Compare decoders separately from mixer DSP,
 which uses identical prepared PCM. Do not blindly translate vendored codec
 internals, generated bindings, or third-party backends as first-party modules.
 
-WAV decoding uses Symphonia 0.6 (`wav` and `pcm` features only; MPL-2.0, a
-file-level copyleft that permits use from zlib-licensed crates). Symphonia
-parses the file and decodes integer samples; `solouder-decoders` converts them
-to `f32` with dr_wav's formulas, so the 16, 24 and 32-bit integer, float,
-A-law and mu-law fixtures in `tests/fixtures/wav/` decode bit for bit like the
-reference (`wav_decode`). ADPCM, 12-bit and 64-bit integer WAV, which dr_wav
-also reads, are not supported yet.
+WAV decoding is first-party code in `solouder-decoders`: a bounds-checked
+RIFF reader (`riff.rs`) that validates the whole format chunk (channel count,
+sample rate, format and width) before anything is allocated, and dr_wav's
+sample conversions (`convert.rs`). The one allocation is sized from the bytes
+present, not from header claims. Where files are ambiguous it follows dr_wav:
+chunks padded to even sizes, an untrusted RIFF size, the extensible
+sub-format taken from the GUID's first two bytes, and the channel mask
+ignored. The 16, 24 and 32-bit integer, float, A-law and mu-law fixtures in
+`tests/fixtures/wav/`, plain and extensible, decode bit for bit like the
+reference (`wav_decode`), and the reference rejects the same malformed files.
+`mutated_files_never_panic` fuzzes the reader deterministically, and
+`check_all.py` runs the decoder tests in release as well as debug.
+
+Symphonia 0.6 decoded WAV until review found that it panics on headers whose
+16-bit block size overflows, lets a zero channel mask turn 33 channels into
+one, rejects extensible A-law and mu-law, and reserves memory from metadata
+size claims before reading. It stays pinned in the workspace as the
+candidate for Ogg Vorbis, FLAC and MP3 (milestone E), which will need the
+same malformed-input testing. ADPCM, 12-bit and 64-bit integer WAV, which
+dr_wav also reads, are not supported (`DecodeError::Unsupported`).
 
 ## Reference patches and upstream tracking
 
@@ -492,7 +505,7 @@ The ledger's `milestone` column assigns every C API behavior to one of these.
 | Milestone | Required result |
 |---|---|
 | A — Foundation and reference harness | Patched reference and C++ regression tests (done); parity ledger (done); Cargo workspace with pinned Rust/Bevy versions (done); `scripts/check_all.py` and a CI workflow, verified locally on Windows and in a Linux container but not yet run on a CI host (done); scenario format with a C++ null-driver runner and a Rust runner (done, first scenarios: init validation and silence) |
-| B — Offline playback (done) | Prepared PCM and decoded WAV files (done; `solouder-decoders`, Symphonia), planar mixer for 1 to 8 channels (done), handles (done), play/stop/pause/loop with loop point 0 (done), volume/pan (done), point/linear/Catmull-Rom resampling (done), clipping and global volume (done); 12 parity scenarios for playback and WAV decoding, bit-identical on Windows except the 8-bit WAV conversion |
+| B — Offline playback (done) | Prepared PCM and decoded WAV files (done; `solouder-decoders`), planar mixer for 1 to 8 channels (done), handles (done), play/stop/pause/loop with loop point 0 (done), volume/pan (done), point/linear/Catmull-Rom resampling (done), clipping and global volume (done); 12 parity scenarios for playback and WAV decoding, bit-identical on Windows except the 8-bit WAV conversion |
 | C — Windows and Bevy playable slice (done) | Bounded wait-free control, events and audio retirement between game and audio thread, allocation-free renders (done; `solouder_core::realtime`, `realtime_no_alloc`); CPAL negotiation of rate, channels and sample format, panic-to-silence callback, device error states, safe shutdown order (done; `solouder-cpal`, `play_wav` example, checked on a Windows WASAPI device); Bevy plugin with `.wav` asset loader, playback entities, settings, status and messages, stop on despawn, headless mode (done; `bevy_solouder`, `play_and_despawn` example) |
 | D — Routing and DSP parity | Nested buses, queues/groups, virtualization/protection, scheduling, remaining resamplers, voice/bus/global filters |
 | E — Spatial and streaming parity | Listener/emitter systems, attenuation/Doppler/delay, workers, seek/loop regressions, WAV/FLAC/Ogg Vorbis/MP3 |

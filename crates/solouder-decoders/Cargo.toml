@@ -9,7 +9,6 @@ publish.workspace = true
 
 [dependencies]
 solouder-core.workspace = true
-symphonia = { workspace = true, features = ["wav", "pcm"] }
 
 [lints]
 workspace = true

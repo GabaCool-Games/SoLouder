@@ -33,6 +33,8 @@ def main(argv: list[str] | None = None) -> int:
         ["cargo", "fmt", "--all", "--", "--check"],
         ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
         ["cargo", "test", "--workspace"],
+        # Decoders parse untrusted bytes; also test them without overflow checks.
+        ["cargo", "test", "--release", "-p", "solouder-decoders"],
     ]
     if args.reference:
         checks.append([python, "scripts/test_reference.py"])

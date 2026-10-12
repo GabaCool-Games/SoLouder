@@ -3,7 +3,6 @@
 use std::fmt;
 
 use solouder_core::{MAX_CHANNELS, PcmError};
-use symphonia::core::errors::Error as SymphoniaError;
 
 /// Limits applied before decoded audio is allocated.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -71,18 +70,6 @@ impl fmt::Display for DecodeError {
 }
 
 impl std::error::Error for DecodeError {}
-
-impl From<SymphoniaError> for DecodeError {
-    fn from(error: SymphoniaError) -> Self {
-        match error {
-            SymphoniaError::Unsupported(what) => Self::Unsupported(what.to_owned()),
-            SymphoniaError::LimitError(what) => Self::Unsupported(what.to_owned()),
-            SymphoniaError::DecodeError(what) => Self::Malformed(what.to_owned()),
-            SymphoniaError::IoError(io) => Self::Malformed(io.to_string()),
-            other => Self::Malformed(other.to_string()),
-        }
-    }
-}
 
 impl From<PcmError> for DecodeError {
     fn from(error: PcmError) -> Self {

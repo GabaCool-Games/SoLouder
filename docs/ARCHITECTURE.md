@@ -171,7 +171,7 @@ WAV), `solouder-cpal` (`features/output_lifecycle/`), `bevy_solouder`
 (`features/decoded_audio/`, `features/output_lifecycle/`,
 `features/playback/`), `solouder-parity`, `tests/scenarios/`,
 `tests/fixtures/wav/` and `docs/port-status.md`. Versions are pinned in `rust-toolchain.toml` (Rust
-1.98.1) and the root `Cargo.toml` (Bevy 0.20, CPAL 0.18, Symphonia 0.6).
+1.98.1) and the root `Cargo.toml` (Bevy 0.20, CPAL 0.18; Symphonia 0.6 is pinned for the later codecs).
 
 This illustrates feature ownership, not a requirement to create empty modules
 up front. Introduce a slice when it has an implemented use case. File names

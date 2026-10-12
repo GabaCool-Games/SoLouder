@@ -28,7 +28,7 @@ filters and 3D audio do not exist yet.
 | `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping |
 | `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `Handle`, `PlayOptions`, voice table, active-voice selection, resample-buffer pool, bus mixing, voice control and queries |
 | `solouder-core` | `features/realtime` | `split`, `Controller`, `Renderer`, `VoiceId`, `Event`, `Status`, `RealtimeConfig`; retirement of ended voices' PCM to the game thread |
-| `solouder-decoders` | `features/decoded_audio` | `decode_wav` (Symphonia for parsing, dr_wav's sample conversion), `DecodeLimits`, `DecodeError` |
+| `solouder-decoders` | `features/decoded_audio` | `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `DecodeLimits`, `DecodeError` |
 | `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
 | `bevy_solouder` | `decoded_audio`, `output_lifecycle`, `playback` | `SolouderPlugin`, `AudioClip` and `WavLoader`, `OutputMode` (device or headless), `AudioOutput`, `SoundPlayer`, `PlaybackSettings`, `SoundStatus`, `SoundFinished`/`SoundFailed` |
 | `solouder-parity` | — | Scenario parser, test patterns, WAV fixture loading, Rust runner, comparison with C++ output |
@@ -55,7 +55,7 @@ stays `in-progress` until its remaining flags are done.
 | `clipping_and_global` | Sums past full scale through both clippers, global volume, post-clip scale | 4,012 |
 | `active_voices` | Protected and loudest voices win the active slots; changing and invalid limits | 2,412 |
 | `delay_samples` | Delayed starts spanning mix calls | 1,666 |
-| `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV; extensible 5.1, 7.1 and 24-in-32-bit headers; extra and odd-sized chunks; four files both sides reject | 14,282 |
+| `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV (every code); extensible 5.1, 7.1, 24-in-32-bit, A-law and mu-law headers; channel masks with a high bit or none; extra and odd-sized chunks; six files both sides reject (9, 33 and 65535 channels, no frames, sample rate 0, a header cut short) | 15,562 |
 | `wav_decode_u8` | 8-bit WAV (tolerance 1/128, see below) | 1,000 |
 | `wav_playback` | Decoded files played at and away from the output rate, a 5.1 fold-down, a looping file | 8,246 |
 

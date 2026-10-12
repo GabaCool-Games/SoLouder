@@ -30,3 +30,13 @@ load name=nine file=wav/bad_nine_channels.wav
 load name=empty file=wav/bad_no_frames.wav
 load name=norate file=wav/bad_zero_rate.wav
 load name=cut file=wav/bad_cut_header.wav
+load name=extalaw file=wav/ext_alaw_mono_8000.wav
+samples name=extalaw
+load name=extmulaw file=wav/ext_mulaw_stereo_8000.wav
+samples name=extmulaw
+load name=maskhigh file=wav/ext_mask_high_s16_stereo_8000.wav
+samples name=maskhigh
+load name=maskzero file=wav/ext_mask_zero_s16_stereo_8000.wav
+samples name=maskzero
+load name=wide16 file=wav/bad_65535_channels.wav
+load name=many file=wav/bad_33_channels_ext.wav
