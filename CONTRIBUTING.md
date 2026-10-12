@@ -35,10 +35,13 @@ Rust file translated from SoLoud with a header naming the source, for example:
 Before sending a change, run:
 
 ```sh
-python scripts/check_rust_file_lines.py
-python scripts/test_check_rust_file_lines.py
+python scripts/check_all.py --reference --parity
 ```
 
-Once the Cargo workspace exists, also run `cargo fmt --all -- --check`,
-`cargo clippy --workspace --all-targets -- -D warnings` and
-`cargo test --workspace`.
+That runs the file-size and ledger checks, `cargo fmt`, `cargo clippy` and
+`cargo test`, the C++ reference tests, and the C++/Rust scenario comparison.
+Without CMake and a C++ compiler, drop `--reference --parity`; CI runs them.
+
+A behavior is ported when a scenario in `tests/scenarios/` exercises it and
+matches the C++ reference. Add the scenario with the code, and set the
+behavior's `status` and `scenarios` columns in `docs/parity-ledger.csv`.

@@ -30,3 +30,11 @@ defects, milestones) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
   [CONTRIBUTING.md](CONTRIBUTING.md#marking-ported-code).
 - Update `docs/parity-ledger.csv` tracking columns when a behavior is ported;
   `python scripts/gen_parity_ledger.py --check` must pass.
+- A behavior counts as ported only when a scenario in `tests/scenarios/`
+  exercises it and matches C++. New scenario operations go into both
+  `reference/tests/parity_runner.cpp` and `crates/solouder-parity/src/run.rs`
+  with identical validation, and into the table in
+  `tests/scenarios/README.md`.
+- Do not mention GoreGrind in anything published from this repository without
+  asking the maintainer first.
+- Before finishing: `python scripts/check_all.py --reference --parity`.

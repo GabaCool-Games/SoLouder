@@ -12,11 +12,10 @@ behavioral compatibility, patch preservation, migration milestones, and parity
 validation. Keep design decisions here rather than maintaining a second copy
 in the porting guide.
 
-**Status:** no Rust workspace or Bevy plugin is implemented in this repository
-yet; it currently holds the patched C++ reference tooling and the parity
-ledger. The paths, crate names, features, and Rust-facing types below are
-proposed. The Rust file-size checker exists independently of that future
-workspace; its presence does not imply that a Rust implementation exists.
+**Status:** milestone A. The Cargo workspace holds `solouder-core` (mixer
+configuration and a mixer that renders silence) and `solouder-parity` (the
+scenario harness). The decoder, CPAL and Bevy crates, and the Rust-facing types
+described for them below, are still proposed.
 
 The target is a native Rust mixer, not a binding that requires the C++ SoLoud
 library at runtime. Core audio must remain usable without Bevy or a device.
@@ -152,15 +151,23 @@ crates/
       filters/
       spatial/
       visualization/
-tests/fixtures/                 # small, redistributable audio fixtures
+  solouder-parity/              # scenario parser, Rust runner, comparison (not published)
+tests/
+  scenarios/                    # .scn parity scenarios shared with the C++ runner
+  fixtures/                     # small, redistributable audio fixtures
 docs/
   parity-ledger.csv             # C API parity target and per-behavior status
   port-status.md                # known differences, enabled features, benchmarks
 reference/
   upstream.json, patches/       # pinned upstream SoLoud and reviewed patches
-  tests/                        # C++ regression tests for the patches
+  tests/                        # C++ regression tests and parity_runner.cpp
   soloud/                       # git-ignored checkout (scripts/fetch_reference.py)
 ```
+
+Existing today: `solouder-core` (only `features/playback/`), `solouder-parity`,
+`tests/scenarios/` and `docs/port-status.md`. Versions are pinned in
+`rust-toolchain.toml` (Rust 1.98.1) and the root `Cargo.toml` (Bevy 0.20,
+CPAL 0.18, Symphonia 0.6).
 
 This illustrates feature ownership, not a requirement to create empty modules
 up front. Introduce a slice when it has an implemented use case. File names
@@ -381,7 +388,7 @@ automatically plug this implementation into Bevy's built-in mixer.
 
 Keep current facts separate from proposed behavior. When changing a contract,
 update this document and the affected slice tests; record audible differences
-and support coverage in `docs/port-status.md` (and the parity ledger) once that file exists.
+and support coverage in `docs/port-status.md` and the parity ledger.
 
 A slice is complete only when enabled code compiles, parity/lifecycle tests
 pass, callback behavior is bounded, and every authored Rust file satisfies the

@@ -1,0 +1,11 @@
+[package]
+name = "solouder-core"
+description = "SoLouder mixer core: a Rust port of the SoLoud audio engine, independent of Bevy and audio devices"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

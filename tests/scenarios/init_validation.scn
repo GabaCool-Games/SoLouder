@@ -1,0 +1,15 @@
+# Soloud::init with the null driver: which channel counts and buffer sizes are
+# accepted, and that a failed init leaves no engine to mix with. 0 selects the
+# default sample rate and buffer size.
+init channels=0
+init channels=3
+init channels=5
+init channels=7
+init channels=9
+init buffer=511
+init channels=1 buffer=512
+init channels=4 rate=22050 buffer=600
+init channels=6 rate=0 buffer=0
+init channels=8 rate=96000 buffer=4096
+init channels=2 rate=48000
+mix frames=16

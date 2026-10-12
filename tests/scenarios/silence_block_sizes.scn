@@ -1,0 +1,22 @@
+# Soloud::mix with no voices renders exact silence for every supported channel
+# count, including empty, odd-sized, granularity-sized and maximum blocks.
+init channels=2 rate=44100 buffer=512
+mix frames=0
+mix frames=1
+mix frames=3
+mix frames=15
+mix frames=16
+mix frames=17
+mix frames=511
+mix frames=512
+mix frames=513
+mix frames=4096
+init channels=1 buffer=512
+mix frames=7
+mix frames=1024
+init channels=4 buffer=2048
+mix frames=100
+init channels=6 buffer=1024
+mix frames=255
+init channels=8 buffer=4096
+mix frames=4096

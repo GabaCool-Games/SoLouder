@@ -32,6 +32,12 @@ add_executable(reference_regressions regressions.cpp)
 target_include_directories(reference_regressions PRIVATE "${SOLOUDER_REFERENCE_DIR}/include")
 target_link_libraries(reference_regressions PRIVATE soloud)
 
+# Renders tests/scenarios/*.scn for comparison with the Rust port
+# (scripts/run_parity.py).
+add_executable(parity_runner parity_runner.cpp)
+target_include_directories(parity_runner PRIVATE "${SOLOUDER_REFERENCE_DIR}/include")
+target_link_libraries(parity_runner PRIVATE soloud)
+
 # One process per test so a crash or hang fails only that test.
 set(REFERENCE_TESTS
   wavstream_loop_channel_stride

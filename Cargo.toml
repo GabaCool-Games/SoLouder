@@ -1,0 +1,25 @@
+[workspace]
+resolver = "3"
+members = ["crates/*"]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.97.1"
+license = "Zlib"
+publish = false
+
+# Versions pinned for later milestones (CPAL output, decoders, Bevy) live here
+# so every crate that adopts them agrees. Unused entries cost nothing.
+[workspace.dependencies]
+solouder-core = { path = "crates/solouder-core" }
+bevy = { version = "0.20", default-features = false }
+cpal = "0.18"
+symphonia = { version = "0.6", default-features = false }
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }

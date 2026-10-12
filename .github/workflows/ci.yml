@@ -1,0 +1,23 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  checks:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      # rustup installs the toolchain pinned in rust-toolchain.toml.
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: python scripts/fetch_reference.py
+      - run: python scripts/check_all.py --reference --parity

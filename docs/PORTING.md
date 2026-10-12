@@ -7,10 +7,12 @@ SoLouder ports the SoLoud audio engine to **native Rust**, with an idiomatic
 keeps SoLoud's mixing behavior without requiring the C++ library in the normal
 Rust build, and adds the fixes and extensions developed for GoreGrind.
 
-**Current status:** this repository contains the patched C++ reference tooling
-(pinned upstream commit, patch series, fetch script, C++ regression tests) and
-the parity ledger. There is no Cargo workspace or Bevy plugin yet; proposed
-paths and APIs are not available or tested until they exist.
+**Current status:** milestone A. This repository contains the patched C++
+reference tooling (pinned upstream commit, patch series, fetch script, C++
+regression tests), the parity ledger, and a Cargo workspace with the scenario
+harness: `tests/scenarios/*.scn` run through a C++ null-driver runner and
+through `solouder-core`, and `python scripts/run_parity.py` compares them.
+The core renders only silence so far; there is no Bevy plugin yet.
 
 [ARCHITECTURE.md](ARCHITECTURE.md) owns the target workspace, Vertical Slice
 Architecture (VSA), ownership, real-time boundaries, and Bevy contracts. This
@@ -171,7 +173,7 @@ assuming every source file is always included.
 ## Mixer behavior to preserve
 
 Audible compatibility is the default. Record deliberate departures with reasons
-and regression tests in `docs/port-status.md` once the workspace exists.
+and regression tests in `docs/port-status.md`.
 
 ### Buffers, timing, and numerics
 
@@ -350,6 +352,7 @@ fixes are welcome as new patches.
 | #314 (reported) | `Soloud::mixBus_internal` block read | Fixed 512-frame source reads with a non-integer rate ratio reportedly accumulate drift (about 0.1 s over 3 minutes for 44.1 → 48 kHz). | **High priority.** Exact fractional playhead; long-duration drift test against an analytic position. Reproduce in the reference before changing it. |
 | #396 (reported), #156 | `WavStreamInstance::seek` fallback | Non-Ogg streams seek by rewind + decode-and-discard, which is O(seek distance). Upstream reports seeking a stream handle silently kills it. | Per-codec seek with defined accuracy; test seek while playing and while paused. PR #336 is a native-seek reference. |
 | #343 (reported) | `Soloud::mixBus_internal` resampling loop | Reported infinite loop when `writesamples` stays 0. Not reproducible from the current code: each iteration either writes frames or loads the next block. The adjacent zero-step defect is fixed by patch 0008. | Every resampling iteration makes progress or exits; test extreme speed and Doppler values. |
+| — (found 2026-10-12) | `Soloud::mix`, `Soloud::mixSigned16` | No bound on the frame count: a request for more frames than the scratch buffer holds (at least 4096, or the buffer size rounded up to 16) writes past `mScratch`. Parity scenarios stay at or below 4096 frames. | `Mixer::mix_interleaved` accepts any length (chunking once sources exist); test a request far above the buffer size. |
 | #307, #241 | `Soloud::deinit`, `Soloud::~Soloud` | `SOLOUD_ASSERT(!mInsideAudioThreadMutex)` in `deinit` can fire at shutdown; ordering of `stopAll` versus backend teardown. | `Drop` is safe in every state; test repeated init/teardown. See the GoreGrind shutdown lesson below. |
 
 Also reported upstream and worth a test once the feature is ported: #274
@@ -460,7 +463,7 @@ The ledger's `milestone` column assigns every C API behavior to one of these.
 
 | Milestone | Required result |
 |---|---|
-| A — Foundation and reference harness | Patched reference and C++ regression tests (done); parity ledger (done); Cargo workspace, pinned Rust/Bevy versions, CI with file-size and ledger checks; shared scenario format with a C++ null-driver runner and a Rust runner |
+| A — Foundation and reference harness | Patched reference and C++ regression tests (done); parity ledger (done); Cargo workspace with pinned Rust/Bevy versions (done); `scripts/check_all.py` and a CI workflow, verified locally on Windows and in a Linux container but not yet run on a CI host (done); scenario format with a C++ null-driver runner and a Rust runner (done, first scenarios: init validation and silence) |
 | B — Offline playback | Prepared PCM/decoded WAV, planar stereo mixer, IDs, play/stop/pause/loop, volume/pan, linear resampling, clipping/parity |
 | C — Windows and Bevy playable slice | CPAL negotiation, bounded control/status, asset loading, playback/despawn example, no-device/allocation tests |
 | D — Routing and DSP parity | Nested buses, queues/groups, virtualization/protection, scheduling, remaining resamplers, voice/bus/global filters |
@@ -539,17 +542,14 @@ for violations. No Rust files means only that there are no current size
 violations, not that a Rust implementation has been validated. Markdown is not
 checked.
 
-Once the workspace exists, also run from the repository root:
+`python scripts/check_all.py` runs all of the above except the C++ tests, plus
+`cargo fmt --check`, `cargo clippy -D warnings` and `cargo test`. Add
+`--reference` for the C++ regression tests and `--parity` to compare every
+scenario with the C++ reference; CI (`.github/workflows/ci.yml`, Windows and
+Linux) runs it with both.
 
-```sh
-cargo fmt --all -- --check
-cargo check --workspace
-cargo test --workspace
-cargo clippy --workspace --all-targets -- -D warnings
-```
-
-Run the size check after formatting, check core-only/no-device builds and
-meaningful codec/platform combinations, and include both in future Rust CI.
+Run the size check after formatting. As crates gain features, also check
+core-only/no-device builds and meaningful codec/platform combinations in CI.
 Headless Bevy lifecycle tests use offline output; hardware smoke tests are
 separate so CI does not require a device.
 
@@ -562,7 +562,7 @@ and buffer configuration.
 ### Port status and licensing
 
 Maintain `docs/port-status.md` with source/slice mappings, enabled features,
-known differences, and benchmarks once the workspace exists; per-function
+known differences, and benchmarks; per-function
 status lives in the ledger. Confidence labels/trailer comments do not replace
 verification.
 
