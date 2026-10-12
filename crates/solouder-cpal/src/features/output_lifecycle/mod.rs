@@ -6,4 +6,6 @@ mod negotiate;
 mod output;
 
 pub use negotiate::StreamPreferences;
-pub use output::{Output, OutputConfig, OutputError, OutputInfo, OutputState, open};
+pub use output::{
+    MAX_BUFFER_FRAMES, Output, OutputConfig, OutputError, OutputInfo, OutputState, open,
+};

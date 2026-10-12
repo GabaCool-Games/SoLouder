@@ -12,5 +12,6 @@
 mod features;
 
 pub use features::output_lifecycle::{
-    Output, OutputConfig, OutputError, OutputInfo, OutputState, StreamPreferences, open,
+    MAX_BUFFER_FRAMES, Output, OutputConfig, OutputError, OutputInfo, OutputState,
+    StreamPreferences, open,
 };

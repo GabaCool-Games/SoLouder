@@ -76,16 +76,17 @@ harness, so they are checked by Rust tests instead of scenarios:
 
 | Test | Checks |
 |---|---|
-| `realtime_tests` (core, 10 tests) | Renders match an offline `Mixer` sample for sample, a stop queued before the first render still reports start and finish, commands for finished voices do nothing, full queues and ID pools reject requests, each render applies a bounded number of commands, ended audio is released by the controller, all-protected tables fail the play |
-| `realtime_no_alloc` (core) | No allocation or free inside any `Renderer::render`: playing, changing settings, stopping, voices ending, voice stealing past the slot count, and `stop_all` |
-| `callback` unit tests (cpal) | Long callbacks render in parts identical to manual renders, conversion to `i16`, a renderer panic gives silence, dropping the callback returns the renderer |
-| `device_lifecycle` (cpal) | Repeated open/play/close, drop while playing, two outputs at once, invalid settings rejected before the device is opened |
+| `realtime_tests` (core, 14 tests) | Renders match an offline `Mixer` sample for sample, a stop queued before the first render still reports start and finish, commands for finished voices do nothing, full queues and ID pools reject requests, each render applies a bounded number of commands, ended audio is released by the controller, all-protected tables fail the play, a stolen voice finishes with `Stolen` before its replacement starts, uncollected audio blocks plays instead of being freed in the render, a dropped renderer disconnects the controller, play options set speed and protection from the first frame |
+| `realtime_no_alloc` (core) | No allocation or free inside any `Renderer::render`, with a fresh sound per play and the smallest retirement queue: playing, every control, stopping, voices ending, voice stealing past the slot count, all-protected failures, `stop_all`, and rendering after the controller is dropped |
+| `callback` unit tests (cpal) | Long callbacks render in parts identical to manual renders, conversion to `i16`, a panic injected inside the render silences the output and hands its payload off the audio thread, conversions clamp to `[-1, 1)` (24-bit 1.0 would otherwise be out of range) and play NaN as silence, dropping the callback returns the renderer |
+| `device_lifecycle` (cpal) | Repeated open/play/close, drop while playing, two outputs at once, invalid voice counts and buffer sizes rejected before the device is opened |
 | `headless_playback` (Bevy, 8 tests) | Play to the end, stop on despawn, remove and replace, pause and resume, despawn on finish, `.wav` loading through the asset server, a bad file fails the player |
 | `playback_ownership` (Bevy, 8 tests) | Removing `SoundStatus` cannot orphan a voice, a replaced status shows the current state, a stolen sound reports `Stolen` and despawns its entity, starting speed and protection ride in the play request (sample-exact against the mixer with a nearly full queue), unusable settings are ignored and never resent, quiet frames send no commands, a failed output or dropped renderer fails waiting and playing sounds |
 | `plugin_lifecycle` (Bevy) | No output keeps the app running and fails plays, despawn before load never starts a voice, a 5000-sound burst gets one outcome per sound with every ID released, repeated device app teardown, prompt drop mid-playback |
 
 Device tests skip on machines without audio output (as in CI) unless
-`SOLOUDER_REQUIRE_DEVICE=1`; they pass on a Windows WASAPI device. The
+`SOLOUDER_REQUIRE_DEVICE=1`; only "no device", "device not available",
+"host unavailable" and "device busy" count as no output; they pass on a Windows WASAPI device. The
 workspace also builds, passes clippy and passes its tests on Linux (Docker,
 Rust 1.98.1, no device).
 
@@ -111,9 +112,13 @@ Rust 1.98.1, no device).
 | Voice end | The audio thread releases the source instance under the engine mutex | Through `Renderer`, an ended or stopped voice's PCM goes back to the controller and is freed on the game thread; an offline `Mixer` drops it in the mix call unless `keep_retired_audio` is set | Freeing memory on the audio thread can block |
 | Control | Every call locks the audio mutex and applies immediately | Controller calls queue a command, applied at the start of the next render; getters read the last published `Status` | The audio thread never waits for the game |
 | Voice IDs | `play` returns a handle once the voice exists | The controller reserves a `VoiceId` when the play is queued; with all 4096 reserved, `play` fails with `NoFreeVoiceId` (the Bevy plugin reports `NoFreeVoice`) instead of starting late | Commands can target a voice before it starts; a late sound is worse than none |
-| Callback panic | Undefined (an exception unwinds into the backend) | The output plays silence from then on and `Output::state` reports `Panicked` | Unwinding into a foreign callback is undefined behavior |
+| Voice stealing | A new voice silently takes the oldest unprotected voice's slot | The stolen voice reports `Finished(id, FinishReason::Stolen)` before the new voice's `Started` | The owner learns why its sound ended |
+| Finished-audio backpressure | Not applicable (freed in place) | Each queued play reserves room for its audio to come back; while the controller has not collected finished audio with `poll_event` or `release_retired_audio`, `play` fails with `QueueFull` | The render never frees memory, however long the game goes without polling |
+| Play settings | `play` takes volume, pan and paused; speed and protection are later calls | `PlayOptions` also carries speed and protection, applied before the first frame | A queued follow-up command could miss the first render |
+| Output conversion | The backend converts whatever the mix holds | Samples are clamped to `[-1, 1)` and NaN plays as silence before conversion | Integer conversions of 1.0 overflow (24-bit gives an invalid value) |
+| Callback panic | Undefined (an exception unwinds into the backend) | The output plays silence from then on, `Output::state` reports `Panicked`, and `Output::panic_message` gives the message; best-effort, because the panic hook still runs on the audio thread | Unwinding into a foreign callback is undefined behavior |
 | Lost device | Backend-specific | `Output::state` reports `Disconnected` or `Failed` and plays nothing; there is no automatic reconnection yet | Reopening is an application decision for now |
-| Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which joins the callback; the renderer is handed back and freed afterwards | Teardown order is enforced by ownership |
+| Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0023 (pan ramp
 leftovers, surround fold-down volumes, no-free-voice handling, raw layout

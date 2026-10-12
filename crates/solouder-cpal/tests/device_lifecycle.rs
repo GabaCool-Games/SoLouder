@@ -7,13 +7,28 @@
 use std::thread::sleep;
 use std::time::{Duration, Instant};
 
+use cpal::ErrorKind;
 use solouder_core::{Controller, Event, FinishReason, Pcm, Sound};
-use solouder_cpal::{Output, OutputConfig, OutputError, OutputState, StreamPreferences, open};
+use solouder_cpal::{
+    MAX_BUFFER_FRAMES, Output, OutputConfig, OutputError, OutputState, StreamPreferences, open,
+};
+
+/// Errors that mean "this machine has no usable output", not a bug.
+fn no_device(error: &OutputError) -> bool {
+    match error {
+        OutputError::NoDevice => true,
+        OutputError::Backend(error) => matches!(
+            error.kind(),
+            ErrorKind::DeviceNotAvailable | ErrorKind::HostUnavailable | ErrorKind::DeviceBusy
+        ),
+        _ => false,
+    }
+}
 
 fn open_device(config: &OutputConfig) -> Option<(Output, Controller)> {
     match open(config) {
         Ok(opened) => Some(opened),
-        Err(error @ (OutputError::NoDevice | OutputError::Backend(_))) => {
+        Err(error) if no_device(&error) => {
             assert!(
                 std::env::var_os("SOLOUDER_REQUIRE_DEVICE").is_none(),
                 "no usable output device: {error}"
@@ -58,6 +73,17 @@ fn invalid_voice_count_fails_before_touching_the_device() {
 }
 
 #[test]
+fn invalid_buffer_sizes_fail_before_touching_the_device() {
+    for frames in [0, MAX_BUFFER_FRAMES + 1, u32::MAX] {
+        let config = OutputConfig {
+            buffer_frames: Some(frames),
+            ..OutputConfig::default()
+        };
+        assert!(matches!(open(&config), Err(OutputError::InvalidBufferFrames(f)) if f == frames));
+    }
+}
+
+#[test]
 fn unsupported_channel_preference_is_rejected() {
     let config = OutputConfig {
         stream: StreamPreferences {
@@ -67,7 +93,8 @@ fn unsupported_channel_preference_is_rejected() {
         ..OutputConfig::default()
     };
     match open(&config) {
-        Err(OutputError::UnsupportedDevice | OutputError::NoDevice | OutputError::Backend(_)) => {}
+        Err(OutputError::UnsupportedDevice) => {}
+        Err(error) if no_device(&error) => {}
         Err(error) => panic!("unexpected error: {error}"),
         Ok(_) => panic!("a 3-channel mixer was opened"),
     }
@@ -138,13 +165,15 @@ fn two_outputs_run_independently() {
         Some(Event::Finished(id, FinishReason::Ended))
     );
     assert!(second.close().is_some());
-    sleep(Duration::from_millis(50));
     assert_eq!(first.state(), OutputState::Playing);
     let renders = a.status().renders;
-    sleep(Duration::from_millis(100));
-    assert!(
-        a.status().renders > renders,
-        "closing one output stopped the other"
-    );
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while a.status().renders <= renders {
+        assert!(
+            Instant::now() < deadline,
+            "closing one output stopped the other"
+        );
+        sleep(Duration::from_millis(5));
+    }
     assert!(first.close().is_some());
 }

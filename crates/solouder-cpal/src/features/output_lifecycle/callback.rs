@@ -1,6 +1,7 @@
 //! What runs in the device callback, and how the renderer gets back to its
 //! owner when the callback is dropped.
 
+use std::any::Any;
 use std::panic::{AssertUnwindSafe, catch_unwind};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU8, AtomicU64, Ordering};
@@ -48,6 +49,24 @@ impl Drop for ReturnOnDrop {
     }
 }
 
+/// A caught panic's payload, sent off the audio thread so that freeing it
+/// happens elsewhere.
+pub(crate) type PanicPayload = Box<dyn Any + Send>;
+
+/// The largest `f32` below 1. The integer conversions map 1.0 one step past
+/// the format's maximum (for 24-bit samples, to an invalid value).
+const BELOW_ONE: f32 = 1.0 - f32::EPSILON / 2.0;
+
+/// Clamps a mixed sample to `[-1, 1)` and turns NaN into silence, so every
+/// sample format conversion stays in range.
+fn sanitize(sample: f32) -> f32 {
+    if sample.is_nan() {
+        0.0
+    } else {
+        sample.clamp(-1.0, BELOW_ONE)
+    }
+}
+
 /// The audio callback: renders through a preallocated `f32` scratch buffer
 /// and converts to the device's sample type.
 pub(crate) struct Callback {
@@ -55,11 +74,19 @@ pub(crate) struct Callback {
     scratch: Vec<f32>,
     channels: usize,
     shared: Arc<OutputShared>,
+    panics: Producer<PanicPayload>,
+    #[cfg(test)]
+    panic_next: bool,
 }
 
 impl Callback {
     /// `scratch_frames` bounds one render; longer callbacks render in parts.
-    pub fn new(holder: ReturnOnDrop, scratch_frames: usize, shared: Arc<OutputShared>) -> Self {
+    pub fn new(
+        holder: ReturnOnDrop,
+        scratch_frames: usize,
+        shared: Arc<OutputShared>,
+        panics: Producer<PanicPayload>,
+    ) -> Self {
         let channels = holder
             .renderer
             .as_ref()
@@ -69,6 +96,9 @@ impl Callback {
             scratch: vec![0.0; scratch_frames.max(1) * channels],
             channels,
             shared,
+            panics,
+            #[cfg(test)]
+            panic_next: false,
         }
     }
 
@@ -84,15 +114,26 @@ impl Callback {
             _ => return data.fill(T::EQUILIBRIUM),
         };
         let chunk_len = self.scratch.len() / self.channels * self.channels;
+        #[cfg(test)]
+        let panic_next = std::mem::take(&mut self.panic_next);
         for chunk in data.chunks_mut(chunk_len) {
             let scratch = &mut self.scratch[..chunk.len()];
-            let rendered = catch_unwind(AssertUnwindSafe(|| renderer.render(scratch)));
-            if rendered.is_err() {
+            let rendered = catch_unwind(AssertUnwindSafe(|| {
+                #[cfg(test)]
+                if panic_next {
+                    panic!("injected renderer panic");
+                }
+                renderer.render(scratch);
+            }));
+            if let Err(payload) = rendered {
                 self.shared.panicked.store(true, Ordering::Relaxed);
+                // Only the first panic is ever caught; if the slot is somehow
+                // full the payload is freed here.
+                let _ = self.panics.push(payload);
                 return data.fill(T::EQUILIBRIUM);
             }
             for (out, &sample) in chunk.iter_mut().zip(scratch.iter()) {
-                *out = T::from_sample(sample);
+                *out = T::from_sample(sanitize(sample));
             }
         }
     }
@@ -111,6 +152,7 @@ mod tests {
         Callback,
         solouder_core::Controller,
         rtrb::Consumer<Renderer>,
+        rtrb::Consumer<PanicPayload>,
     ) {
         let mixer = Mixer::new(MixerConfig::default()).unwrap();
         let (mut controller, renderer) = split(mixer, RealtimeConfig::default());
@@ -118,9 +160,10 @@ mod tests {
         let sound = Sound::new(Pcm::from_planar(samples, 1, 44100.0).unwrap());
         controller.play(&sound).unwrap();
         let (back, returned) = rtrb::RingBuffer::new(1);
+        let (panics, caught) = rtrb::RingBuffer::new(1);
         let holder = ReturnOnDrop::new(renderer, back);
-        let callback = Callback::new(holder, scratch_frames, Arc::default());
-        (callback, controller, returned)
+        let callback = Callback::new(holder, scratch_frames, Arc::default(), panics);
+        (callback, controller, returned, caught)
     }
 
     #[test]
@@ -135,7 +178,7 @@ mod tests {
         for frames in [64; 15].into_iter().chain([40]) {
             let mut part = vec![0.0f32; 2 * frames];
             renderer.render(&mut part);
-            expected.extend(part.iter().map(|&s| i16::from_sample(s)));
+            expected.extend(part.iter().map(|&s| i16::from_sample(sanitize(s))));
         }
         assert_eq!(converted, expected);
         assert!(converted.iter().any(|&s| s != 0));
@@ -154,8 +197,47 @@ mod tests {
 
     #[test]
     fn dropping_the_callback_returns_the_renderer() {
-        let (cb, _controller, mut returned) = callback(256);
+        let (cb, _controller, mut returned, _) = callback(256);
         drop(cb);
         assert!(returned.pop().is_ok());
+    }
+
+    #[test]
+    fn a_renderer_panic_silences_the_output_and_hands_over_the_payload() {
+        let (mut cb, _controller, _, mut caught) = callback(64);
+        let mut data = vec![0.5f32; 2 * 200];
+        cb.fill(&mut data);
+        assert!(data.iter().any(|&s| s != 0.0));
+
+        cb.panic_next = true;
+        cb.fill(&mut data);
+        assert!(data.iter().all(|&s| s == 0.0));
+        assert!(cb.shared.panicked.load(Ordering::Relaxed));
+        let payload = caught.pop().unwrap();
+        assert_eq!(
+            payload.downcast_ref::<&str>(),
+            Some(&"injected renderer panic")
+        );
+
+        data.fill(0.5);
+        cb.fill(&mut data);
+        assert!(data.iter().all(|&s| s == 0.0));
+        assert!(caught.pop().is_err());
+    }
+
+    #[test]
+    fn conversions_saturate_and_silence_nan() {
+        use cpal::I24;
+        assert_eq!(sanitize(f32::NAN), 0.0);
+        assert_eq!(sanitize(f32::INFINITY), BELOW_ONE);
+        assert_eq!(sanitize(-7.0), -1.0);
+        assert_eq!(I24::from_sample(sanitize(1.0)).inner(), 8_388_607);
+        assert_eq!(I24::from_sample(sanitize(-1.0)).inner(), -8_388_608);
+        assert_eq!(i16::from_sample(sanitize(1.0)), i16::MAX);
+        assert_eq!(i32::from_sample(sanitize(1.0)), 2_147_483_520);
+        assert_eq!(u8::from_sample(sanitize(1.0)), u8::MAX);
+        assert_eq!(u32::from_sample(sanitize(-1.0)), 0);
+        // Without the clamp, 1.0 gives a 24-bit value out of range.
+        assert_eq!(I24::from_sample(1.0f32).inner(), 8_388_608);
     }
 }

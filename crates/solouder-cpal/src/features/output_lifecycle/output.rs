@@ -3,6 +3,7 @@
 use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use cpal::{BufferSize, ErrorKind, SampleFormat, SizedSample, StreamConfig};
@@ -10,7 +11,7 @@ use rtrb::Consumer;
 use solouder_core::realtime::{RealtimeConfig, split};
 use solouder_core::{Clipper, ConfigError, Controller, Mixer, MixerConfig, Renderer, VOICE_COUNT};
 
-use super::callback::{Callback, OutputShared, ReturnOnDrop};
+use super::callback::{Callback, OutputShared, PanicPayload, ReturnOnDrop};
 use super::negotiate::{StreamPreferences, choose};
 
 /// How to open the output.
@@ -18,7 +19,9 @@ use super::negotiate::{StreamPreferences, choose};
 pub struct OutputConfig {
     /// Sample rate and channel preferences; unset values follow the device.
     pub stream: StreamPreferences,
-    /// Device buffer in frames; `None` lets the device choose.
+    /// Device buffer in frames, 1 to [`MAX_BUFFER_FRAMES`]; `None` lets the
+    /// device choose. The mixer renders at least 2048 frames per pass either
+    /// way.
     pub buffer_frames: Option<u32>,
     /// How the final mix is limited.
     pub clipper: Clipper,
@@ -40,6 +43,15 @@ impl Default for OutputConfig {
     }
 }
 
+/// The largest `buffer_frames` accepted: a little over a second at 48 kHz.
+pub const MAX_BUFFER_FRAMES: u32 = 65_536;
+
+/// Frames the mixer renders per pass when the device buffer is smaller.
+const MIN_MIX_FRAMES: u32 = 2048;
+
+/// How long closing waits for the backend to hand the renderer back.
+const RETURN_WAIT: Duration = Duration::from_millis(500);
+
 /// Why the output could not be opened.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -51,6 +63,8 @@ pub enum OutputError {
     UnsupportedDevice,
     /// `max_active_voices` is outside 1 to `VOICE_COUNT - 1`.
     InvalidMaxActiveVoices(u32),
+    /// `buffer_frames` is outside 1 to [`MAX_BUFFER_FRAMES`].
+    InvalidBufferFrames(u32),
     /// The mixer rejected the settings.
     Config(ConfigError),
     /// The audio backend failed.
@@ -67,6 +81,12 @@ impl fmt::Display for OutputError {
                     f,
                     "max_active_voices {count} is outside 1 to {}",
                     VOICE_COUNT - 1
+                )
+            }
+            Self::InvalidBufferFrames(frames) => {
+                write!(
+                    f,
+                    "buffer_frames {frames} is outside 1 to {MAX_BUFFER_FRAMES}"
                 )
             }
             Self::Config(error) => write!(f, "invalid mixer settings: {error}"),
@@ -89,10 +109,14 @@ pub enum OutputState {
     /// Rendering into the device.
     Playing,
     /// The device went away or the stream must be rebuilt; nothing plays.
+    /// Final: open a new output to continue.
     Disconnected,
-    /// The backend reported an error it did not recover from.
+    /// The backend reported an error other than an underrun, a device
+    /// change it followed, or a refused real-time priority. The stream may
+    /// still be running, but nothing guarantees it; treat it as final.
     Failed,
-    /// The renderer panicked; the output plays silence from then on.
+    /// The renderer panicked; the output plays silence from then on. Final.
+    /// See [`Output::panic_message`].
     Panicked,
 }
 
@@ -119,10 +143,20 @@ pub struct OutputInfo {
 ///
 /// Dropping it stops the stream first and then frees the renderer on the
 /// dropping thread. The stream type is not `Send` on every platform, so
-/// neither is this.
+/// neither is this: keep it on the thread that opened it.
+///
+/// The mix is converted to the device's format (`f32`, `f64`, `i8`, `i16`,
+/// 24-bit, `i32`, `u8`, `u16` or `u32`) after clamping to `[-1, 1)`; NaN
+/// samples play as silence.
+///
+/// A panic in the renderer is caught and the output goes silent, but this
+/// is best-effort: the panic hook still runs on the audio thread first, and
+/// may allocate or lock.
 pub struct Output {
     stream: Option<cpal::Stream>,
     returned: Consumer<Renderer>,
+    panics: Consumer<PanicPayload>,
+    panic: Option<PanicPayload>,
     shared: Arc<OutputShared>,
     info: OutputInfo,
 }
@@ -145,6 +179,11 @@ pub fn open(config: &OutputConfig) -> Result<(Output, Controller), OutputError> 
     if max_active == 0 || max_active as usize >= VOICE_COUNT {
         return Err(OutputError::InvalidMaxActiveVoices(max_active));
     }
+    if let Some(frames) = config.buffer_frames
+        && !(1..=MAX_BUFFER_FRAMES).contains(&frames)
+    {
+        return Err(OutputError::InvalidBufferFrames(frames));
+    }
     let host = cpal::default_host();
     let device = host.default_output_device().ok_or(OutputError::NoDevice)?;
     let default = device.default_output_config()?;
@@ -155,7 +194,7 @@ pub fn open(config: &OutputConfig) -> Result<(Output, Controller), OutputError> 
     let mut mixer = Mixer::new(MixerConfig {
         channels: u32::from(supported.channels()),
         sample_rate: supported.sample_rate(),
-        buffer_size: config.buffer_frames.unwrap_or(2048).max(2048),
+        buffer_size: config.buffer_frames.unwrap_or(0).max(MIN_MIX_FRAMES),
         clipper: config.clipper,
     })
     .map_err(OutputError::Config)?;
@@ -197,7 +236,10 @@ fn start(
 ) -> Result<Output, OutputError> {
     let shared = Arc::new(OutputShared::default());
     let (back, returned) = rtrb::RingBuffer::new(1);
-    let callback = Callback::new(ReturnOnDrop::new(renderer, back), 4096, Arc::clone(&shared));
+    let (panic_slot, panics) = rtrb::RingBuffer::new(1);
+    let scratch_frames = renderer.config().buffer_size as usize;
+    let holder = ReturnOnDrop::new(renderer, back);
+    let callback = Callback::new(holder, scratch_frames, Arc::clone(&shared), panic_slot);
     let stream = match format {
         SampleFormat::F32 => build::<f32>(device, stream_config, callback, &shared),
         SampleFormat::F64 => build::<f64>(device, stream_config, callback, &shared),
@@ -214,6 +256,8 @@ fn start(
     Ok(Output {
         stream: Some(stream),
         returned,
+        panics,
+        panic: None,
         shared,
         info,
     })
@@ -280,17 +324,41 @@ impl Output {
         self.shared.callbacks.load(Ordering::Relaxed)
     }
 
-    /// Stops the stream and returns the renderer, with its voices, if the
-    /// backend has released the callback.
+    /// The message of the panic that silenced the output, if there was one
+    /// and it carried text.
+    pub fn panic_message(&mut self) -> Option<&str> {
+        if self.panic.is_none() {
+            self.panic = self.panics.pop().ok();
+        }
+        let payload = self.panic.as_ref()?;
+        payload
+            .downcast_ref::<&str>()
+            .copied()
+            .or_else(|| payload.downcast_ref::<String>().map(String::as_str))
+    }
+
+    /// Stops the stream and returns the renderer, with its voices. Waits up
+    /// to half a second for the backend to release the callback; `None` if
+    /// it has not, in which case the renderer is freed wherever the backend
+    /// finally drops the callback.
     pub fn close(mut self) -> Option<Renderer> {
         self.stop()
     }
 
     fn stop(&mut self) -> Option<Renderer> {
         // Dropping the stream stops callbacks; the callback then sends the
-        // renderer back.
+        // renderer back, at once on most backends.
         drop(self.stream.take());
-        self.returned.pop().ok()
+        let deadline = Instant::now() + RETURN_WAIT;
+        loop {
+            if let Ok(renderer) = self.returned.pop() {
+                return Some(renderer);
+            }
+            if self.returned.is_abandoned() || Instant::now() >= deadline {
+                return self.returned.pop().ok();
+            }
+            std::thread::sleep(Duration::from_millis(1));
+        }
     }
 }
 
