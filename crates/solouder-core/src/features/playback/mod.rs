@@ -5,6 +5,7 @@ mod control;
 mod handle;
 mod mix_bus;
 mod mixer;
+mod retire;
 mod sound;
 mod voice;
 mod voices;

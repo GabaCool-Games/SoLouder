@@ -123,6 +123,11 @@ impl Voice {
         count
     }
 
+    /// The voice's samples, released when it stops.
+    pub fn into_pcm(self) -> Pcm {
+        self.pcm
+    }
+
     /// `WavInstance::hasEnded`: a looping voice never ends.
     pub fn has_ended(&self) -> bool {
         !self.has_flag(flags::LOOPING) && self.offset >= self.pcm.frames()

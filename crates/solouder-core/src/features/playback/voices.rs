@@ -3,6 +3,7 @@
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
 use super::handle::{Handle, VOICE_COUNT};
+use super::retire::Retired;
 use super::voice::{ResampleBlocks, Voice, flags};
 use crate::contracts::{MAX_CHANNELS, SAMPLE_GRANULARITY};
 
@@ -28,6 +29,8 @@ pub(crate) struct Voices {
     /// The active set must be recomputed before the next mix.
     pub dirty: bool,
     pub pool: ResamplePool,
+    /// Audio of stopped voices, when the owner disposes of it elsewhere.
+    pub retired: Retired,
 }
 
 /// Two resample blocks per active voice (`mResampleData`), each owned by at
@@ -59,6 +62,7 @@ impl Voices {
             active_count: 0,
             dirty: true,
             pool: ResamplePool::new(DEFAULT_MAX_ACTIVE),
+            retired: Retired::default(),
         }
     }
 
@@ -125,12 +129,13 @@ impl Voices {
     /// `stopVoice_internal`: frees the slot and its resample blocks.
     pub fn stop(&mut self, slot: usize) {
         self.dirty = true;
-        if self.slots[slot].take().is_some() {
+        if let Some(voice) = self.slots[slot].take() {
             for owner in &mut self.pool.owners {
                 if *owner == Some(slot) {
                     *owner = None;
                 }
             }
+            self.retired.put(voice.into_pcm());
         }
     }
 

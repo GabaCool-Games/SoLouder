@@ -26,6 +26,11 @@ impl Sound {
         }
     }
 
+    /// The samples, without the playback settings.
+    pub fn into_pcm(self) -> Pcm {
+        self.pcm
+    }
+
     /// The samples this sound plays.
     pub fn pcm(&self) -> &Pcm {
         &self.pcm

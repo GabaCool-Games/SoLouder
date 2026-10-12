@@ -16,6 +16,7 @@ solouder-core = { path = "crates/solouder-core" }
 solouder-decoders = { path = "crates/solouder-decoders" }
 bevy = { version = "0.20", default-features = false }
 cpal = "0.18"
+rtrb = "0.4"
 symphonia = { version = "0.6", default-features = false }
 
 [workspace.lints.rust]
