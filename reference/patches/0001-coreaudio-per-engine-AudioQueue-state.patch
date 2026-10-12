@@ -1,0 +1,141 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Simon Bauer <simppabauer@gmail.com>
+Date: Wed, 7 Oct 2026 19:20:39 +0300
+Subject: [PATCH 01/14] coreaudio: per-engine AudioQueue state
+
+Store the AudioQueue in Soloud::mBackendData instead of a file-static, so
+deiniting one engine no longer stops every other engine's queue (coop P1 mute).
+---
+ src/backend/coreaudio/soloud_coreaudio.cpp | 62 ++++++++++++++++------
+ 1 file changed, 45 insertions(+), 17 deletions(-)
+
+diff --git a/src/backend/coreaudio/soloud_coreaudio.cpp b/src/backend/coreaudio/soloud_coreaudio.cpp
+index 53aec13..f8cba13 100644
+--- a/src/backend/coreaudio/soloud_coreaudio.cpp
++++ b/src/backend/coreaudio/soloud_coreaudio.cpp
+@@ -43,35 +43,54 @@ namespace SoLoud
+ #else
+ 
+ #include <AudioToolbox/AudioToolbox.h>
++#include <stdlib.h>
+ 
+ #define NUM_BUFFERS 2
+ 
+-static AudioQueueRef audioQueue = 0;
+-
+ namespace SoLoud
+ {
++	// Per-engine backend state. Stored in Soloud::mBackendData so each engine
++	// instance owns its own AudioQueue — the old static audioQueue variable was
++	// shared across all engines, so deiniting one engine would stop every other
++	// engine's queue (coop P1-mute bug on macOS).
++	struct CoreAudioBackendData
++	{
++		AudioQueueRef audioQueue;
++	};
++
+ 	void soloud_coreaudio_deinit(SoLoud::Soloud *aSoloud)
+ 	{
+-		AudioQueueStop(audioQueue, true);
+-		AudioQueueDispose(audioQueue, false);
++		CoreAudioBackendData *data = (CoreAudioBackendData *)aSoloud->mBackendData;
++		if (!data)
++			return;
++		if (data->audioQueue)
++		{
++			AudioQueueStop(data->audioQueue, true);
++			AudioQueueDispose(data->audioQueue, false);
++			data->audioQueue = NULL;
++		}
++		free(data);
++		aSoloud->mBackendData = NULL;
+ 	}
+ 
+ 	result soloud_coreaudio_pause(SoLoud::Soloud *aSoloud)
+ 	{
+-		if (!audioQueue)
++		CoreAudioBackendData *data = (CoreAudioBackendData *)aSoloud->mBackendData;
++		if (!data || !data->audioQueue)
+ 			return UNKNOWN_ERROR;
+ 
+-		AudioQueuePause(audioQueue);			// TODO: Error code
++		AudioQueuePause(data->audioQueue);
+ 
+ 		return 0;
+ 	}
+ 
+ 	result soloud_coreaudio_resume(SoLoud::Soloud *aSoloud)
+ 	{
+-		if (!audioQueue)
++		CoreAudioBackendData *data = (CoreAudioBackendData *)aSoloud->mBackendData;
++		if (!data || !data->audioQueue)
+ 			return UNKNOWN_ERROR;
+-	
+-		AudioQueueStart(audioQueue, nil);		// TODO: Error code
++
++		AudioQueueStart(data->audioQueue, nil);
+ 
+ 		return 0;
+ 	}
+@@ -100,6 +119,12 @@ namespace SoLoud
+ 		aSoloud->mBackendPauseFunc = soloud_coreaudio_pause;
+ 		aSoloud->mBackendResumeFunc = soloud_coreaudio_resume;
+ 
++		CoreAudioBackendData *data = (CoreAudioBackendData *)malloc(sizeof(CoreAudioBackendData));
++		if (!data)
++			return UNKNOWN_ERROR;
++		data->audioQueue = NULL;
++		aSoloud->mBackendData = data;
++
+ 		AudioStreamBasicDescription audioFormat;
+ 		audioFormat.mSampleRate = aSamplerate;
+ 		audioFormat.mFormatID = kAudioFormatLinearPCM;
+@@ -112,10 +137,11 @@ namespace SoLoud
+ 		audioFormat.mReserved = 0;
+ 
+ 		// create the audio queue
+-		OSStatus result = AudioQueueNewOutput(&audioFormat, coreaudio_fill_buffer, aSoloud, NULL, NULL, 0, &audioQueue);
++		OSStatus result = AudioQueueNewOutput(&audioFormat, coreaudio_fill_buffer, aSoloud, NULL, NULL, 0, &data->audioQueue);
+ 		if(result)
+ 		{
+-			//printf("AudioQueueNewOutput failed (%d)\n", result);
++			free(data);
++			aSoloud->mBackendData = NULL;
+ 			return UNKNOWN_ERROR;
+ 		}
+ 
+@@ -123,26 +149,28 @@ namespace SoLoud
+ 		for(int i = 0; i < NUM_BUFFERS; ++i)
+ 		{
+ 			AudioQueueBufferRef buffer;
+-			result = AudioQueueAllocateBuffer(audioQueue, aBuffer * 4, &buffer);
++			result = AudioQueueAllocateBuffer(data->audioQueue, aBuffer * 4, &buffer);
+ 			if(result)
+ 			{
+-				//printf("AudioQueueAllocateBuffer failed (%d)\n", result);
++				free(data);
++				aSoloud->mBackendData = NULL;
+ 				return UNKNOWN_ERROR;
+ 			}
+ 			buffer->mAudioDataByteSize = aBuffer * 4;
+ 			memset(buffer->mAudioData, 0, buffer->mAudioDataByteSize);
+-			AudioQueueEnqueueBuffer(audioQueue, buffer, 0, NULL);
++			AudioQueueEnqueueBuffer(data->audioQueue, buffer, 0, NULL);
+ 		}
+ 
+ 		// start playback
+-		result = AudioQueueStart(audioQueue, NULL);
++		result = AudioQueueStart(data->audioQueue, NULL);
+ 		if(result)
+ 		{
+-			//printf("AudioQueueStart failed (%d)\n", result);
++			free(data);
++			aSoloud->mBackendData = NULL;
+ 			return UNKNOWN_ERROR;
+ 		}
+ 
+-        aSoloud->mBackendString = "CoreAudio";
++		aSoloud->mBackendString = "CoreAudio";
+ 		return 0;
+ 	}
+ };

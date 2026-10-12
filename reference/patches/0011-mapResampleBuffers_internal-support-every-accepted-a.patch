@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 12:00:26 +0300
+Subject: [PATCH 11/14] mapResampleBuffers_internal: support every accepted
+ active-voice cap
+
+setMaxActiveVoiceCount accepts up to VOICE_COUNT - 1, but this function
+kept a char live[256] guarded by SOLOUD_ASSERT(mMaxActiveVoices < 256).
+On MSVC the assert is a __debugbreak even in release builds (GoreGrind
+had to cap at 255); with asserts disabled the memset overran the stack
+array. Size it by VOICE_COUNT.
+---
+ src/core/soloud.cpp | 4 ++--
+ 1 file changed, 2 insertions(+), 2 deletions(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 26891cf..ef9ced2 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1929,8 +1929,8 @@ namespace SoLoud
+ 	{
+ 		if (!mResampleDataOwner)
+ 			return; // not initialized; nothing can be mixed yet
+-		SOLOUD_ASSERT(mMaxActiveVoices < 256);
+-		char live[256];
++		SOLOUD_ASSERT(mMaxActiveVoices < VOICE_COUNT);
++		char live[VOICE_COUNT];
+ 		memset(live, 0, mMaxActiveVoices);
+ 		unsigned int i, j;
+ 		for (i = 0; i < mMaxActiveVoices; i++)

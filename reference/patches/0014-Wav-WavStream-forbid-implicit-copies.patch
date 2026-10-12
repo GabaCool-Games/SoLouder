@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 12:03:17 +0300
+Subject: [PATCH 14/14] Wav, WavStream: forbid implicit copies
+
+Both own heap state (Wav::mData; WavStream::mFilename and mMemFile).
+The implicit copy constructor and assignment shallow-copied it, so the
+second destructor double-freed. Declare them private and unimplemented
+(C++98-compatible, like the rest of the headers).
+
+From upstream PR #375 (yig), extended to WavStream.
+---
+ include/soloud_wav.h       | 4 ++++
+ include/soloud_wavstream.h | 5 +++++
+ 2 files changed, 9 insertions(+)
+
+diff --git a/include/soloud_wav.h b/include/soloud_wav.h
+index ab3be0b..2ce6852 100755
+--- a/include/soloud_wav.h
++++ b/include/soloud_wav.h
+@@ -53,6 +53,10 @@ namespace SoLoud
+ 		result loadmp3(MemoryFile *aReader);
+ 		result loadflac(MemoryFile *aReader);
+ 		result testAndLoadFile(MemoryFile *aReader);
++
++		// Owns mData; an implicit copy would double-free it. Not implemented.
++		Wav(const Wav &);
++		Wav &operator=(const Wav &);
+ 	public:
+ 		float *mData;
+ 		unsigned int mSampleCount;
+diff --git a/include/soloud_wavstream.h b/include/soloud_wavstream.h
+index c3ae8d9..3ffa9c9 100644
+--- a/include/soloud_wavstream.h
++++ b/include/soloud_wavstream.h
+@@ -82,6 +82,11 @@ namespace SoLoud
+ 		result loadogg(File *fp);
+ 		result loadflac(File *fp);
+ 		result loadmp3(File *fp);
++
++		// Owns mFilename and mMemFile; an implicit copy would double-free them.
++		// Not implemented.
++		WavStream(const WavStream &);
++		WavStream &operator=(const WavStream &);
+ 	public:
+ 		int mFiletype;
+ 		char *mFilename;

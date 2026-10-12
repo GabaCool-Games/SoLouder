@@ -1,0 +1,55 @@
+cmake_minimum_required(VERSION 3.16)
+project(solouder_reference_tests CXX)
+
+# Regression tests for the patched C++ SoLoud reference. They run against the
+# checkout produced by scripts/fetch_reference.py (reference/soloud), or any
+# other SoLoud tree passed with -DSOLOUDER_REFERENCE_DIR=<path>.
+set(SOLOUDER_REFERENCE_DIR "${CMAKE_CURRENT_SOURCE_DIR}/../soloud"
+    CACHE PATH "SoLoud C++ reference checkout")
+
+if(NOT EXISTS "${SOLOUDER_REFERENCE_DIR}/contrib/CMakeLists.txt")
+  message(FATAL_ERROR
+    "No SoLoud reference at ${SOLOUDER_REFERENCE_DIR}. "
+    "Run: python scripts/fetch_reference.py")
+endif()
+
+set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+# Null backend only: deterministic, no device, no audio thread.
+set(SOLOUD_STATIC ON CACHE BOOL "" FORCE)
+set(SOLOUD_DYNAMIC OFF CACHE BOOL "" FORCE)
+set(SOLOUD_C_API OFF CACHE BOOL "" FORCE)
+set(SOLOUD_BUILD_DEMOS OFF CACHE BOOL "" FORCE)
+set(SOLOUD_GENERATE_GLUE OFF CACHE BOOL "" FORCE)
+set(SOLOUD_BACKEND_NULL ON CACHE BOOL "" FORCE)
+foreach(backend SDL2 ALSA COREAUDIO OPENSLES XAUDIO2 WINMM WASAPI)
+  set(SOLOUD_BACKEND_${backend} OFF CACHE BOOL "" FORCE)
+endforeach()
+
+add_subdirectory("${SOLOUDER_REFERENCE_DIR}/contrib" soloud EXCLUDE_FROM_ALL)
+
+add_executable(reference_regressions regressions.cpp)
+target_include_directories(reference_regressions PRIVATE "${SOLOUDER_REFERENCE_DIR}/include")
+target_link_libraries(reference_regressions PRIVATE soloud)
+
+# One process per test so a crash or hang fails only that test.
+set(REFERENCE_TESTS
+  wavstream_loop_channel_stride
+  wavstream_looping_not_ended
+  inaudible_tick_over_active_cap
+  protected_voice_stays_active
+  zero_step_voice_no_stale_scratch
+  generic_seek_small_scratch
+  play_stop_without_init
+  play_after_failed_init
+  wav_rejects_too_many_channels
+  wavstream_rejects_too_many_channels
+  active_voice_cap_above_255
+  play3d_reused_slot_flags
+)
+
+enable_testing()
+foreach(test_name IN LISTS REFERENCE_TESTS)
+  add_test(NAME ${test_name} COMMAND reference_regressions ${test_name})
+  set_tests_properties(${test_name} PROPERTIES TIMEOUT 20)
+endforeach()

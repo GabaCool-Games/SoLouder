@@ -1,0 +1,48 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 11:58:59 +0300
+Subject: [PATCH 04/14] WavStreamInstance::getAudio: use aBufferSize as the
+ channel stride
+
+FLAC, MP3 and WAV stream reads wrote channel k at k * aSamplesToRead. The
+mixer's loop-wrap refill calls getAudio(base + readcount,
+SAMPLE_GRANULARITY - readcount, SAMPLE_GRANULARITY), so for multichannel
+streams every channel after the first landed at the wrong offset. The
+Ogg path already used the buffer pitch.
+
+From upstream PR #379 (pgrAm).
+---
+ src/audiosource/wav/soloud_wavstream.cpp | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/audiosource/wav/soloud_wavstream.cpp b/src/audiosource/wav/soloud_wavstream.cpp
+index 0bc584f..9657798 100644
+--- a/src/audiosource/wav/soloud_wavstream.cpp
++++ b/src/audiosource/wav/soloud_wavstream.cpp
+@@ -258,7 +258,7 @@ namespace SoLoud
+ 					{
+ 						for (k = 0; k < mChannels; k++)
+ 						{
+-							aBuffer[k * aSamplesToRead + i + j] = tmp[j * mCodec.mFlac->channels + k];
++							aBuffer[k * aBufferSize + i + j] = tmp[j * mCodec.mFlac->channels + k];
+ 						}
+ 					}
+ 				}
+@@ -279,7 +279,7 @@ namespace SoLoud
+ 					{
+ 						for (k = 0; k < mChannels; k++)
+ 						{
+-							aBuffer[k * aSamplesToRead + i + j] = tmp[j * mCodec.mMp3->channels + k];
++							aBuffer[k * aBufferSize + i + j] = tmp[j * mCodec.mMp3->channels + k];
+ 						}
+ 					}
+ 				}
+@@ -327,7 +327,7 @@ namespace SoLoud
+ 					{
+ 						for (k = 0; k < mChannels; k++)
+ 						{
+-							aBuffer[k * aSamplesToRead + i + j] = tmp[j * mCodec.mWav->channels + k];
++							aBuffer[k * aBufferSize + i + j] = tmp[j * mCodec.mWav->channels + k];
+ 						}
+ 					}
+ 				}

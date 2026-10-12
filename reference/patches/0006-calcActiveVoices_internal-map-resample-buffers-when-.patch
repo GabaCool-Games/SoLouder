@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 11:59:14 +0300
+Subject: [PATCH 06/14] calcActiveVoices_internal: map resample buffers when
+ must-live voices fill the cap
+
+When INAUDIBLE_TICK voices alone filled mMaxActiveVoices, the function
+returned before mapResampleBuffers_internal, so active voices were mixed
+with null mResampleData and the audio thread crashed.
+
+Fixes upstream #279 (also reported as #205 and #327).
+---
+ src/core/soloud.cpp | 2 ++
+ 1 file changed, 2 insertions(+)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index e254457..872c264 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -2007,6 +2007,8 @@ namespace SoLoud
+ 			// ate all our active voice slots.
+ 			// This is a potentially an error situation, but we have no way to report
+ 			// error from here. And asserting could be bad, too.
++			// The active voices still need resample buffers before they are mixed.
++			mapResampleBuffers_internal();
+ 			return;
+ 		}
+ 

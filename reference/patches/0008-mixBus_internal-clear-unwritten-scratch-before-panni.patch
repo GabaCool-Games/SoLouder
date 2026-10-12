@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 11:59:32 +0300
+Subject: [PATCH 08/14] mixBus_internal: clear unwritten scratch before panning
+ a voice
+
+When a voice's fixed-point step is zero (relative speed near zero, or a
+step beyond the fixed-point range that is forced to zero), the resample
+loop never runs, but panAndExpand still read aScratch, which held the
+previous voice's resampled data. Zero any part of the scratch the loop
+did not write.
+
+Found while auditing upstream #343 (infinite loop when writesamples is
+0); that loop could not be reproduced from the current code, but the
+same zero-progress case played stale audio.
+---
+ src/core/soloud.cpp | 11 +++++++++++
+ 1 file changed, 11 insertions(+)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index d53ab70..6a10aad 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1789,6 +1789,17 @@ namespace SoLoud
+ 					// Move source pointer onwards (writesamples may be zero)
+ 					voice->mSrcOffset += writesamples * step_fixed;
+ 				}
++
++				// A zero step (speed near zero, or above the fixed-point range) skips
++				// the resampler; don't pan another voice's scratch data into the mix.
++				if (outofs < aSamplesToRead)
++				{
++					unsigned int k;
++					for (k = 0; k < voice->mChannels; k++)
++					{
++						memset(aScratch + k * aBufferSize + outofs, 0, sizeof(float) * (aSamplesToRead - outofs));
++					}
++				}
+ 				
+ 				// Handle panning and channel expansion (and/or shrinking)
+ 				panAndExpand(voice, aBuffer, aSamplesToRead, aBufferSize, aScratch, aChannels);

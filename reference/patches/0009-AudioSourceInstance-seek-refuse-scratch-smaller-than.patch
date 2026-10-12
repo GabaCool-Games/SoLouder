@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 11:59:48 +0300
+Subject: [PATCH 09/14] AudioSourceInstance::seek: refuse scratch smaller than
+ one frame
+
+The generic decode-and-discard loop computed mScratchSize / mChannels
+frames per pass; with less than one frame of scratch (or zero channels)
+that was 0 and the loop never terminated. A negative target after rewind
+also made the counter negative. Reject undersized scratch up front and
+loop only while frames remain.
+
+Fixes upstream #392.
+---
+ src/core/soloud_audiosource.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/soloud_audiosource.cpp b/src/core/soloud_audiosource.cpp
+index 3123f8f..ea11a01 100644
+--- a/src/core/soloud_audiosource.cpp
++++ b/src/core/soloud_audiosource.cpp
+@@ -156,6 +156,10 @@ namespace SoLoud
+ 
+ 	result AudioSourceInstance::seek(double aSeconds, float *mScratch, unsigned int mScratchSize)
+ 	{
++		// The discard loop below needs room for at least one frame per pass.
++		if (mChannels == 0 || mScratch == NULL || mScratchSize < mChannels)
++			return INVALID_PARAMETER;
++
+ 		double offset = aSeconds - mStreamPosition;
+ 		if (offset <= 0)
+ 		{
+@@ -168,7 +172,7 @@ namespace SoLoud
+ 		}
+ 		int samples_to_discard = (int)floor(mSamplerate * offset);
+ 
+-		while (samples_to_discard)
++		while (samples_to_discard > 0)
+ 		{
+ 			int samples = mScratchSize / mChannels;
+ 			if (samples > samples_to_discard)

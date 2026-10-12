@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 12:00:18 +0300
+Subject: [PATCH 10/14] Soloud: tolerate voices before init and after a failed
+ init
+
+mMaxActiveVoices is 16 from construction, but mResampleData and
+mResampleDataOwner are only allocated by postinit_internal. Stopping a
+voice before a successful init (or after init failed) walked the null
+owner array. Guard the two readers instead of resetting the configured
+cap, so setMaxActiveVoiceCount before init keeps working.
+
+postinit_internal also leaked the previous arrays on re-init or after a
+pre-init setMaxActiveVoiceCount; free them first.
+
+Fixes upstream #345 (alternative to PR #345, which resets the cap to 16
+on every init), #404 and the array leak from #324.
+---
+ src/core/soloud.cpp               | 5 +++++
+ src/core/soloud_core_voiceops.cpp | 3 ++-
+ 2 files changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 6a10aad..26891cf 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -599,6 +599,9 @@ namespace SoLoud
+ 		if (mScratchSize < 4096) mScratchSize = 4096;
+ 		mScratch.init(mScratchSize * MAX_CHANNELS);
+ 		mOutputScratch.init(mScratchSize * MAX_CHANNELS);
++		// Re-init, or setMaxActiveVoiceCount before init, already allocated these.
++		delete[] mResampleData;
++		delete[] mResampleDataOwner;
+ 		mResampleData = new float*[mMaxActiveVoices * 2];
+ 		mResampleDataOwner = new AudioSourceInstance*[mMaxActiveVoices];
+ 		mResampleDataBuffer.init(mMaxActiveVoices * 2 * SAMPLE_GRANULARITY * MAX_CHANNELS);
+@@ -1924,6 +1927,8 @@ namespace SoLoud
+ 
+ 	void Soloud::mapResampleBuffers_internal()
+ 	{
++		if (!mResampleDataOwner)
++			return; // not initialized; nothing can be mixed yet
+ 		SOLOUD_ASSERT(mMaxActiveVoices < 256);
+ 		char live[256];
+ 		memset(live, 0, mMaxActiveVoices);
+diff --git a/src/core/soloud_core_voiceops.cpp b/src/core/soloud_core_voiceops.cpp
+index bb39fbe..c145b11 100644
+--- a/src/core/soloud_core_voiceops.cpp
++++ b/src/core/soloud_core_voiceops.cpp
+@@ -125,7 +125,8 @@ namespace SoLoud
+ 			mVoice[aVoice] = 0;
+ 
+ 			unsigned int i;
+-			for (i = 0; i < mMaxActiveVoices; i++)
++			// The owner array does not exist until a successful init.
++			for (i = 0; mResampleDataOwner && i < mMaxActiveVoices; i++)
+ 			{
+ 				if (mResampleDataOwner[i] == v)
+ 				{

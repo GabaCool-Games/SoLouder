@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 11:59:22 +0300
+Subject: [PATCH 07/14] calcActiveVoices_internal: keep protected voices active
+
+PROTECTED was only consulted when choosing a voice slot to steal. The
+active-voice ranking sorted purely by volume, so a quiet protected voice
+(typically music) was made inactive despite the documented contract
+"Protected voices are always played". Protected candidates now join the
+must-live group ahead of the volume sort.
+
+Fixes upstream #298.
+---
+ src/core/soloud.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 872c264..d53ab70 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1981,7 +1981,9 @@ namespace SoLoud
+ 			{
+ 				mActiveVoice[candidates] = i;
+ 				candidates++;
+-				if (mVoice[i]->mFlags & AudioSourceInstance::INAUDIBLE_TICK)
++				// Ticking and protected voices are kept ahead of the volume sort;
++				// protected voices are documented as always played.
++				if (mVoice[i]->mFlags & (AudioSourceInstance::INAUDIBLE_TICK | AudioSourceInstance::PROTECTED))
+ 				{
+ 					mActiveVoice[candidates - 1] = mActiveVoice[mustlive];
+ 					mActiveVoice[mustlive] = i;

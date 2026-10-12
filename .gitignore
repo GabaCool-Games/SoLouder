@@ -1,0 +1,16 @@
+# Patched C++ SoLoud reference; recreate with `python scripts/fetch_reference.py`.
+/reference/soloud/
+
+# Build output
+/build/
+/target/
+**/target/
+
+# Editors and OS
+.vs/
+.vscode/
+.idea/
+*.swp
+.DS_Store
+Thumbs.db
+__pycache__/

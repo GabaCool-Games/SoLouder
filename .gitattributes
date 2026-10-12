@@ -1,0 +1,11 @@
+* text=auto eol=lf
+
+# Patches must stay byte-exact for `git am --keep-cr`.
+*.patch -text
+
+# Binary fixtures
+*.wav binary
+*.ogg binary
+*.mp3 binary
+*.flac binary
+*.f32 binary

@@ -1,0 +1,6 @@
+{
+  "url": "https://github.com/jarikomppa/soloud.git",
+  "commit": "e82fd32c1f62183922f08c14c814a02b58db1873",
+  "patches": "reference/patches",
+  "checkout": "reference/soloud"
+}

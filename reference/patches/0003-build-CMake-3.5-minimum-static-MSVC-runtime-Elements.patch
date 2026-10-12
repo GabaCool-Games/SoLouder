@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 11:58:38 +0300
+Subject: [PATCH 03/14] build: CMake 3.5 minimum, static MSVC runtime,
+ Elements.def header-only
+
+CMake 4 rejects cmake_minimum_required below 3.5. Policy CMP0091 plus
+CMAKE_MSVC_RUNTIME_LIBRARY gives a self-contained /MT Windows DLL for
+GoreGrind. speech/Elements.def is an included table, not a module
+definition file, so MSVC must not treat it as a source.
+---
+ contrib/CMakeLists.txt | 6 +++++-
+ contrib/src.cmake      | 4 ++++
+ 2 files changed, 9 insertions(+), 1 deletion(-)
+
+diff --git a/contrib/CMakeLists.txt b/contrib/CMakeLists.txt
+index 3997ed5..dbf924f 100644
+--- a/contrib/CMakeLists.txt
++++ b/contrib/CMakeLists.txt
+@@ -1,4 +1,7 @@
+-cmake_minimum_required (VERSION 2.8)
++cmake_minimum_required (VERSION 3.5)
++if (POLICY CMP0091)
++	cmake_policy (SET CMP0091 NEW)
++endif ()
+ 
+ project (SoLoud)
+ 
+@@ -20,6 +23,7 @@ if (UNIX AND NOT WIN32 AND NOT APPLE)
+ endif ()
+ if (MSVC)
+ 	add_definitions (-D_CRT_SECURE_NO_WARNINGS)
++	set (CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+ endif()
+ if (NOT DEFINED LIB_POSTFIX)
+ 	set (LIB_POSTFIX "")
+diff --git a/contrib/src.cmake b/contrib/src.cmake
+index 831fe75..c39b03c 100644
+--- a/contrib/src.cmake
++++ b/contrib/src.cmake
+@@ -109,6 +109,10 @@ set (AUDIOSOURCES_SOURCES
+ 	${AUDIOSOURCES_PATH}/speech/soloud_speech.cpp
+ 	${AUDIOSOURCES_PATH}/speech/tts.cpp
+ 	${AUDIOSOURCES_PATH}/speech/tts.h
++)
++set_source_files_properties (${AUDIOSOURCES_PATH}/speech/Elements.def PROPERTIES HEADER_FILE_ONLY TRUE)
++set (AUDIOSOURCES_SOURCES
++	${AUDIOSOURCES_SOURCES}
+ 
+ 	# tedsid
+ 	${AUDIOSOURCES_PATH}/tedsid/sid.cpp
