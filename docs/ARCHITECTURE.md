@@ -165,7 +165,8 @@ reference/
 ```
 
 Existing today: `solouder-core` (`contracts/`, `dsp/` and
-`features/playback/`), `solouder-parity`, `tests/scenarios/` and
+`features/playback/`), `solouder-decoders` (`features/decoded_audio/`, WAV),
+`solouder-parity`, `tests/scenarios/`, `tests/fixtures/wav/` and
 `docs/port-status.md`. Versions are pinned in `rust-toolchain.toml` (Rust
 1.98.1) and the root `Cargo.toml` (Bevy 0.20, CPAL 0.18, Symphonia 0.6).
 

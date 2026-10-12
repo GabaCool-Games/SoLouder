@@ -170,9 +170,9 @@ Vizsn::lifecycle,source,Vizsn_create Vizsn_destroy,sources,F,todo,,
 Vizsn::setText,source,Vizsn_setText,sources,F,todo,,
 Wav::getLength,source,Wav_getLength,decoded_audio,B,todo,,
 Wav::lifecycle,source,Wav_create Wav_destroy,decoded_audio,B,todo,,
-Wav::load,source,Wav_load,decoded_audio,B,todo,,
+Wav::load,source,Wav_load,decoded_audio,B,in-progress,wav_decode wav_decode_u8 wav_playback,"WAV only, through solouder_decoders::decode_wav on bytes the caller reads; Ogg Vorbis, FLAC and MP3 in E. Differences in port-status.md."
 Wav::loadFile,source,Wav_loadFile,decoded_audio,B,todo,,
-Wav::loadMem,source,Wav_loadMem Wav_loadMemEx,decoded_audio,B,todo,,
+Wav::loadMem,source,Wav_loadMem Wav_loadMemEx,decoded_audio,B,in-progress,wav_decode,WAV only: decode_wav takes a byte slice and always copies (no aCopy/aTakeOwnership).
 Wav::loadRawWave,source,Wav_loadRawWave Wav_loadRawWaveEx,decoded_audio,B,ported,play_basic channel_layouts,"Pcm::from_planar plus Sound; always copies. Rejects layouts per patch 0021, and also an infinite rate."
 Wav::loadRawWave16,source,Wav_loadRawWave16 Wav_loadRawWave16Ex,decoded_audio,B,todo,,
 Wav::loadRawWave8,source,Wav_loadRawWave8 Wav_loadRawWave8Ex,decoded_audio,B,todo,,

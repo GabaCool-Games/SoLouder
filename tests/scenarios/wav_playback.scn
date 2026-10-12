@@ -1,0 +1,20 @@
+# Decoded WAV files played through the mixer: a 44.1 kHz stereo file at the
+# output rate, a 48 kHz mono file resampled, a 5.1 file folded down to stereo,
+# and a short 11.025 kHz file looping, mixed in calls that cross block and loop
+# boundaries.
+init channels=2 rate=44100 buffer=1024
+load name=music file=wav/s16_stereo_44100.wav volume=0.5
+load name=voice file=wav/s24_mono_48000.wav
+load name=surround file=wav/ext_s16_5.1_48000.wav volume=0.4
+load name=loop file=wav/chunks_s16_stereo_11025.wav looping=1
+play sound=music as=m
+play sound=voice as=v volume=0.3 pan=-0.5
+mix frames=700
+play sound=surround as=s
+play sound=loop as=l volume=0.25 pan=0.75
+mix frames=1023
+mix frames=1500
+set h=v speed=1.5
+mix frames=900
+query h=l
+counts

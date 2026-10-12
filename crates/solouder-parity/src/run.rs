@@ -61,6 +61,8 @@ impl State {
             "init" => self.init(step),
             "mix" => self.mix(step),
             "sound" => self.sound(step),
+            "load" => self.load(step),
+            "samples" => self.samples(step),
             "play" => self.play(step),
             "stop" => self.stop(step),
             "stop_all" => self.stop_all(step),

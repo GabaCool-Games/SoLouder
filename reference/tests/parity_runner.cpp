@@ -244,8 +244,10 @@ namespace
 		std::map<std::string, SoLoud::handle> handles;
 		std::vector<float> samples;
 		std::vector<std::string> log;
+		// tests/fixtures/, which `file=` paths are relative to.
+		std::string fixtureDir;
 
-		Runner() : soloud(0), initialized(false) {}
+		explicit Runner(const std::string &aFixtureDir) : soloud(0), initialized(false), fixtureDir(aFixtureDir) {}
 
 		~Runner()
 		{
@@ -282,6 +284,52 @@ namespace
 		void logLine(const std::ostringstream &line)
 		{
 			log.push_back(line.str());
+		}
+
+		// The fixture named by `file=`: letters, digits, '.', '_', '-' and '/'
+		// separators, without ".." or a leading '/'.
+		std::string fixtureArg(const Step &step)
+		{
+			const std::string &file = textArg(step, "file");
+			bool valid = !file.empty() && file[0] != '/';
+			size_t partStart = 0;
+			for (size_t i = 0; valid && i <= file.size(); i++)
+			{
+				if (i == file.size() || file[i] == '/')
+				{
+					std::string part = file.substr(partStart, i - partStart);
+					valid = !part.empty() && part != "..";
+					partStart = i + 1;
+				}
+				else
+				{
+					char c = file[i];
+					valid = (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9') ||
+						c == '.' || c == '_' || c == '-';
+				}
+			}
+			if (!valid)
+				throw ScenarioError(step.line, "invalid fixture path `" + file + "`");
+			std::string path = fixtureDir + "/" + file;
+			std::ifstream probe(path.c_str(), std::ios::binary);
+			if (!probe)
+				throw ScenarioError(step.line, "cannot read " + path);
+			return path;
+		}
+
+		void storeSound(const std::string &name, SoLoud::Wav *wav, SoLoud::result code, float volume, bool looping)
+		{
+			if (code != SoLoud::SO_NO_ERROR)
+			{
+				delete wav;
+				return;
+			}
+			wav->setVolume(volume);
+			wav->setLooping(looping);
+			std::map<std::string, SoLoud::Wav *>::iterator old = sounds.find(name);
+			if (old != sounds.end())
+				delete old->second;
+			sounds[name] = wav;
 		}
 
 		void apply(const Step &step)
@@ -347,21 +395,39 @@ namespace
 
 				SoLoud::Wav *wav = new SoLoud::Wav;
 				SoLoud::result code = wav->loadRawWave(data.data(), (unsigned int)data.size(), rate, channels, true, false);
-				if (code == SoLoud::SO_NO_ERROR)
-				{
-					wav->setVolume(volume);
-					wav->setLooping(looping);
-					std::map<std::string, SoLoud::Wav *>::iterator old = sounds.find(name);
-					if (old != sounds.end())
-						delete old->second;
-					sounds[name] = wav;
-				}
-				else
-				{
-					delete wav;
-				}
+				storeSound(name, wav, code, volume, looping);
 				std::ostringstream line;
 				line << "sound " << name << " " << code;
+				logLine(line);
+			}
+			else if (step.op == "load")
+			{
+				static const char *const keys[] = { "name", "file", "volume", "looping" };
+				checkKeys(step, keys, 4);
+				engine(step);
+				std::string name = textArg(step, "name");
+				std::string path = fixtureArg(step);
+				float volume = floatArg(step, "volume", 1.0f);
+				bool looping = flagArg(step, "looping", false);
+				SoLoud::Wav *wav = new SoLoud::Wav;
+				SoLoud::result code = wav->load(path.c_str());
+				storeSound(name, wav, code, volume, looping);
+				std::ostringstream line;
+				line << "load " << name << " " << code;
+				logLine(line);
+			}
+			else if (step.op == "samples")
+			{
+				static const char *const keys[] = { "name" };
+				checkKeys(step, keys, 1);
+				const std::string &name = textArg(step, "name");
+				std::map<std::string, SoLoud::Wav *>::iterator it = sounds.find(name);
+				if (it == sounds.end())
+					throw ScenarioError(step.line, "no sound named `" + name + "`");
+				const SoLoud::Wav &wav = *it->second;
+				samples.insert(samples.end(), wav.mData, wav.mData + (size_t)wav.mSampleCount * wav.mChannels);
+				std::ostringstream line;
+				line << "samples " << name << " " << wav.mChannels << " " << wav.mSampleCount << " " << hex32(wav.mBaseSamplerate);
 				logLine(line);
 			}
 			else if (step.op == "play")
@@ -507,6 +573,14 @@ namespace
 		return dot == std::string::npos ? name : name.substr(0, dot);
 	}
 
+	// <scenario dir>/../fixtures
+	std::string fixtureDirFor(const std::string &scenarioPath)
+	{
+		size_t slash = scenarioPath.find_last_of("/\\");
+		std::string dir = slash == std::string::npos ? "." : scenarioPath.substr(0, slash);
+		return dir + "/../fixtures";
+	}
+
 	bool writeOutputs(const std::string &dir, const std::string &name, const Runner &runner)
 	{
 		std::ofstream samples((dir + "/" + name + ".f32").c_str(), std::ios::binary);
@@ -544,7 +618,7 @@ int main(int argc, char **argv)
 			if (!in)
 				throw ScenarioError(0, "cannot open file");
 			std::vector<Step> steps = parse(in);
-			Runner *runner = new Runner();
+			Runner *runner = new Runner(fixtureDirFor(path));
 			try
 			{
 				for (size_t s = 0; s < steps.size(); s++)

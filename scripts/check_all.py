@@ -2,9 +2,10 @@
 """Run every repository check, in the order CI runs them.
 
 Always: Rust file sizes (and the checker's own tests), the parity ledger,
-cargo fmt, cargo clippy and cargo test. With --reference: the C++ reference
-regression tests. With --parity: C++ versus Rust scenario comparison. Both
-need CMake, a C++ compiler and `python scripts/fetch_reference.py`.
+the generated WAV fixtures, cargo fmt, cargo clippy and cargo test. With
+--reference: the C++ reference regression tests. With --parity: C++ versus
+Rust scenario comparison. Both need CMake, a C++ compiler and
+`python scripts/fetch_reference.py`.
 """
 
 from __future__ import annotations
@@ -28,6 +29,7 @@ def main(argv: list[str] | None = None) -> int:
         [python, "scripts/check_rust_file_lines.py"],
         [python, "scripts/test_check_rust_file_lines.py"],
         [python, "scripts/gen_parity_ledger.py", "--check"],
+        [python, "scripts/gen_wav_fixtures.py", "--check"],
         ["cargo", "fmt", "--all", "--", "--check"],
         ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
         ["cargo", "test", "--workspace"],

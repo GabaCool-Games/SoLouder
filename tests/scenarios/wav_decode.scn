@@ -1,0 +1,32 @@
+# WAV files decoded by SoLoud's Wav::load (dr_wav) and by solouder-decoders:
+# 16, 24 and 32-bit integers, 32 and 64-bit floats, A-law and mu-law, plain and
+# extensible headers (5.1, 7.1, 24 valid bits in 32), extra and odd-sized
+# chunks, and files both sides reject (9 channels, no frames, sample rate 0, a
+# header cut short). 8-bit files are in wav_decode_u8.
+init
+load name=s16 file=wav/s16_stereo_44100.wav
+samples name=s16
+load name=s24 file=wav/s24_mono_48000.wav
+samples name=s24
+load name=s32 file=wav/s32_stereo_22050.wav
+samples name=s32
+load name=f32 file=wav/f32_quad_48000.wav
+samples name=f32
+load name=f64 file=wav/f64_mono_96000.wav
+samples name=f64
+load name=alaw file=wav/alaw_mono_8000.wav
+samples name=alaw
+load name=mulaw file=wav/mulaw_mono_8000.wav
+samples name=mulaw
+load name=surround file=wav/ext_s16_5.1_48000.wav
+samples name=surround
+load name=seven file=wav/ext_f32_7.1_44100.wav
+samples name=seven
+load name=wide file=wav/ext_s24in32_stereo_32000.wav
+samples name=wide
+load name=chunks file=wav/chunks_s16_stereo_11025.wav
+samples name=chunks
+load name=nine file=wav/bad_nine_channels.wav
+load name=empty file=wav/bad_no_frames.wav
+load name=norate file=wav/bad_zero_rate.wav
+load name=cut file=wav/bad_cut_header.wav

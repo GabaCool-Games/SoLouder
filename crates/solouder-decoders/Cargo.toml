@@ -1,0 +1,15 @@
+[package]
+name = "solouder-decoders"
+description = "SoLouder decoders: turn encoded audio files into solouder-core PCM"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+solouder-core.workspace = true
+symphonia = { workspace = true, features = ["wav", "pcm"] }
+
+[lints]
+workspace = true

@@ -1,0 +1,8 @@
+# 8-bit WAV. dr_wav maps 0..255 linearly onto -1..1 (x * 2/255 - 1), so
+# silence (128) decodes as +1/255; solouder-decoders centers on 128
+# ((x - 128) / 128). The two differ by at most 1/128 (at 255), hence the
+# tolerance. Channel count, frame count and rate still match exactly.
+tolerance abs=0.0079
+init
+load name=u8 file=wav/u8_mono_8000.wav
+samples name=u8

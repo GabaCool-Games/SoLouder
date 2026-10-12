@@ -7,14 +7,15 @@ SoLouder ports the SoLoud audio engine to **native Rust**, with an idiomatic
 keeps SoLoud's mixing behavior without requiring the C++ library in the normal
 Rust build, and adds the fixes and extensions developed for GoreGrind.
 
-**Current status:** milestone B, except loading WAV files. This repository
-contains the patched C++ reference tooling (pinned upstream commit, patch
-series, fetch script, C++ regression tests), the parity ledger, and a Cargo
-workspace with the scenario harness: `tests/scenarios/*.scn` run through a C++
-null-driver runner and through `solouder-core`, and
-`python scripts/run_parity.py` compares them. The core plays prepared PCM
-(play, stop, pause, loop, volume, pan, speed, three resamplers, 1 to 8
-channels, clipping) and matches the reference bit for bit in every scenario.
+**Current status:** milestone B is done. This repository contains the
+patched C++ reference tooling (pinned upstream commit, patch series, fetch
+script, C++ regression tests), the parity ledger, and a Cargo workspace with
+the scenario harness: `tests/scenarios/*.scn` run through a C++ null-driver
+runner and through the Rust crates, and `python scripts/run_parity.py`
+compares them. `solouder-core` plays prepared PCM (play, stop, pause, loop,
+volume, pan, speed, three resamplers, 1 to 8 channels, clipping) and
+`solouder-decoders` decodes WAV files into it; both match the reference in
+every scenario (bit for bit, except the documented 8-bit WAV conversion).
 There is no device output or Bevy plugin yet; see
 [port-status.md](port-status.md).
 
@@ -291,6 +292,14 @@ lossy formats and seek/preroll. Compare decoders separately from mixer DSP,
 which uses identical prepared PCM. Do not blindly translate vendored codec
 internals, generated bindings, or third-party backends as first-party modules.
 
+WAV decoding uses Symphonia 0.6 (`wav` and `pcm` features only; MPL-2.0, a
+file-level copyleft that permits use from zlib-licensed crates). Symphonia
+parses the file and decodes integer samples; `solouder-decoders` converts them
+to `f32` with dr_wav's formulas, so the 16, 24 and 32-bit integer, float,
+A-law and mu-law fixtures in `tests/fixtures/wav/` decode bit for bit like the
+reference (`wav_decode`). ADPCM, 12-bit and 64-bit integer WAV, which dr_wav
+also reads, are not supported yet.
+
 ## Reference patches and upstream tracking
 
 Upstream SoLoud (`jarikomppa/soloud`) is effectively unmaintained: the last
@@ -394,6 +403,9 @@ or has not decided, with a test either way.
 | #291, #286 | A second `stop` on a queue is ignored; no API empties a queue. |
 | #252 | A finished handle cannot be restarted. |
 | #177 | Single listener only (matches [ARCHITECTURE.md](ARCHITECTURE.md#spatial-audio)). |
+| — (dr_wav) | 8-bit WAV maps 0..255 linearly onto -1..1 (`x * 2/255 - 1`), so silence (128) decodes as +1/255. Rust centers on 128: changed (`wav_decode_u8`). |
+| — (patch 0012) | A WAV data chunk that ends early keeps its declared length, padded with silence. Rust keeps only the frames present: changed (`short_data_chunk_keeps_the_frames_present`). |
+| — (dr_wav) | Non-finite float samples (NaN, infinity) in WAV files pass through and poison every voice they are mixed with. Rust decodes them as silence: changed (`non_finite_floats_decode_as_silence`). |
 
 ### Fixed upstream: keep as regression tests
 
@@ -477,7 +489,7 @@ The ledger's `milestone` column assigns every C API behavior to one of these.
 | Milestone | Required result |
 |---|---|
 | A — Foundation and reference harness | Patched reference and C++ regression tests (done); parity ledger (done); Cargo workspace with pinned Rust/Bevy versions (done); `scripts/check_all.py` and a CI workflow, verified locally on Windows and in a Linux container but not yet run on a CI host (done); scenario format with a C++ null-driver runner and a Rust runner (done, first scenarios: init validation and silence) |
-| B — Offline playback | Prepared PCM (done; decoding WAV files pending), planar mixer for 1 to 8 channels (done), handles (done), play/stop/pause/loop with loop point 0 (done), volume/pan (done), point/linear/Catmull-Rom resampling (done), clipping and global volume (done); 9 playback parity scenarios, bit-identical on Windows |
+| B — Offline playback (done) | Prepared PCM and decoded WAV files (done; `solouder-decoders`, Symphonia), planar mixer for 1 to 8 channels (done), handles (done), play/stop/pause/loop with loop point 0 (done), volume/pan (done), point/linear/Catmull-Rom resampling (done), clipping and global volume (done); 12 parity scenarios for playback and WAV decoding, bit-identical on Windows except the 8-bit WAV conversion |
 | C — Windows and Bevy playable slice | CPAL negotiation, bounded control/status, asset loading, playback/despawn example, no-device/allocation tests |
 | D — Routing and DSP parity | Nested buses, queues/groups, virtualization/protection, scheduling, remaining resamplers, voice/bus/global filters |
 | E — Spatial and streaming parity | Listener/emitter systems, attenuation/Doppler/delay, workers, seek/loop regressions, WAV/FLAC/Ogg Vorbis/MP3 |

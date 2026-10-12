@@ -5,6 +5,7 @@
 //! repository root; the C++ side is `reference/tests/parity_runner.cpp`.
 
 pub mod compare;
+mod files;
 mod ops;
 pub mod pattern;
 pub mod run;

@@ -15,7 +15,7 @@ fn code<E>(result: Result<(), E>) -> i32 {
     }
 }
 
-fn hex32(value: f32) -> String {
+pub(crate) fn hex32(value: f32) -> String {
     format!("{:08x}", value.to_bits())
 }
 
