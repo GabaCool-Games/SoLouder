@@ -19,6 +19,13 @@ oscillate h=b param=volume from=0.2 to=0.9 time=0.02
 mix frames=2000
 query h=a
 query h=b
+# Oscillating from a higher value to a lower one stays between the two and
+# moves toward the lower first (patch 0051).
+oscillate h=b param=volume from=0.9 to=0.2 time=0.02
+oscillate h=a param=pan from=0.8 to=-0.6 time=0.03
+mix frames=1200
+query h=a
+query h=b
 # setPan does not cancel a pan fade; setVolume cancels a volume oscillation.
 fade h=a param=pan to=-1 time=0.05
 set h=a pan=0.5
@@ -66,6 +73,9 @@ oscillate param=volume from=0.5 to=1 time=0.01
 mix frames=900
 state
 mix frames=37
+state
+oscillate param=volume from=1 to=0.4 time=0.01
+mix frames=700
 state
 global volume=1
 state

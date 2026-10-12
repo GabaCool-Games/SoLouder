@@ -17,12 +17,14 @@ struct Layout {
     speed: f32,
 }
 
-/// One entry per bus, for its latest voice.
+/// One entry per bus voice, from its play request until its final event.
+/// A bus can have several: a replay that has not started yet, or that will
+/// fail, leaves the playing voice in place.
 #[derive(Debug, Default)]
 pub(super) struct BusLayouts(Vec<Layout>);
 
 impl BusLayouts {
-    /// Records a bus voice started at `speed`.
+    /// Records a bus voice requested at `speed`.
     pub fn started(
         &mut self,
         bus: SoundId,
@@ -38,17 +40,18 @@ impl BusLayouts {
             sample_rate,
             speed,
         };
-        match self.0.iter_mut().find(|entry| entry.bus == bus) {
-            Some(entry) => *entry = layout,
-            None => self.0.push(layout),
-        }
+        self.0.push(layout);
     }
 
-    /// The channels and highest filter rate of `bus`'s voice, if this
-    /// controller started it.
+    /// The most channels and highest filter rate among `bus`'s voices
+    /// requested by this controller and not finished, if any; whichever of
+    /// them is playing when a filter arrives, it fits.
     pub fn of(&self, bus: SoundId) -> Option<(usize, f32)> {
-        let entry = self.0.iter().find(|entry| entry.bus == bus)?;
-        Some((entry.channels, entry.sample_rate * entry.speed))
+        self.0
+            .iter()
+            .filter(|entry| entry.bus == bus)
+            .map(|entry| (entry.channels, entry.sample_rate * entry.speed))
+            .reduce(|(c1, r1), (c2, r2)| (c1.max(c2), r1.max(r2)))
     }
 
     /// The voice's speed is now `speed`.
@@ -77,7 +80,7 @@ impl BusLayouts {
         }
     }
 
-    /// Forgets a voice that has finished.
+    /// Forgets a voice that has finished or failed to start.
     pub fn finished(&mut self, voice: VoiceId) {
         self.0.retain(|entry| entry.voice != voice);
     }

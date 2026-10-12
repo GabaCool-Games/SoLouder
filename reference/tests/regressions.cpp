@@ -21,6 +21,7 @@
 #include "soloud_bus.h"
 #include "soloud_dcremovalfilter.h"
 #include "soloud_echofilter.h"
+#include "soloud_fader.h"
 #include "soloud_flangerfilter.h"
 #include "soloud_freeverbfilter.h"
 #include "soloud_lofifilter.h"
@@ -960,6 +961,31 @@ namespace
 		check(maxAbsChannel(std::vector<float>(out.begin() + 2 * 700, out.end()), 1) == 0, "the mono sound plays on the left only");
 	}
 
+	// Fader::setLFO made the half range positive and centred the oscillation
+	// on aFrom plus it, so oscillating from a higher value to a lower one ran
+	// above aFrom: from 1 to 0 reached 2.
+	void lfo_from_above_to_stays_in_range()
+	{
+		Fader down;
+		down.setLFO(1.0f, 0.0f, 1.0, 0.0);
+		Fader up;
+		up.setLFO(0.0f, 1.0f, 1.0, 0.0);
+		float low = 1.0f, high = 0.0f;
+		for (int i = 0; i <= 200; i++)
+		{
+			double t = i / 100.0;
+			float a = down.get(t);
+			float b = up.get(t);
+			low = a < low ? a : low;
+			high = a > high ? a : high;
+			check(std::fabs(a + b - 1.0f) < 1e-6f, "the two directions mirror each other");
+		}
+		std::printf("  1 -> 0 ranges over [%g, %g]\n", low, high);
+		check(low > -1e-6f && high < 1.0f + 1e-6f, "the oscillation stays between to and from");
+		check(std::fabs(down.get(0.0) - 0.5f) < 1e-6f, "it starts at the midpoint");
+		check(std::fabs(down.get(0.25)) < 1e-6f, "and moves toward to first");
+	}
+
 	// The SSE 1->2 and 2->2 pan paths scaled the per-sample volume step by 4
 	// for the quad loop and then reused it, from the starting volume, for the
 	// frames left over when a mix call is not a multiple of 4 frames long.
@@ -1280,6 +1306,7 @@ namespace
 		{ "bus_seek_skips_voices_without_buffers", bus_seek_skips_voices_without_buffers },
 		{ "queue_looping_source_does_not_hang", queue_looping_source_does_not_hang },
 		{ "queue_silences_missing_channels", queue_silences_missing_channels },
+		{ "lfo_from_above_to_stays_in_range", lfo_from_above_to_stays_in_range },
 		{ "play_stop_without_init", play_stop_without_init },
 		{ "play_after_failed_init", play_after_failed_init },
 		{ "wav_rejects_too_many_channels", wav_rejects_too_many_channels },

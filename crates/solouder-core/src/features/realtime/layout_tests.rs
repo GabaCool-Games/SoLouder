@@ -176,3 +176,30 @@ fn voices_a_seek_plays_out_report_ended() {
         ]
     );
 }
+
+/// Voices dropped in place offline leave boxes behind; a mixer split
+/// afterwards keeps one box per voice, so a play's box is never retired as
+/// an extra item.
+#[test]
+fn surplus_boxes_from_offline_overflow_are_trimmed_at_split() {
+    let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
+    mixer.keep_retired(0);
+    for _ in 0..8 {
+        let handle = mixer.play(&sound(100, 1));
+        mixer.stop(handle);
+    }
+    let dropped_offline = mixer.retired_overflow();
+    let config = RealtimeConfig {
+        voice_ids: 1,
+        retired_capacity: 1,
+        ..RealtimeConfig::default()
+    };
+    let (mut c, mut r) = split(mixer, config);
+    c.play(&sound(100, 1)).unwrap();
+    c.set_global_filter(0, None).unwrap();
+    for _ in 0..4 {
+        render(&mut r, 256);
+    }
+    events(&mut c);
+    assert_eq!(c.status().retired_overflow, dropped_offline);
+}

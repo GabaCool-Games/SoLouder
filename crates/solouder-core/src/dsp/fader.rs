@@ -36,6 +36,11 @@ impl Fader {
         matches!(self.state, FaderState::Linear | FaderState::Lfo)
     }
 
+    /// The highest value a running fade or oscillation reaches.
+    pub fn highest(&self) -> Option<f32> {
+        self.is_running().then(|| self.from.max(self.to))
+    }
+
     /// Starts a fade from `from` to `to` over `time` seconds, from `start_time`.
     pub fn set(&mut self, from: f32, to: f32, time: f64, start_time: f64) {
         // SoLoud takes the previous fade's start value here.
@@ -57,7 +62,9 @@ impl Fader {
         self.from = from;
         self.to = to;
         self.time = time;
-        self.delta = ((to - from) / 2.0).abs();
+        // Signed, so the oscillation centres on the midpoint even when `from`
+        // is above `to` (reference patch 0051).
+        self.delta = (to - from) / 2.0;
         self.start_time = start_time;
         self.end_time = f64::from(std::f32::consts::PI * 2.0) / time;
     }

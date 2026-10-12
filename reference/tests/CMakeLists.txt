@@ -77,6 +77,7 @@ set(REFERENCE_TESTS
   bus_seek_skips_voices_without_buffers
   queue_looping_source_does_not_hang
   queue_silences_missing_channels
+  lfo_from_above_to_stays_in_range
   play_stop_without_init
   play_after_failed_init
   wav_rejects_too_many_channels

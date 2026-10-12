@@ -137,6 +137,9 @@ impl Mixer {
     pub fn keep_retired(&mut self, capacity: usize) {
         let voices = self.voices.count();
         let retired = &mut self.voices.retired;
+        // Boxes beyond one per voice, left by voices dropped in place, would
+        // make the renderer retire the box a later play brings.
+        retired.boxes.truncate(voices);
         retired
             .kept
             .reserve_exact(capacity.saturating_sub(retired.kept.len()));

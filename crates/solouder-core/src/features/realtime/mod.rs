@@ -79,6 +79,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
     // room for it.
     let retire_credits = 2 * voice_ids;
     mixer.keep_retired(retire_credits + mixer.pending_retirements());
+    mixer.prepare_filters();
     let mut queues = mixer.queue_ids();
     let max_queues = queues.len() + config.queues;
     queues.reserve_exact(config.queues);

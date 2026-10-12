@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 22:26:54 +0300
+Subject: [PATCH] Fader::setLFO: oscillate between from and to when from is
+ above to
+
+The half range was made positive and added to aFrom to find the centre, so
+an oscillation from a higher value to a lower one ran between aFrom and
+aFrom + |aTo - aFrom| instead of between aTo and aFrom: oscillateVolume
+from 1 to 0 went up to 2. The half range now keeps its sign, so the centre
+is the midpoint and the oscillation moves toward aTo first. Oscillations
+from a lower value to a higher one are unchanged.
+---
+ src/core/soloud_fader.cpp | 1 -
+ 1 file changed, 1 deletion(-)
+
+diff --git a/src/core/soloud_fader.cpp b/src/core/soloud_fader.cpp
+index 79f1278..bf45ca5 100644
+--- a/src/core/soloud_fader.cpp
++++ b/src/core/soloud_fader.cpp
+@@ -53,7 +53,6 @@ namespace SoLoud
+ 		mTo = aTo;
+ 		mTime = aTime;
+ 		mDelta = (aTo - aFrom) / 2;
+-		if (mDelta < 0) mDelta = -mDelta;
+ 		mStartTime = aStartTime;
+ 		mEndTime = (float)M_PI * 2 / mTime;
+ 	}

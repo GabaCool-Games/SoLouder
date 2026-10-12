@@ -395,6 +395,7 @@ unpatched reference, and each needs a matching Rust test.
 | 0048 | — (found porting milestone D) | The active voice list is only recomputed when a mix starts, so a bus seek after a voice was stopped and another played into its slot mixed the new voice, whose resample buffers are not assigned yet, through a null pointer. `mixBus_internal` skips voices without resample buffers. | `bus_seek_skips_voices_without_buffers` |
 | 0049 | — (found porting milestone D) | `QueueInstance::getAudio` moved to the next queued sound only when the current one reported `hasEnded`. A looping sound never does, and once read to its end gives no audio, so the audio thread spun forever holding the engine mutex. A sound that gives no audio is now dropped like one that ended. | `queue_looping_source_does_not_hang` |
 | 0050 | — (found porting milestone D) | A queued sound with fewer channels than the queue left the queue's other channels of the resample block as they were, which two blocks back held the previous sound's audio. Those channels are now silent. | `queue_silences_missing_channels` |
+| 0051 | — (found reviewing milestone D) | `Fader::setLFO` made the half range positive and centred the oscillation on `aFrom` plus it, so `oscillate*` from a higher value to a lower one ran between `aFrom` and `aFrom + abs(aTo - aFrom)`: a volume oscillation from 1 to 0 reached 2. The half range keeps its sign, so the oscillation runs between the two values and moves toward `aTo` first; oscillations upward are unchanged. | `lfo_from_above_to_stays_in_range` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the `goregrind` branch). Its README lists every fix with
@@ -402,8 +403,8 @@ credits. Commits after 0017 on `goregrind` add build scripts and that README,
 so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto `goregrind`. Patches 0018 to
-0025 were pushed on 2026-10-12 (public `master` at `9318875`); 0026 to 0050 are
-on `goregrind` but not pushed yet.
+0050 were pushed on 2026-10-12 (public `master` at `7b91e3b`), and 0051 after
+them.
 
 GoreGrind's native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
@@ -629,7 +630,7 @@ Checked against the gates below on 2026-10-12:
   (subnormals counted as zero; `wav_decode_u8` keeps its documented
   tolerance). On Linux (GCC, Ubuntu 20.04) the reference differs only in
   `filters_spectral`, in the last bits of the FFT filter's math functions.
-- **Reference defects:** patches 0026 to 0050 fix the defects milestone D
+- **Reference defects:** patches 0026 to 0051 fix the defects milestone D
   reached in the C++ reference, each with a C++ regression test; the D
   regression list above is covered.
 - **Real time:** every D control is reachable through `Controller` and
@@ -646,7 +647,12 @@ Checked against the gates below on 2026-10-12:
   use allocating or changing samples, uncounted retirements in mixers split
   after offline use, `keep_retired` missing voices played after it, and
   voices played out by a seek reported as stopped. Each is fixed and has a
-  test (`layout_tests`, the `first_use` section of `realtime_no_alloc`).
+  test (`layout_tests`, the `first_use` section of `realtime_no_alloc`). A
+  re-check of those fixes found four more, also fixed with tests: a failed
+  bus replay hiding the playing bus voice's layout, `split` not preparing
+  the filters a mixer already held, surplus voice boxes from offline
+  overflow, and SoLoud's oscillation range when `from` is above `to`, which
+  is patch 0051.
 - **Structure:** `cargo clippy -D warnings`, `cargo fmt --check`, the
   400-line limit, the ledger check and the C++ regression tests pass
   (`check_all.py --reference --parity`).

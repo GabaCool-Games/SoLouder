@@ -133,6 +133,27 @@ impl Mixer {
         self.voices.queues.ids().collect()
     }
 
+    /// Reserves memory for every filter instance the mixer holds, at the
+    /// layout and highest rate each runs at, so they need none when they
+    /// first run on the audio thread.
+    pub(crate) fn prepare_filters(&mut self) {
+        let config = self.config;
+        let (channels, rate) = (config.channels as usize, config.sample_rate as f32);
+        for filter in self.global_filters.iter_mut().flatten() {
+            filter.prepare(channels, rate);
+        }
+        for voice in self.voices.slots.iter_mut().flatten() {
+            let mut rate = voice.sample_rate;
+            if let Some(speed) = voice.faders.speed.highest() {
+                rate = rate.max(voice.base_sample_rate * speed);
+            }
+            let channels = voice.channels();
+            for filter in voice.filters.iter_mut().flatten() {
+                filter.prepare(channels, rate);
+            }
+        }
+    }
+
     /// Room for `queues` more queues' storage.
     pub(crate) fn reserve_queues(&mut self, queues: usize) {
         self.voices.queues.reserve(queues);
