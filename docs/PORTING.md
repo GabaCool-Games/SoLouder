@@ -558,7 +558,7 @@ verification.
 
 SoLouder keeps SoLoud's **zlib/libpng license** ([LICENSE](../LICENSE)). Mark
 ported files as altered (see [CONTRIBUTING.md](../CONTRIBUTING.md)), credit
-the original authors ([UPSTREAM_AUTHORS.md](../UPSTREAM_AUTHORS.md)), and
+the original authors ([CONTRIBUTORS.md](../CONTRIBUTORS.md)), and
 record any ported third-party code in [THIRD_PARTY.md](../THIRD_PARTY.md),
 checked against `docsrc/legal.mmd` and the individual notices. Audit new
 libraries and fixtures independently.

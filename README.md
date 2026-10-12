@@ -6,7 +6,8 @@ for the game GoreGrind.
 
 **SoLouder is an altered version of SoLoud. It is not the original SoLoud and
 is not affiliated with or endorsed by SoLoud's authors.** SoLoud was created by
-Jari Komppa; see [UPSTREAM_AUTHORS.md](UPSTREAM_AUTHORS.md).
+Jari Komppa and developed with many contributors; see
+[CONTRIBUTORS.md](CONTRIBUTORS.md).
 
 ## Status
 
