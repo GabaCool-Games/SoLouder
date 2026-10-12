@@ -4,7 +4,7 @@
 
 use std::f64::consts::PI;
 
-use super::sound::Sound;
+use super::sound::{Sound, SoundId};
 use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
 use crate::dsp::fader::Fader;
 
@@ -16,6 +16,10 @@ pub(crate) mod flags {
     pub const LOOPING: u32 = 1;
     pub const PROTECTED: u32 = 2;
     pub const PAUSED: u32 = 4;
+    /// Set by 3D attenuation (milestone E); inaudible voices are not mixed.
+    pub const INAUDIBLE: u32 = 32;
+    pub const INAUDIBLE_KILL: u32 = 64;
+    pub const INAUDIBLE_TICK: u32 = 128;
     pub const DISABLE_AUTOSTOP: u32 = 256;
 }
 
@@ -35,6 +39,7 @@ pub(crate) struct Voice {
     pcm: Pcm,
     /// Next frame to read from `pcm`.
     offset: u32,
+    pub sound_id: SoundId,
     pub play_index: u32,
     pub flags: u32,
     pub pan: f32,
@@ -55,6 +60,8 @@ pub(crate) struct Voice {
     /// Seconds of source played, scaled by play speed.
     pub stream_position: f64,
     pub loop_count: u32,
+    /// Seconds into the sound where a looping voice restarts.
+    pub loop_point: f64,
     /// Fixed-point read position in the current resample block.
     pub src_offset: u32,
     /// Output frames still to render from the current block.
@@ -84,11 +91,24 @@ impl Voice {
     pub fn new(sound: &Sound, play_index: u32) -> Self {
         let pcm = sound.pcm().clone();
         let rate = pcm.sample_rate();
+        let (tick, kill) = sound.inaudible_behavior();
+        let mut voice_flags = 0;
+        for (on, flag) in [
+            (sound.looping(), flags::LOOPING),
+            (kill, flags::INAUDIBLE_KILL),
+            (tick, flags::INAUDIBLE_TICK),
+            (!sound.auto_stop(), flags::DISABLE_AUTOSTOP),
+        ] {
+            if on {
+                voice_flags |= flag;
+            }
+        }
         Self {
             pcm,
             offset: 0,
+            sound_id: sound.id(),
             play_index,
-            flags: if sound.looping() { flags::LOOPING } else { 0 },
+            flags: voice_flags,
             pan: 0.0,
             channel_volume: [1.0; MAX],
             current_channel_volume: [0.0; MAX],
@@ -101,6 +121,7 @@ impl Voice {
             stream_time: 0.0,
             stream_position: 0.0,
             loop_count: 0,
+            loop_point: sound.loop_point(),
             src_offset: 0,
             leftover_samples: 0,
             block_samples: 0,
@@ -151,11 +172,24 @@ impl Voice {
         !self.has_flag(flags::LOOPING) && self.offset >= self.pcm.frames()
     }
 
-    /// Seeks to the loop point, which is always the start for now
-    /// (`AudioSourceInstance::seek` with `mLoopPoint == 0` rewinds).
-    pub fn seek_to_loop_point(&mut self) {
-        self.offset = 0;
-        self.stream_position = 0.0;
+    /// SoLoud's generic seek (`AudioSourceInstance::seek`): rewinds unless
+    /// `seconds` is past the stream position, then skips frames at the base
+    /// sample rate (reference patch 0028) up to the end. The resample blocks
+    /// already read still play first.
+    pub fn seek(&mut self, seconds: f64) {
+        let mut offset = seconds - self.stream_position;
+        if offset <= 0.0 {
+            self.offset = 0;
+            self.stream_position = 0.0;
+            offset = seconds;
+        }
+        let frames = (f64::from(self.base_sample_rate) * offset).floor();
+        // `(int)` of a value outside its range is INT_MIN on x86: skip nothing.
+        if (1.0..2_147_483_648.0).contains(&frames) {
+            let end = u64::from(self.offset) + frames as u64;
+            self.offset = end.min(u64::from(self.pcm.frames())) as u32;
+        }
+        self.stream_position = seconds;
     }
 
     /// The constant-power pan law (`setVoicePan_internal`). Surround speakers
@@ -173,6 +207,25 @@ impl Voice {
             8 => {
                 (v[2], v[3], v[4], v[5]) = (1.0 / 2.0_f32.sqrt(), 1.0, l, r);
                 (v[6], v[7]) = (l, r);
+            }
+            _ => {}
+        }
+    }
+
+    /// Sets the left and right gains directly (`Soloud::setPanAbsolute`);
+    /// the pan value is unchanged. Quad copies them to the rear pair; 5.1 and
+    /// 7.1 give the center and subwoofer their mean.
+    pub fn set_pan_absolute(&mut self, left: f32, right: f32) {
+        let v = &mut self.channel_volume;
+        v[0] = left;
+        v[1] = right;
+        let mean = (left + right) * 0.5;
+        match self.pcm.channels() {
+            4 => (v[2], v[3]) = (left, right),
+            6 => (v[2], v[3], v[4], v[5]) = (mean, mean, left, right),
+            8 => {
+                (v[2], v[3], v[4], v[5]) = (mean, mean, left, right);
+                (v[6], v[7]) = (left, right);
             }
             _ => {}
         }
@@ -210,6 +263,14 @@ impl Voice {
         self.sample_rate = self.base_sample_rate * speed;
         true
     }
+
+    /// Replaces the rate the sound plays at before speed is applied
+    /// (`Soloud::setSamplerate`). Any value is accepted; one that is not
+    /// greater than 0 renders silence.
+    pub fn set_base_sample_rate(&mut self, rate: f32) {
+        self.base_sample_rate = rate;
+        self.sample_rate = rate * self.overall_relative_play_speed;
+    }
 }
 
 #[cfg(test)]
@@ -233,6 +294,23 @@ mod tests {
         assert!(v.has_ended());
         v.set_flag(flags::LOOPING, true);
         assert!(!v.has_ended());
+    }
+
+    #[test]
+    fn seek_rewinds_or_skips_at_the_base_rate() {
+        let mut v = voice(1, 44100);
+        v.set_relative_play_speed(2.0);
+        v.seek(0.25);
+        assert_eq!((v.offset, v.stream_position), (11025, 0.25));
+        v.seek(0.5);
+        assert_eq!(v.offset, 22050);
+        v.seek(0.1);
+        assert_eq!(v.offset, 4410);
+        v.seek(5.0);
+        assert!(v.has_ended());
+        assert_eq!(v.stream_position, 5.0);
+        v.seek(f64::NAN);
+        assert_eq!(v.offset, 44100);
     }
 
     #[test]

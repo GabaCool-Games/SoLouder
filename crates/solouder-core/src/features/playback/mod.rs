@@ -3,9 +3,11 @@
 mod config;
 mod control;
 mod fades;
+mod groups;
 mod handle;
 mod mix_bus;
 mod mixer;
+mod queries;
 mod retire;
 mod sound;
 mod voice;
@@ -15,4 +17,4 @@ pub use config::{ConfigError, MixerConfig};
 pub use control::{ControlError, PlayOptions};
 pub use handle::{Handle, VOICE_COUNT};
 pub use mixer::Mixer;
-pub use sound::Sound;
+pub use sound::{Sound, SoundId};

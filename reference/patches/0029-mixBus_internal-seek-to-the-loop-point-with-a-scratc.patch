@@ -1,0 +1,55 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 17:55:11 +0300
+Subject: [PATCH] mixBus_internal: seek to the loop point with a scratch of its
+ own
+
+---
+ include/soloud.h    | 3 +++
+ src/core/soloud.cpp | 5 +++--
+ 2 files changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/include/soloud.h b/include/soloud.h
+index 33b6b12..d64d787 100644
+--- a/include/soloud.h
++++ b/include/soloud.h
+@@ -517,6 +517,9 @@ namespace SoLoud
+ 		unsigned int mScratchSize;
+ 		// Output scratch buffer, used in mix_().
+ 		AlignedFloatBuffer mOutputScratch;
++		// Discard buffer for loop seeks while mixing; mScratch then holds the
++		// voice's resampled frames.
++		AlignedFloatBuffer mSeekScratch;
+ 		// Pointers to resampler buffers, two per active voice.
+ 		float **mResampleData;
+ 		// Actual allocated memory for resampler buffers
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 0635ae2..825c55f 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -632,6 +632,7 @@ namespace SoLoud
+ 		if (mScratchSize < 4096) mScratchSize = 4096;
+ 		mScratch.init(mScratchSize * MAX_CHANNELS);
+ 		mOutputScratch.init(mScratchSize * MAX_CHANNELS);
++		mSeekScratch.init(SAMPLE_GRANULARITY * MAX_CHANNELS);
+ 		// Re-init, or setMaxActiveVoiceCount before init, already allocated these.
+ 		delete[] mResampleData;
+ 		delete[] mResampleDataOwner;
+@@ -1725,7 +1726,7 @@ namespace SoLoud
+ 							{
+ 								if (voice->mFlags & AudioSourceInstance::LOOPING)
+ 								{
+-									while (readcount < SAMPLE_GRANULARITY && voice->seek(voice->mLoopPoint, mScratch.mData, mScratchSize) == SO_NO_ERROR)
++									while (readcount < SAMPLE_GRANULARITY && voice->seek(voice->mLoopPoint, mSeekScratch.mData, SAMPLE_GRANULARITY * MAX_CHANNELS) == SO_NO_ERROR)
+ 									{
+ 										voice->mLoopCount++;
+ 										int inc = voice->getAudio(voice->mResampleData[0] + readcount, SAMPLE_GRANULARITY - readcount, SAMPLE_GRANULARITY);
+@@ -1916,7 +1917,7 @@ namespace SoLoud
+ 							{
+ 								if (voice->mFlags & AudioSourceInstance::LOOPING)
+ 								{
+-									while (readcount < SAMPLE_GRANULARITY && voice->seek(voice->mLoopPoint, mScratch.mData, mScratchSize) == SO_NO_ERROR)
++									while (readcount < SAMPLE_GRANULARITY && voice->seek(voice->mLoopPoint, mSeekScratch.mData, SAMPLE_GRANULARITY * MAX_CHANNELS) == SO_NO_ERROR)
+ 									{
+ 										voice->mLoopCount++;
+ 										readcount += voice->getAudio(voice->mResampleData[0] + readcount, SAMPLE_GRANULARITY - readcount, SAMPLE_GRANULARITY);

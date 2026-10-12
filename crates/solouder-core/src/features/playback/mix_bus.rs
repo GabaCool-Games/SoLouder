@@ -24,7 +24,7 @@ pub(crate) struct Layout {
     pub resampler: Resampler,
 }
 
-/// Mixes every active, unpaused voice into the accumulator `out`, using
+/// Mixes every active, unpaused, audible voice into the accumulator `out`, using
 /// `scratch` (up to `MAX_CHANNELS` planar channels) for each voice's
 /// resampled audio, and stops voices that have ended
 /// (`Soloud::mixBus_internal`).
@@ -38,7 +38,8 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
         let Some(voice) = voices.slots[slot].as_mut() else {
             continue;
         };
-        if voice.has_flag(flags::PAUSED) {
+        // Inaudible voices that tick advance without mixing (milestone E).
+        if voice.has_flag(flags::PAUSED | flags::INAUDIBLE) {
             continue;
         }
         let step_fixed = resample_voice(voice, &mut voices.pool.data, scratch, bus);
@@ -82,8 +83,9 @@ fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus:
     let (frames, stride) = (bus.frames, bus.stride);
     let channels = voice.channels();
     let mut step = voice.sample_rate / bus.sample_rate;
-    // A step of a whole block or more cannot advance (reference patch 0022).
-    if step.is_nan() || step >= SAMPLE_GRANULARITY as f32 {
+    // A step of a whole block or more cannot advance (reference patch 0022),
+    // and neither can a negative one (patch 0027).
+    if !(step >= 0.0 && step < SAMPLE_GRANULARITY as f32) {
         step = 0.0;
     }
     let step_fixed = (step * FRAC_MUL as f32).floor() as u32;
@@ -159,7 +161,7 @@ fn fill_block(voice: &mut Voice, block: &mut [f32]) -> u32 {
     }
     let mut read = voice.read(block, 0, SAMPLE_GRANULARITY);
     while looping && read < SAMPLE_GRANULARITY {
-        voice.seek_to_loop_point();
+        voice.seek(voice.loop_point);
         // `mLoopCount` is unsigned and wraps.
         voice.loop_count = voice.loop_count.wrapping_add(1);
         let more = voice.read(block, read as usize, SAMPLE_GRANULARITY - read);

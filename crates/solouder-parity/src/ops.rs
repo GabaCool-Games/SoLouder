@@ -7,7 +7,7 @@ use crate::pattern::{MAX_SOUND_SAMPLES, Pattern};
 use crate::run::{INVALID_PARAMETER, SO_NO_ERROR, State};
 use crate::scenario::{ScenarioError, Step};
 
-fn code<E>(result: Result<(), E>) -> i32 {
+pub(crate) fn code<E>(result: Result<(), E>) -> i32 {
     if result.is_ok() {
         SO_NO_ERROR
     } else {
@@ -19,7 +19,7 @@ pub(crate) fn hex32(value: f32) -> String {
     format!("{:08x}", value.to_bits())
 }
 
-fn hex64(value: f64) -> String {
+pub(crate) fn hex64(value: f64) -> String {
     format!("{:016x}", value.to_bits())
 }
 
@@ -34,8 +34,22 @@ impl State {
 
     pub(crate) fn sound(&mut self, step: &Step) -> Result<(), ScenarioError> {
         step.check_keys(&[
-            "name", "channels", "rate", "frames", "pattern", "amp", "period", "seed", "volume",
+            "name",
+            "channels",
+            "rate",
+            "frames",
+            "pattern",
+            "amp",
+            "period",
+            "seed",
+            "volume",
             "looping",
+            "bits",
+            "loop_point",
+            "auto_stop",
+            "single",
+            "tick",
+            "kill",
         ])?;
         self.mixer(step)?;
         let name = step.text("name")?.to_owned();
@@ -51,12 +65,42 @@ impl State {
         let pattern = Pattern::from_step(step)?;
         let volume = step.number_or("volume", 1.0)?;
         let looping = step.flag_or("looping", false)?;
+        let bits: u32 = step.value_or("bits", 32)?;
+        if bits != 32 && !(-1.0..=1.0).contains(&amp) {
+            return Err(step.error("`bits` needs `amp` from -1 to 1"));
+        }
+        if ![8, 16, 32].contains(&bits) {
+            return Err(step.error("`bits` must be 8, 16 or 32"));
+        }
+        let loop_point = step.seconds_or("loop_point", 0.0)?;
+        let auto_stop = step.flag_or("auto_stop", true)?;
+        let single = step.flag_or("single", false)?;
+        let tick = step.flag_or("tick", false)?;
+        let kill = step.flag_or("kill", false)?;
 
         let samples = pattern.render(channels, frames, amp);
-        let result = Pcm::from_planar(samples, channels, rate).map(|pcm| {
+        let pcm = match bits {
+            8 => {
+                let raw: Vec<u8> = samples
+                    .iter()
+                    .map(|&v| (v * 127.0 + 128.0) as i32 as u8)
+                    .collect();
+                Pcm::from_planar_u8(&raw, channels, rate)
+            }
+            16 => {
+                let raw: Vec<i16> = samples.iter().map(|&v| (v * 32767.0) as i16).collect();
+                Pcm::from_planar_i16(&raw, channels, rate)
+            }
+            _ => Pcm::from_planar(samples, channels, rate),
+        };
+        let result = pcm.map(|pcm| {
             let mut sound = Sound::new(pcm);
             sound.set_volume(volume);
             sound.set_looping(looping);
+            sound.set_loop_point(loop_point);
+            sound.set_auto_stop(auto_stop);
+            sound.set_single_instance(single);
+            sound.set_inaudible_behavior(tick, kill);
             self.store(name.clone(), sound);
         });
         self.log(format!("sound {name} {}", code(result)));
@@ -64,9 +108,23 @@ impl State {
     }
 
     pub(crate) fn play(&mut self, step: &Step) -> Result<(), ScenarioError> {
-        step.check_keys(&["sound", "as", "volume", "pan", "paused", "clock"])?;
+        step.check_keys(&[
+            "sound",
+            "as",
+            "volume",
+            "pan",
+            "paused",
+            "clock",
+            "background",
+        ])?;
         if step.get("clock").is_some() && step.get("paused").is_some() {
             return Err(step.error("`clock` and `paused` cannot be combined"));
+        }
+        let background = step.flag_or("background", false)?;
+        if step.get("background").is_some()
+            && (step.get("pan").is_some() || step.get("clock").is_some())
+        {
+            return Err(step.error("`background` cannot be combined with `pan` or `clock`"));
         }
         let clock = step
             .get("clock")
@@ -89,6 +147,7 @@ impl State {
             .ok_or_else(|| step.error(format!("no sound named `{sound_name}`")))?;
         let mixer = self.mixer(step)?;
         let handle = match clock {
+            _ if background => mixer.play_background(&sound, options.volume, options.paused),
             Some(time) => mixer.play_clocked(time, &sound, options),
             None => mixer.play_with(&sound, options),
         };
@@ -115,11 +174,39 @@ impl State {
     }
 
     /// Applies the given settings in a fixed order: volume, pan, pause,
-    /// looping, protect, delay, speed.
+    /// looping, protect, delay, speed, then those of [`State::set_more`].
     pub(crate) fn set(&mut self, step: &Step) -> Result<(), ScenarioError> {
         step.check_keys(&[
-            "h", "volume", "pan", "pause", "looping", "protect", "delay", "speed",
+            "h",
+            "volume",
+            "pan",
+            "pause",
+            "looping",
+            "protect",
+            "delay",
+            "speed",
+            "loop_point",
+            "auto_stop",
+            "tick",
+            "kill",
+            "abs_l",
+            "abs_r",
+            "channel",
+            "channel_volume",
+            "rate",
+            "seek",
         ])?;
+        for (a, b) in [
+            ("tick", "kill"),
+            ("abs_l", "abs_r"),
+            ("channel", "channel_volume"),
+        ] {
+            if step.get(a).is_some() != step.get(b).is_some() {
+                return Err(step.error(
+                    "`tick`/`kill`, `abs_l`/`abs_r` and `channel`/`channel_volume` go in pairs",
+                ));
+            }
+        }
         let name = step.text("h")?.to_owned();
         let handle = self.handle(step)?;
         let volume = step
@@ -171,13 +258,19 @@ impl State {
             let result = mixer.set_relative_play_speed(handle, speed);
             self.log(format!("set {name} speed {}", code(result)));
         }
-        Ok(())
+        self.set_more(step, &name, handle)
     }
 
     /// Engine-wide settings, applied in order: volume, clip_scale, resampler,
-    /// max_active.
+    /// max_active, pause_all.
     pub(crate) fn global(&mut self, step: &Step) -> Result<(), ScenarioError> {
-        step.check_keys(&["volume", "clip_scale", "resampler", "max_active"])?;
+        step.check_keys(&[
+            "volume",
+            "clip_scale",
+            "resampler",
+            "max_active",
+            "pause_all",
+        ])?;
         let volume = step
             .get("volume")
             .map(|_| step.number_or("volume", 0.0))
@@ -212,6 +305,10 @@ impl State {
             let result = mixer.set_max_active_voice_count(count);
             self.log(format!("global max_active {}", code(result)));
         }
+        if step.get("pause_all").is_some() {
+            let paused = step.flag_or("pause_all", false)?;
+            self.mixer(step)?.set_pause_all(paused);
+        }
         Ok(())
     }
 
@@ -225,7 +322,8 @@ impl State {
         let flag = |value: Option<bool>| u8::from(value.unwrap_or(false));
         let line = format!(
             "query {name} valid={} paused={} looping={} protect={} loops={} volume={} \
-             overall={} pan={} speed={} rate={} time={} pos={}",
+             overall={} pan={} speed={} rate={} time={} pos={} loop_point={} auto_stop={} \
+             info={}",
             u8::from(m.is_valid_voice_handle(h)),
             flag(m.is_paused(h)),
             flag(m.is_looping(h)),
@@ -238,6 +336,9 @@ impl State {
             hex32(m.sample_rate(h).unwrap_or(0.0)),
             hex64(m.voice_stream_time(h).unwrap_or(0.0)),
             hex64(m.stream_position(h).unwrap_or(0.0)),
+            hex64(m.loop_point(h).unwrap_or(0.0)),
+            flag(m.auto_stop(h)),
+            hex32(m.info(h, 0).unwrap_or(0.0)),
         );
         self.log(line);
         Ok(())

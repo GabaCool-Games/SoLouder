@@ -1,0 +1,60 @@
+# Voice groups: handles, adding (stopped voices, duplicates and groups are
+# not added), group handles in setters, fades and stop, reads through a group
+# (its first voice, even when that voice has stopped and the group has not
+# been trimmed), emptiness, destroying and reusing groups.
+init channels=2
+sound name=a frames=6000 pattern=saw period=55 amp=0.3 looping=1
+sound name=b frames=6000 pattern=noise seed=2 amp=0.3 looping=1
+group as=g1
+group as=g2
+play sound=a as=v1
+play sound=b as=v2
+play sound=a as=v3 pan=0.6
+group_query group=g1
+group_add group=g1 h=v1
+group_add group=g1 h=v2
+group_add group=g1 h=v1
+group_add group=g1 h=g2
+group_add group=g2 h=v3
+group_query group=g1
+query h=g1
+set h=g1 volume=0.5 pan=-0.3
+mix frames=700
+query h=v1
+query h=v2
+query h=v3
+query h=g1
+fade h=g1 param=volume to=1 time=0.02
+oscillate h=g2 param=pan from=-1 to=1 time=0.01
+mix frames=1500
+query h=v2
+query h=v3
+set h=g1 speed=1.5 pause=1
+mix frames=500
+set h=g1 pause=0
+schedule h=g2 stop=0.005
+mix frames=600
+query h=v3
+group_query group=g2
+
+# The first member stops: reads through the group see a stopped voice until
+# the group is trimmed.
+stop h=v1
+query h=g1
+group_query group=g1
+query h=g1
+stop h=g1
+group_query group=g1
+counts
+
+# Destroying a group; the next group reuses its index.
+group_destroy group=g1
+group_destroy group=g1
+group_query group=g1
+group_add group=g1 h=v2
+group as=g3
+play sound=a as=v4
+group_add group=g3 h=v4
+mix frames=300
+stop h=g3
+counts

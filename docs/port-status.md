@@ -8,8 +8,12 @@ reference, and how it is verified. Per-behavior status lives in
 ## Summary
 
 Milestone D (routing and DSP) is in progress: fades, oscillations,
-scheduled pauses and stops, and clocked play are done (see
-[PORTING.md](PORTING.md#milestone-d-units) for the remaining units).
+scheduled pauses and stops, clocked play, the remaining voice controls (loop
+points, seeking, autostop, inaudible ticking, absolute pan and channel gains,
+sample rates, pause all, background play, single-instance sounds, stopping
+and counting a sound's voices), 8- and 16-bit raw loads, 16-bit output and
+voice groups are done (see [PORTING.md](PORTING.md#milestone-d-units) for the
+remaining units).
 Milestone C (Windows and Bevy playable slice) is done; milestone B (offline
 playback) before it. The mixer plays prepared PCM with 1
 to 8 channels on outputs of 1 to 8 channels: play, stop, pause, loop, volume,
@@ -27,9 +31,9 @@ filters and 3D audio do not exist yet.
 
 | Crate | Slices / modules | Contents |
 |---|---|---|
-| `solouder-core` | `contracts` | `Pcm` (validated planar samples), `SAMPLE_GRANULARITY`, `MAX_CHANNELS` |
+| `solouder-core` | `contracts` | `Pcm` (validated planar samples from `f32`, `u8` or `i16`), `SAMPLE_GRANULARITY`, `MAX_CHANNELS` |
 | `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping, faders (linear fades and sine oscillation) |
-| `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `Handle`, `PlayOptions`, voice table, active-voice selection, resample-buffer pool, bus mixing, voice control and queries |
+| `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `SoundId`, `Handle`, `PlayOptions`, voice table, active-voice selection, resample-buffer pool, bus mixing, voice control and queries, fades and timers, voice groups, `f32` and `i16` output |
 | `solouder-core` | `features/realtime` | `split`, `Controller`, `Renderer`, `VoiceId`, `Event`, `Status`, `RealtimeConfig`; retirement of ended voices' PCM to the game thread |
 | `solouder-decoders` | `features/decoded_audio` | `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `DecodeLimits`, `DecodeError` |
 | `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
@@ -59,6 +63,10 @@ stays `in-progress` until its remaining flags are done.
 | `active_voices` | Protected and loudest voices win the active slots; protecting a voice takes effect at once (patch 0023); changing and invalid limits | 3,212 |
 | `delay_samples` | Delayed starts spanning mix calls | 1,666 |
 | `fades` | Volume, pan and speed fades and oscillations on voice stream time (waiting while paused), which setters cancel them (not `setPan`), fading to the current value, speeds the oscillation passes that are not above 0, scheduled pause and stop and their cancelling, the global volume fade and oscillation ramping across each mix, `playClocked` delays and their limits | 32,498 |
+| `voice_controls` | Loop points (one past the end of the sound, one at double speed: patches 0028 and 0029), seeking forward, back and past the end, autostop off and on, sample rate changes including a negative rate (patch 0027), pause all, background play, version and the remaining voice queries | 42,920 |
+| `channel_gains` | Absolute pan on every source layout, absolute pan cancelling a pan fade, per-channel gains (ignored past the source's channels), 16-bit output through both clippers including values past full scale | 15,400 |
+| `sound_instances` | Counting and stopping a sound's voices through the engine and through the sound, single-instance sounds, length, 8- and 16-bit raw loads and rejected layouts, sound defaults reaching voices, ticking voices taking active slots even when paused (patch 0026), hard pan (patch 0030) | 11,599 |
+| `voice_groups` | Group handles and index reuse, adding stopped voices, duplicates and groups, group handles in setters, fades, schedules and stop, reads through the first member (also once it has stopped), emptiness and trimming, destroying | 7,200 |
 | `sound_tails` | Sounds play out when mixes of 256, 441 or 480 frames end partway through their last block, with every resampler, slow and fast speeds, a resampled stereo sound and a sound of whole blocks (patch 0024) | 25,758 |
 | `sound_replace` | Reloading a sound name stops the old sound's voices and keeps other sounds playing; a failed reload keeps the old sound | 2,600 |
 | `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV (every code); extensible 5.1, 7.1, 24-in-32-bit, A-law and mu-law headers; channel masks with a high bit or none; extra and odd-sized chunks; six files both sides reject (9, 33 and 65535 channels, no frames, sample rate 0, a header cut short) | 15,562 |
@@ -103,10 +111,12 @@ Rust 1.98.1, no device).
 | Partial frames | Not representable (the C API takes a frame count) | A trailing partial frame in the output slice is set to silence | Rust takes an interleaved slice |
 | Sample rate 0 | Means "use the default" (44100) in `Soloud::init` | `MixerConfig` rejects 0; the parity runner maps 0 to 44100 | No hidden defaults in the core type |
 | Invalid handles | Getters return 0 or a default value; setters do nothing | Getters return `Option`; `is_valid_voice_handle` is unchanged | A stale handle is distinguishable from a real 0 |
+| Sound identity | A copied `AudioSource` keeps its ID, so stopping either copy stops both | A cloned `Sound` keeps its `SoundId` the same way; `Sound::new` gives a new one | Same behavior; cloning is how Rust shares a sound |
+| Seek result | `Soloud::seek` returns an error code, never an error for a `Wav` | `Mixer::seek` returns nothing | A `Sound` always seeks |
+| Error strings | `getErrorString` names result codes | Error enums implement `Display` | There are no result codes |
+| Engine before init | `Soloud` exists before `init`; calls then do nothing | `Mixer::new` validates and initializes in one step | No half-initialized state |
 | Play speed | `setRelativePlaySpeed` rejects `<= 0` but accepts NaN | Rejects anything not `> 0`, including NaN | NaN would poison the fixed-point step |
 | PCM sample rate | `Wav::loadRawWave*` accepts an infinite rate (patch 0021 rejects only `!(rate > 0)`) | `Pcm::from_planar` requires a finite rate | An infinite rate gives an undefined step |
-| Pan constant | `M_PI`, which the MSVC build defines as `3.14159265359` | `std::f64::consts::PI` | The rounded constant is a build artifact; no scenario output differs |
-| Loop point | Generic seek to a nonzero loop point writes into the mixer scratch and discards a speed-scaled count of frames (open defect in PORTING.md) | Only loop point 0 exists | The reference behavior corrupts frames already rendered; nonzero loop points wait for a reference fix |
 | 8-bit WAV | dr_wav maps 0..255 onto -1..1 (`x * 2/255 - 1`), so silence decodes as +1/255 | `(x - 128) / 128` | Silence must decode as 0 |
 | Truncated WAV data | Keeps the declared frame count; the missing frames are silent (patch 0012) | Keeps the frames present | Padding would add a gap to looping sounds |
 | Non-finite WAV floats | NaN and infinity pass through | Decode as 0 | One NaN sample silences every voice in the mix |
@@ -125,19 +135,23 @@ Rust 1.98.1, no device).
 | Lost device | Backend-specific | `Output::state` reports `Disconnected` or `Failed` and plays nothing; there is no automatic reconnection yet | Reopening is an application decision for now |
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
-Known reference defects fixed on both sides by patches 0018 to 0024 (pan ramp
-leftovers, surround fold-down volumes, no-free-voice handling, raw layout
-validation, the #343 hang, protection not recomputing the active voices,
-sound endings dropped when a mix ends mid-block) are listed in
+Known reference defects fixed on both sides by patches 0018 to 0024 and 0026
+to 0030 (pan ramp leftovers, surround fold-down volumes, no-free-voice
+handling, raw layout validation, the #343 hang, protection and ticking not
+recomputing the active voices, sound endings dropped when a mix ends
+mid-block, the hang on a negative sample rate, seeks scaled by play speed,
+loop wraps overwriting rendered frames, the rounded `M_PI` of MSVC builds)
+are listed in
 [PORTING.md](PORTING.md#reference-patch-ledger). Patch 0025 (sounds, buses
 and queues that outlive their engine or play on several engines) has no Rust
 counterpart: sounds hold no engine pointer, and voices own their samples.
 
 ## Not yet covered
 
-- Init flags other than the clipper (`LEFT_HANDED_3D`, ...), `mixSigned16`,
-  device reconnection, and device output outside Windows WASAPI (checked
-  only to build and skip on Linux).
-- Inaudible behavior, 3D audio, filters, buses, faders, voice groups and
-  queues (Milestone D).
+- Init flags other than the clipper (`LEFT_HANDED_3D`, ...), device
+  reconnection, and device output outside Windows WASAPI (checked only to
+  build and skip on Linux).
+- Filters, buses and queues (Milestone D), the real-time controller commands
+  for the milestone D controls, and 3D audio with the `INAUDIBLE` flag it sets
+  (Milestone E).
 - Streaming, Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).

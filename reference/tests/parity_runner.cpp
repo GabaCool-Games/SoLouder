@@ -294,6 +294,24 @@ namespace
 			return it->second;
 		}
 
+		SoLoud::handle namedHandle(const Step &step, const char *key)
+		{
+			const std::string &name = textArg(step, key);
+			std::map<std::string, SoLoud::handle>::iterator it = handles.find(name);
+			if (it == handles.end())
+				throw ScenarioError(step.line, "no handle named `" + name + "`");
+			return it->second;
+		}
+
+		SoLoud::Wav &soundArg(const Step &step, const char *key)
+		{
+			const std::string &name = textArg(step, key);
+			std::map<std::string, SoLoud::Wav *>::iterator it = sounds.find(name);
+			if (it == sounds.end())
+				throw ScenarioError(step.line, "no sound named `" + name + "`");
+			return *it->second;
+		}
+
 		void logLine(const std::ostringstream &line)
 		{
 			log.push_back(line.str());
@@ -392,8 +410,9 @@ namespace
 			}
 			else if (step.op == "sound")
 			{
-				static const char *const keys[] = { "name", "channels", "rate", "frames", "pattern", "amp", "period", "seed", "volume", "looping" };
-				checkKeys(step, keys, 10);
+				static const char *const keys[] = { "name", "channels", "rate", "frames", "pattern", "amp", "period", "seed", "volume", "looping",
+					"bits", "loop_point", "auto_stop", "single", "tick", "kill" };
+				checkKeys(step, keys, 16);
 				engine(step);
 				std::string name = textArg(step, "name");
 				unsigned int channels = uintArg(step, "channels", false, 1);
@@ -405,9 +424,44 @@ namespace
 				std::vector<float> data = renderPattern(step, channels, frames, amp);
 				float volume = floatArg(step, "volume", 1.0f);
 				bool looping = flagArg(step, "looping", false);
+				unsigned int bits = uintArg(step, "bits", false, 32);
+				if (bits != 32 && !(amp >= -1.0f && amp <= 1.0f))
+					throw ScenarioError(step.line, "`bits` needs `amp` from -1 to 1");
+				if (bits != 8 && bits != 16 && bits != 32)
+					throw ScenarioError(step.line, "`bits` must be 8, 16 or 32");
+				double loopPoint = timeArg(step, "loop_point", 0);
+				bool autoStop = flagArg(step, "auto_stop", true);
+				bool single = flagArg(step, "single", false);
+				bool tick = flagArg(step, "tick", false);
+				bool kill = flagArg(step, "kill", false);
 
 				SoLoud::Wav *wav = new SoLoud::Wav;
-				SoLoud::result code = wav->loadRawWave(data.data(), (unsigned int)data.size(), rate, channels, true, false);
+				SoLoud::result code;
+				if (bits == 8)
+				{
+					std::vector<unsigned char> raw;
+					for (size_t i = 0; i < data.size(); i++)
+						raw.push_back((unsigned char)(int)(data[i] * 127.0f + 128.0f));
+					code = wav->loadRawWave8(raw.data(), (unsigned int)raw.size(), rate, channels);
+				}
+				else if (bits == 16)
+				{
+					std::vector<short> raw;
+					for (size_t i = 0; i < data.size(); i++)
+						raw.push_back((short)(data[i] * 32767.0f));
+					code = wav->loadRawWave16(raw.data(), (unsigned int)raw.size(), rate, channels);
+				}
+				else
+				{
+					code = wav->loadRawWave(data.data(), (unsigned int)data.size(), rate, channels, true, false);
+				}
+				if (code == SoLoud::SO_NO_ERROR)
+				{
+					wav->setLoopPoint(loopPoint);
+					wav->setAutoStop(autoStop);
+					wav->setSingleInstance(single);
+					wav->setInaudibleBehavior(tick, kill);
+				}
 				storeSound(name, wav, code, volume, looping);
 				std::ostringstream line;
 				line << "sound " << name << " " << code;
@@ -445,8 +499,8 @@ namespace
 			}
 			else if (step.op == "play")
 			{
-				static const char *const keys[] = { "sound", "as", "volume", "pan", "paused", "clock" };
-				checkKeys(step, keys, 6);
+				static const char *const keys[] = { "sound", "as", "volume", "pan", "paused", "clock", "background" };
+				checkKeys(step, keys, 7);
 				const std::string &soundName = textArg(step, "sound");
 				std::string name = textArg(step, "as");
 				float volume = floatArg(step, "volume", -1.0f);
@@ -457,7 +511,12 @@ namespace
 				std::map<std::string, SoLoud::Wav *>::iterator it = sounds.find(soundName);
 				if (it == sounds.end())
 					throw ScenarioError(step.line, "no sound named `" + soundName + "`");
-				SoLoud::handle h = step.get("clock")
+				bool background = flagArg(step, "background", false);
+				if (step.get("background") && (step.get("pan") || step.get("clock")))
+					throw ScenarioError(step.line, "`background` cannot be combined with `pan` or `clock`");
+				SoLoud::handle h = background
+					? engine(step).playBackground(*it->second, volume, paused)
+					: step.get("clock")
 					? engine(step).playClocked(timeArg(step, "clock", 0), *it->second, volume, pan)
 					: engine(step).play(*it->second, volume, pan, paused);
 				handles[name] = h;
@@ -479,8 +538,12 @@ namespace
 			}
 			else if (step.op == "set")
 			{
-				static const char *const keys[] = { "h", "volume", "pan", "pause", "looping", "protect", "delay", "speed" };
-				checkKeys(step, keys, 8);
+				static const char *const keys[] = { "h", "volume", "pan", "pause", "looping", "protect", "delay", "speed",
+					"loop_point", "auto_stop", "tick", "kill", "abs_l", "abs_r", "channel", "channel_volume", "rate", "seek" };
+				checkKeys(step, keys, 18);
+				if ((step.get("tick") != 0) != (step.get("kill") != 0) || (step.get("abs_l") != 0) != (step.get("abs_r") != 0) ||
+					(step.get("channel") != 0) != (step.get("channel_volume") != 0))
+					throw ScenarioError(step.line, "`tick`/`kill`, `abs_l`/`abs_r` and `channel`/`channel_volume` go in pairs");
 				std::string name = textArg(step, "h");
 				SoLoud::handle h = handleArg(step);
 				float volume = floatArg(step, "volume", 0.0f);
@@ -509,11 +572,29 @@ namespace
 					line << "set " << name << " speed " << s.setRelativePlaySpeed(h, speed);
 					logLine(line);
 				}
+				if (step.get("loop_point"))
+					s.setLoopPoint(h, timeArg(step, "loop_point", 0));
+				if (step.get("auto_stop"))
+					s.setAutoStop(h, flagArg(step, "auto_stop", true));
+				if (step.get("tick"))
+					s.setInaudibleBehavior(h, flagArg(step, "tick", false), flagArg(step, "kill", false));
+				if (step.get("abs_l"))
+					s.setPanAbsolute(h, floatArg(step, "abs_l", 0.0f), floatArg(step, "abs_r", 0.0f));
+				if (step.get("channel"))
+					s.setChannelVolume(h, uintArg(step, "channel", true, 0), floatArg(step, "channel_volume", 0.0f));
+				if (step.get("rate"))
+					s.setSamplerate(h, floatArg(step, "rate", 0.0f));
+				if (step.get("seek"))
+				{
+					std::ostringstream line;
+					line << "set " << name << " seek " << s.seek(h, timeArg(step, "seek", 0));
+					logLine(line);
+				}
 			}
 			else if (step.op == "global")
 			{
-				static const char *const keys[] = { "volume", "clip_scale", "resampler", "max_active" };
-				checkKeys(step, keys, 4);
+				static const char *const keys[] = { "volume", "clip_scale", "resampler", "max_active", "pause_all" };
+				checkKeys(step, keys, 5);
 				float volume = floatArg(step, "volume", 0.0f);
 				float scale = floatArg(step, "clip_scale", 0.0f);
 				const std::string *resampler = step.get("resampler");
@@ -543,6 +624,8 @@ namespace
 					line << "global max_active " << s.setMaxActiveVoiceCount(maxActive);
 					logLine(line);
 				}
+				if (step.get("pause_all"))
+					s.setPauseAll(flagArg(step, "pause_all", false));
 			}
 			else if (step.op == "query")
 			{
@@ -564,7 +647,92 @@ namespace
 					<< " speed=" << hex32(s.getRelativePlaySpeed(h))
 					<< " rate=" << hex32(s.getSamplerate(h))
 					<< " time=" << hex64(s.getStreamTime(h))
-					<< " pos=" << hex64(s.getStreamPosition(h));
+					<< " pos=" << hex64(s.getStreamPosition(h))
+					<< " loop_point=" << hex64(s.getLoopPoint(h))
+					<< " auto_stop=" << (s.getAutoStop(h) ? 1 : 0)
+					<< " info=" << hex32(s.getInfo(h, 0));
+				logLine(line);
+			}
+			else if (step.op == "mix16")
+			{
+				static const char *const keys[] = { "frames" };
+				checkKeys(step, keys, 1);
+				unsigned int frames = uintArg(step, "frames", true, 0);
+				if (frames > MAX_MIX_FRAMES)
+					throw ScenarioError(step.line, "mix frames must be at most 4096");
+				SoLoud::Soloud &s = engine(step);
+				std::vector<short> out((size_t)frames * s.getBackendChannels());
+				s.mixSigned16(out.data(), frames);
+				for (size_t i = 0; i < out.size(); i++)
+					samples.push_back((float)out[i]);
+			}
+			else if (step.op == "sound_query")
+			{
+				static const char *const keys[] = { "name" };
+				checkKeys(step, keys, 1);
+				SoLoud::Wav &wav = soundArg(step, "name");
+				std::ostringstream line;
+				line << "sound_query " << textArg(step, "name") << " length=" << hex64(wav.getLength())
+					<< " count=" << engine(step).countAudioSource(wav);
+				logLine(line);
+			}
+			else if (step.op == "stop_sound")
+			{
+				static const char *const keys[] = { "name", "source" };
+				checkKeys(step, keys, 2);
+				SoLoud::Wav &wav = soundArg(step, "name");
+				bool source = flagArg(step, "source", false);
+				engine(step);
+				if (source)
+					wav.stop();
+				else
+					soloud->stopAudioSource(wav);
+			}
+			else if (step.op == "group")
+			{
+				static const char *const keys[] = { "as" };
+				checkKeys(step, keys, 1);
+				std::string name = textArg(step, "as");
+				SoLoud::handle g = engine(step).createVoiceGroup();
+				handles[name] = g;
+				std::ostringstream line;
+				line << "group " << name << " " << g;
+				logLine(line);
+			}
+			else if (step.op == "group_add" || step.op == "group_destroy" || step.op == "group_query")
+			{
+				static const char *const addKeys[] = { "group", "h" };
+				static const char *const groupKeys[] = { "group" };
+				if (step.op == "group_add")
+					checkKeys(step, addKeys, 2);
+				else
+					checkKeys(step, groupKeys, 1);
+				std::string name = textArg(step, "group");
+				SoLoud::handle g = namedHandle(step, "group");
+				SoLoud::Soloud &s = engine(step);
+				std::ostringstream line;
+				line << step.op << " " << name;
+				if (step.op == "group_add")
+				{
+					SoLoud::handle h = handleArg(step);
+					line << " " << textArg(step, "h") << " " << s.addVoiceToGroup(g, h);
+				}
+				else if (step.op == "group_destroy")
+				{
+					line << " " << s.destroyVoiceGroup(g);
+				}
+				else
+				{
+					bool isGroup = s.isVoiceGroup(g);
+					line << " is_group=" << (isGroup ? 1 : 0) << " empty=" << (s.isVoiceGroupEmpty(g) ? 1 : 0);
+				}
+				logLine(line);
+			}
+			else if (step.op == "version")
+			{
+				checkKeys(step, 0, 0);
+				std::ostringstream line;
+				line << "version " << engine(step).getVersion();
 				logLine(line);
 			}
 			else if (step.op == "fade" || step.op == "oscillate")

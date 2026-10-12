@@ -1,6 +1,6 @@
-// Ported from SoLoud src/core/soloud_core_basicops.cpp,
-// src/core/soloud_core_setters.cpp and src/core/soloud_core_getters.cpp
-// (zlib/libpng, Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
+// Ported from SoLoud src/core/soloud_core_basicops.cpp and
+// src/core/soloud_core_setters.cpp (zlib/libpng,
+// Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
 use std::fmt;
 
@@ -47,6 +47,8 @@ pub enum ControlError {
     InvalidSpeed,
     /// The active voice limit must be 1 to `VOICE_COUNT - 1`.
     InvalidVoiceCount,
+    /// The handle does not name an existing voice group.
+    InvalidVoiceGroup,
 }
 
 impl fmt::Display for ControlError {
@@ -54,6 +56,7 @@ impl fmt::Display for ControlError {
         match self {
             Self::InvalidSpeed => write!(f, "play speed must be greater than 0"),
             Self::InvalidVoiceCount => write!(f, "active voice limit must be 1 to 1023"),
+            Self::InvalidVoiceGroup => write!(f, "not a voice group"),
         }
     }
 }
@@ -61,7 +64,7 @@ impl fmt::Display for ControlError {
 impl std::error::Error for ControlError {}
 
 /// Playing and controlling voices. Calls with a handle whose voice has
-/// stopped do nothing; getters then return `None`.
+/// stopped do nothing; a voice group handle changes every voice in the group.
 impl Mixer {
     /// Starts `sound` with default options (`Soloud::play`).
     pub fn play(&mut self, sound: &Sound) -> Handle {
@@ -70,8 +73,12 @@ impl Mixer {
 
     /// Starts `sound`. When all `VOICE_COUNT` slots are taken, the oldest
     /// unprotected voice is stopped to make room; if every voice is protected,
-    /// nothing plays and [`Handle::INVALID`] is returned.
+    /// nothing plays and [`Handle::INVALID`] is returned. A single-instance
+    /// sound first stops its other voices.
     pub fn play_with(&mut self, sound: &Sound, options: PlayOptions) -> Handle {
+        if sound.single_instance() {
+            self.stop_sound(sound);
+        }
         let Some(slot) = self.voices.find_free() else {
             return Handle::INVALID;
         };
@@ -92,11 +99,23 @@ impl Mixer {
         Handle::new(slot, play_index)
     }
 
+    /// Starts `sound` at full gain on the left and right speakers, for music
+    /// and ambience (`Soloud::playBackground`).
+    pub fn play_background(&mut self, sound: &Sound, volume: Option<f32>, paused: bool) -> Handle {
+        let options = PlayOptions {
+            volume,
+            paused,
+            ..PlayOptions::default()
+        };
+        let handle = self.play_with(sound, options);
+        self.set_pan_absolute(handle, 1.0, 1.0);
+        handle
+    }
+
     /// Stops a voice immediately.
     pub fn stop(&mut self, handle: Handle) {
-        if let Some(slot) = self.voices.slot_of(handle) {
-            self.voices.stop(slot);
-        }
+        self.voices
+            .for_each_slot(handle, |voices, slot| voices.stop(slot));
     }
 
     /// Stops every voice.
@@ -106,46 +125,114 @@ impl Mixer {
         }
     }
 
+    /// Stops every voice of `sound` and its clones (`Soloud::stopAudioSource`;
+    /// `AudioSource::stop` is this call on each mixer).
+    pub fn stop_sound(&mut self, sound: &Sound) {
+        self.voices.stop_sound(sound.id());
+    }
+
     /// Sets a voice's volume, cancelling a volume fade; the change ramps in
     /// over the next mix.
     pub fn set_volume(&mut self, handle: Handle, volume: f32) {
-        if let Some(voice) = self.voices.get_mut(handle) {
-            voice.faders.volume.state = FaderState::Off;
-            voice.set_volume(volume);
-            self.voices.dirty = true;
-        }
+        self.voices.for_each_slot(handle, |voices, slot| {
+            if let Some(voice) = voices.slots[slot].as_mut() {
+                voice.faders.volume.state = FaderState::Off;
+                voice.set_volume(volume);
+                voices.dirty = true;
+            }
+        });
     }
 
     /// Sets a voice's pan; the change ramps in over the next mix.
     pub fn set_pan(&mut self, handle: Handle, pan: f32) {
-        if let Some(voice) = self.voices.get_mut(handle) {
-            voice.set_pan(pan);
-        }
+        self.with_voice(handle, |voice| voice.set_pan(pan));
+    }
+
+    /// Sets the left and right gains directly, cancelling a pan fade but
+    /// keeping the pan value (`Soloud::setPanAbsolute`).
+    pub fn set_pan_absolute(&mut self, handle: Handle, left: f32, right: f32) {
+        self.with_voice(handle, |voice| {
+            voice.faders.pan.state = FaderState::Off;
+            voice.set_pan_absolute(left, right);
+        });
+    }
+
+    /// Sets the gain of one output speaker for the voice, if the voice's
+    /// sound has more than `channel` channels.
+    pub fn set_channel_volume(&mut self, handle: Handle, channel: u32, volume: f32) {
+        self.with_voice(handle, |voice| {
+            let channels = voice.channels();
+            if let Some(gain) = voice.channel_volume[..channels].get_mut(channel as usize) {
+                *gain = volume;
+            }
+        });
     }
 
     /// Pauses or resumes a voice, cancelling a scheduled pause. A paused
     /// voice keeps its position.
     pub fn set_pause(&mut self, handle: Handle, paused: bool) {
-        if let Some(voice) = self.voices.get_mut(handle) {
+        self.voices.for_each_slot(handle, |voices, slot| {
+            if let Some(voice) = voices.slots[slot].as_mut() {
+                voice.faders.pause.state = FaderState::Off;
+                voice.set_flag(flags::PAUSED, paused);
+                voices.dirty = true;
+            }
+        });
+    }
+
+    /// Pauses or resumes every voice, cancelling scheduled pauses.
+    pub fn set_pause_all(&mut self, paused: bool) {
+        self.voices.dirty = true;
+        for voice in self.voices.slots[..self.voices.highest]
+            .iter_mut()
+            .flatten()
+        {
             voice.faders.pause.state = FaderState::Off;
             voice.set_flag(flags::PAUSED, paused);
-            self.voices.dirty = true;
         }
     }
 
-    /// Sets whether a voice loops back to the start when it reaches the end.
+    /// Sets whether a voice loops when it reaches the end.
     pub fn set_looping(&mut self, handle: Handle, looping: bool) {
         self.with_voice(handle, |voice| voice.set_flag(flags::LOOPING, looping));
+    }
+
+    /// Sets where a looping voice restarts, in seconds into its sound.
+    pub fn set_loop_point(&mut self, handle: Handle, seconds: f64) {
+        self.with_voice(handle, |voice| voice.loop_point = seconds);
+    }
+
+    /// Sets whether a voice stops once its sound has played out.
+    pub fn set_auto_stop(&mut self, handle: Handle, auto_stop: bool) {
+        self.with_voice(handle, |voice| {
+            voice.set_flag(flags::DISABLE_AUTOSTOP, !auto_stop)
+        });
+    }
+
+    /// Sets whether a voice keeps playing when inaudible (`tick`; such voices
+    /// are always among the active voices) and whether it is stopped then
+    /// (`kill`). Reference patch 0026: the active set is recomputed at the
+    /// next mix.
+    pub fn set_inaudible_behavior(&mut self, handle: Handle, tick: bool, kill: bool) {
+        self.voices.for_each_slot(handle, |voices, slot| {
+            if let Some(voice) = voices.slots[slot].as_mut() {
+                voice.set_flag(flags::INAUDIBLE_TICK, tick);
+                voice.set_flag(flags::INAUDIBLE_KILL, kill);
+                voices.dirty = true;
+            }
+        });
     }
 
     /// Protected voices are never stopped to make room for new ones and are
     /// always mixed, even past the active voice limit.
     /// (Reference patch 0023: the active set is recomputed at the next mix.)
     pub fn set_protect_voice(&mut self, handle: Handle, protect: bool) {
-        if let Some(voice) = self.voices.get_mut(handle) {
-            voice.set_flag(flags::PROTECTED, protect);
-            self.voices.dirty = true;
-        }
+        self.voices.for_each_slot(handle, |voices, slot| {
+            if let Some(voice) = voices.slots[slot].as_mut() {
+                voice.set_flag(flags::PROTECTED, protect);
+                voices.dirty = true;
+            }
+        });
     }
 
     /// Delays the start of a voice by `frames` output frames.
@@ -153,23 +240,37 @@ impl Mixer {
         self.with_voice(handle, |voice| voice.delay_samples = frames);
     }
 
+    /// Moves a voice to `seconds` into its sound (`Soloud::seek`). Seeking
+    /// back restarts the sound and skips forward from there. Audio already
+    /// read ahead (up to one 512-frame block) plays before the new position.
+    pub fn seek(&mut self, handle: Handle, seconds: f64) {
+        self.with_voice(handle, |voice| voice.seek(seconds));
+    }
+
     /// Scales a voice's playback rate, changing pitch and speed together, and
-    /// cancels a speed fade (even when the speed is rejected).
+    /// cancels a speed fade (even when the speed is rejected). For a group,
+    /// the result is that of its last voice.
     pub fn set_relative_play_speed(
         &mut self,
         handle: Handle,
         speed: f32,
     ) -> Result<(), ControlError> {
-        match self.voices.get_mut(handle) {
-            Some(voice) => {
-                voice.faders.speed.state = FaderState::Off;
-                voice
-                    .set_relative_play_speed(speed)
-                    .then_some(())
-                    .ok_or(ControlError::InvalidSpeed)
-            }
-            None => Ok(()),
-        }
+        let mut result = Ok(());
+        self.with_voice(handle, |voice| {
+            voice.faders.speed.state = FaderState::Off;
+            result = voice
+                .set_relative_play_speed(speed)
+                .then_some(())
+                .ok_or(ControlError::InvalidSpeed);
+        });
+        result
+    }
+
+    /// Replaces the sample rate a voice's sound plays at, before speed
+    /// (`Soloud::setSamplerate`). A rate that is not greater than 0 renders
+    /// silence (reference patch 0027).
+    pub fn set_sample_rate(&mut self, handle: Handle, rate: f32) {
+        self.with_voice(handle, |voice| voice.set_base_sample_rate(rate));
     }
 
     /// Volume applied to the whole mix before clipping; cancels a global
@@ -199,113 +300,9 @@ impl Mixer {
         }
     }
 
-    pub(super) fn with_voice(&mut self, handle: Handle, change: impl FnOnce(&mut Voice)) {
-        if let Some(voice) = self.voices.get_mut(handle) {
-            change(voice);
-        }
-    }
-}
-
-/// Queries.
-impl Mixer {
-    /// Whether `handle` refers to a voice that has not stopped.
-    pub fn is_valid_voice_handle(&self, handle: Handle) -> bool {
-        self.voices.get(handle).is_some()
-    }
-
-    /// The volume last set for the voice.
-    pub fn volume(&self, handle: Handle) -> Option<f32> {
-        self.voices.get(handle).map(|v| v.set_volume)
-    }
-
-    /// The voice's effective volume (set volume times 3D attenuation).
-    pub fn overall_volume(&self, handle: Handle) -> Option<f32> {
-        self.voices.get(handle).map(|v| v.overall_volume)
-    }
-
-    /// The pan last set for the voice.
-    pub fn pan(&self, handle: Handle) -> Option<f32> {
-        self.voices.get(handle).map(|v| v.pan)
-    }
-
-    /// Whether the voice is paused.
-    pub fn is_paused(&self, handle: Handle) -> Option<bool> {
-        self.voices.get(handle).map(|v| v.has_flag(flags::PAUSED))
-    }
-
-    /// Whether the voice loops.
-    pub fn is_looping(&self, handle: Handle) -> Option<bool> {
-        self.voices.get(handle).map(|v| v.has_flag(flags::LOOPING))
-    }
-
-    /// Whether the voice is protected.
-    pub fn is_protected(&self, handle: Handle) -> Option<bool> {
-        self.voices
-            .get(handle)
-            .map(|v| v.has_flag(flags::PROTECTED))
-    }
-
-    /// The speed last set for the voice.
-    pub fn relative_play_speed(&self, handle: Handle) -> Option<f32> {
-        self.voices.get(handle).map(|v| v.set_relative_play_speed)
-    }
-
-    /// The sample rate of the voice's sound (`Soloud::getSamplerate`).
-    pub fn sample_rate(&self, handle: Handle) -> Option<f32> {
-        self.voices.get(handle).map(|v| v.base_sample_rate)
-    }
-
-    /// Seconds of output the voice has been mixed for while not paused.
-    pub fn voice_stream_time(&self, handle: Handle) -> Option<f64> {
-        self.voices.get(handle).map(|v| v.stream_time)
-    }
-
-    /// Seconds into the sound, accounting for play speed; resets on loop.
-    pub fn stream_position(&self, handle: Handle) -> Option<f64> {
-        self.voices.get(handle).map(|v| v.stream_position)
-    }
-
-    /// How many times the voice has looped.
-    pub fn loop_count(&self, handle: Handle) -> Option<u32> {
-        self.voices.get(handle).map(|v| v.loop_count)
-    }
-
-    /// Voices playing or paused.
-    pub fn voice_count(&self) -> usize {
-        self.voices.count()
-    }
-
-    /// Voices that the next mix renders. Updates the active set if voices
-    /// changed since the last mix, as `Soloud::getActiveVoiceCount` does.
-    pub fn active_voice_count(&mut self) -> usize {
-        if self.voices.dirty {
-            self.voices.calc_active();
-        }
-        self.voices.active_count
-    }
-
-    /// Seconds of output mixed since the mixer was created.
-    pub fn stream_time(&self) -> f64 {
-        self.stream_time
-    }
-
-    /// The global volume, including the current point of a fade.
-    pub fn global_volume(&self) -> f32 {
-        self.global_volume
-    }
-
-    /// The scale applied after clipping.
-    pub fn post_clip_scaler(&self) -> f32 {
-        self.post_clip_scaler
-    }
-
-    /// The interpolation used for every voice.
-    pub fn main_resampler(&self) -> Resampler {
-        self.resampler
-    }
-
-    /// The active voice limit.
-    pub fn max_active_voice_count(&self) -> u32 {
-        self.voices.max_active() as u32
+    /// Applies `change` to the voice `handle` names, or to each voice of a
+    /// group.
+    pub(super) fn with_voice(&mut self, handle: Handle, change: impl FnMut(&mut Voice)) {
+        self.voices.for_each_voice(handle, change);
     }
 }

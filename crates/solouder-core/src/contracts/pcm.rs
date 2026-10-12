@@ -51,6 +51,30 @@ impl Pcm {
         })
     }
 
+    /// Converts planar unsigned 8-bit samples, 128 being silence, like
+    /// `Wav::loadRawWave8`.
+    pub fn from_planar_u8(
+        samples: &[u8],
+        channels: u32,
+        sample_rate: f32,
+    ) -> Result<Self, PcmError> {
+        let samples = samples
+            .iter()
+            .map(|&s| (i32::from(s) - 128) as f32 / 128.0)
+            .collect();
+        Self::from_planar(samples, channels, sample_rate)
+    }
+
+    /// Converts planar signed 16-bit samples like `Wav::loadRawWave16`.
+    pub fn from_planar_i16(
+        samples: &[i16],
+        channels: u32,
+        sample_rate: f32,
+    ) -> Result<Self, PcmError> {
+        let samples = samples.iter().map(|&s| f32::from(s) / 32768.0).collect();
+        Self::from_planar(samples, channels, sample_rate)
+    }
+
     /// Number of channels (1 to [`MAX_CHANNELS`]).
     pub fn channels(&self) -> u32 {
         self.channels
@@ -121,6 +145,19 @@ mod tests {
         assert_eq!(pcm.frames(), 2);
         assert_eq!(pcm.channel(0), [1.0, 2.0]);
         assert_eq!(pcm.channel(1), [3.0, 4.0]);
+    }
+
+    #[test]
+    fn converts_integer_samples_like_soloud() {
+        let pcm = Pcm::from_planar_u8(&[0, 128, 255, 64], 2, 8000.0).unwrap();
+        assert_eq!(pcm.channel(0), [-1.0, 0.0]);
+        assert_eq!(pcm.channel(1), [127.0 / 128.0, -0.5]);
+        let pcm = Pcm::from_planar_i16(&[i16::MIN, 0, i16::MAX], 1, 8000.0).unwrap();
+        assert_eq!(pcm.channel(0), [-1.0, 0.0, 32767.0 / 32768.0]);
+        assert_eq!(
+            Pcm::from_planar_u8(&[], 1, 8000.0).unwrap_err(),
+            PcmError::Empty
+        );
     }
 
     #[test]

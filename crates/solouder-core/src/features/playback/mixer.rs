@@ -72,24 +72,43 @@ impl Mixer {
     /// volume ramps restart at each pass; SoLoud's `Soloud::mix` instead
     /// writes past its scratch buffer.
     pub fn mix_interleaved(&mut self, output: &mut [f32]) {
+        self.mix_into(output, 0.0, |sample| sample);
+    }
+
+    /// [`Mixer::mix_interleaved`] to signed 16-bit samples
+    /// (`Soloud::mixSigned16`): each sample times 32767, truncated.
+    pub fn mix_interleaved_i16(&mut self, output: &mut [i16]) {
+        // C++ converts through a 32-bit integer, so values past 16 bits wrap
+        // rather than saturate.
+        self.mix_into(output, 0, |sample| (sample * 32767.0) as i32 as i16);
+    }
+
+    fn mix_into<T: Copy>(&mut self, output: &mut [T], silence: T, convert: impl Fn(f32) -> T) {
         let channels = self.config.channels as usize;
         let whole = output.len() / channels * channels;
         let (frames, partial) = output.split_at_mut(whole);
-        partial.fill(0.0);
+        partial.fill(silence);
         if frames.is_empty() {
             // Like `Soloud::mix(buffer, 0)`: no audio, but voices still finish
             // their gain ramps and ended voices stop.
-            return self.mix_pass(frames);
+            self.mix_pass(0);
+            return;
         }
         for pass in frames.chunks_mut(self.scratch_frames * channels) {
-            self.mix_pass(pass);
+            let stride = self.mix_pass(pass.len() / channels);
+            // Planar to interleaved.
+            for (c, planar) in self.scratch.chunks_exact(stride).take(channels).enumerate() {
+                for (frame, &sample) in pass.chunks_exact_mut(channels).zip(planar) {
+                    frame[c] = convert(sample);
+                }
+            }
         }
     }
 
-    /// One `Soloud::mix` call of at most `scratch_frames` frames.
-    fn mix_pass(&mut self, output: &mut [f32]) {
+    /// One `Soloud::mix` call of at most `scratch_frames` frames, leaving
+    /// the planar result in `scratch`. Returns the stride.
+    fn mix_pass(&mut self, frames: usize) -> usize {
         let channels = self.config.channels as usize;
-        let frames = output.len() / channels;
         let stride = frames.next_multiple_of(16);
         let sample_rate = self.config.sample_rate as f32;
 
@@ -127,15 +146,7 @@ impl Mixer {
             volumes,
             self.post_clip_scaler,
         );
-        // Planar to interleaved.
-        if stride == 0 {
-            return;
-        }
-        for (c, planar) in self.scratch.chunks_exact(stride).take(channels).enumerate() {
-            for (frame, &sample) in output.chunks_exact_mut(channels).zip(planar) {
-                frame[c] = sample;
-            }
-        }
+        stride
     }
 }
 

@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 17:39:44 +0300
+Subject: [PATCH] mixBus_internal: treat a negative step like a stopped voice
+
+---
+ src/core/soloud.cpp | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 4ab6f73..0635ae2 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1677,9 +1677,10 @@ namespace SoLoud
+ 			{
+ 				float step = voice->mSamplerate / aSamplerate;
+ 				// A step of a whole block or more never fits an output frame in
+-				// a block, so the loop below would not advance. Treat it, and
+-				// NaN, like a stopped voice.
+-				if (!(step < SAMPLE_GRANULARITY))
++				// a block, and a negative one wraps to a huge fixed-point step,
++				// so the loop below would not advance. Treat them, and NaN, like
++				// a stopped voice.
++				if (!(step >= 0 && step < SAMPLE_GRANULARITY))
+ 					step = 0;
+ 				unsigned int step_fixed = (int)floor(step * FIXPOINT_FRAC_MUL);
+ 				unsigned int outofs = 0;
+@@ -1877,7 +1878,7 @@ namespace SoLoud
+ 			{
+ 				// Inaudible but needs ticking. Do minimal work (keep counters up to date and ask audiosource for data)
+ 				float step = voice->mSamplerate / aSamplerate;
+-				if (!(step < SAMPLE_GRANULARITY))
++				if (!(step >= 0 && step < SAMPLE_GRANULARITY))
+ 					step = 0;
+ 				int step_fixed = (int)floor(step * FIXPOINT_FRAC_MUL);
+ 				unsigned int outofs = 0;

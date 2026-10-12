@@ -2,8 +2,10 @@
 // and src/core/soloud_core_voiceops.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
+use super::groups::VoiceGroups;
 use super::handle::{Handle, VOICE_COUNT};
 use super::retire::Retired;
+use super::sound::SoundId;
 use super::voice::{ResampleBlocks, Voice, flags};
 use crate::contracts::{MAX_CHANNELS, SAMPLE_GRANULARITY};
 
@@ -34,6 +36,7 @@ pub(crate) struct Voices {
     /// `find_free` stopped a voice to make room since the flag was last
     /// taken.
     pub stole: bool,
+    pub groups: VoiceGroups,
 }
 
 /// Two resample blocks per active voice (`mResampleData`), each owned by at
@@ -67,6 +70,7 @@ impl Voices {
             pool: ResamplePool::new(DEFAULT_MAX_ACTIVE),
             retired: Retired::default(),
             stole: false,
+            groups: VoiceGroups::default(),
         }
     }
 
@@ -89,8 +93,13 @@ impl Voices {
     }
 
     /// The slot `handle` refers to, if its voice is still playing
-    /// (`getVoiceFromHandle_internal`).
+    /// (`getVoiceFromHandle_internal`). A voice group stands for its first
+    /// member, even one that has stopped.
     pub fn slot_of(&self, handle: Handle) -> Option<usize> {
+        let handle = match self.groups.index_of(handle) {
+            Some(group) => self.groups.member(group, 0)?,
+            None => handle,
+        };
         let slot = handle.slot()?;
         let voice = self.slots[slot].as_ref()?;
         (voice.play_index & 0xfffff == handle.play_index()).then_some(slot)
@@ -101,9 +110,47 @@ impl Voices {
             .and_then(|slot| self.slots[slot].as_ref())
     }
 
+    #[cfg(test)]
     pub fn get_mut(&mut self, handle: Handle) -> Option<&mut Voice> {
         let slot = self.slot_of(handle)?;
         self.slots[slot].as_mut()
+    }
+
+    /// Calls `change` with the slot of `handle`'s voice or, for a voice
+    /// group, of each member still playing (`FOR_ALL_VOICES_PRE`).
+    pub fn for_each_slot(&mut self, handle: Handle, mut change: impl FnMut(&mut Self, usize)) {
+        let group = self.groups.index_of(handle);
+        for i in 0.. {
+            let member = match group {
+                Some(group) => match self.groups.member(group, i) {
+                    Some(member) => member,
+                    None => break,
+                },
+                None if i == 0 => handle,
+                None => break,
+            };
+            if let Some(slot) = self.slot_of(member) {
+                change(self, slot);
+            }
+        }
+    }
+
+    /// [`Voices::for_each_slot`] for changes to the voice alone.
+    pub fn for_each_voice(&mut self, handle: Handle, mut change: impl FnMut(&mut Voice)) {
+        self.for_each_slot(handle, |voices, slot| {
+            if let Some(voice) = voices.slots[slot].as_mut() {
+                change(voice);
+            }
+        });
+    }
+
+    /// Stops every voice of the sound `id` (`Soloud::stopAudioSource`).
+    pub fn stop_sound(&mut self, id: SoundId) {
+        for slot in 0..self.highest {
+            if self.slots[slot].as_ref().is_some_and(|v| v.sound_id == id) {
+                self.stop(slot);
+            }
+        }
     }
 
     /// A free slot, or the oldest unprotected voice's slot after stopping it
@@ -150,9 +197,9 @@ impl Voices {
     }
 
     /// Chooses which voices to mix (`calcActiveVoices_internal`): every
-    /// unpaused voice if they fit, otherwise protected voices first and then
-    /// the loudest by overall volume, using SoLoud's partial quicksort so ties
-    /// resolve identically.
+    /// audible, unpaused voice and every ticking voice if they fit, otherwise
+    /// ticking and protected voices first and then the loudest by overall
+    /// volume, using SoLoud's partial quicksort so ties resolve identically.
     pub fn calc_active(&mut self) {
         self.dirty = false;
         let max = self.max_active();
@@ -160,12 +207,14 @@ impl Voices {
         let mut must_live = 0;
         for (i, slot) in self.slots[..self.highest].iter().enumerate() {
             let Some(voice) = slot else { continue };
-            if voice.has_flag(flags::PAUSED) {
+            if voice.has_flag(flags::INAUDIBLE | flags::PAUSED)
+                && !voice.has_flag(flags::INAUDIBLE_TICK)
+            {
                 continue;
             }
             self.active[candidates] = i as u32;
             candidates += 1;
-            if voice.has_flag(flags::PROTECTED) {
+            if voice.has_flag(flags::INAUDIBLE_TICK | flags::PROTECTED) {
                 self.active[candidates - 1] = self.active[must_live];
                 self.active[must_live] = i as u32;
                 must_live += 1;

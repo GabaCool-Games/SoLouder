@@ -221,6 +221,26 @@ namespace
 		check(maxAbsChannel(out, 0) > 0.01f, "the protected voice is mixed in the next render");
 	}
 
+	// Patch 0026: setInaudibleBehavior did not mark the active set dirty, so a
+	// voice made to tick stayed out of the active set like in patch 0023.
+	void ticking_a_voice_makes_it_active()
+	{
+		Wav dc;
+		check(loadWav(dc, makeConstantWav(1, 4410, 0.25f)) == SO_NO_ERROR, "wav loads");
+		dc.setLooping(true);
+
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		check(soloud.setMaxActiveVoiceCount(1) == SO_NO_ERROR, "set active cap");
+		handle quiet = soloud.play(dc, 0.2f, -1.0f); // hard left, quietest voice
+		soloud.play(dc, 1.0f, 1.0f);                  // hard right, active
+		std::vector<float> out = render(soloud, 1024);
+		check(maxAbsChannel(out, 0) < 0.01f, "only the loud voice is mixed at first");
+		soloud.setInaudibleBehavior(quiet, true, false);
+		out = render(soloud, 1024);
+		check(maxAbsChannel(out, 0) > 0.01f, "the ticking voice is mixed in the next render");
+	}
+
 	// Frames of the left channel that are not silent.
 	unsigned int audibleFrames(const std::vector<float> &aOut)
 	{
@@ -324,6 +344,91 @@ namespace
 		check(instance->seek(0.05, scratch, 1) != SO_NO_ERROR, "seek with sub-frame scratch fails");
 		check(instance->seek(0.05, scratch, 0) != SO_NO_ERROR, "seek with empty scratch fails");
 		delete instance;
+	}
+
+	// Patch 0027: setSamplerate accepts any rate, and a negative one made the
+	// fixed-point step a huge unsigned value, so mixBus_internal never wrote a
+	// frame and mix hung.
+	void negative_sample_rate_renders_silence()
+	{
+		Wav dc;
+		check(loadWav(dc, makeConstantWav(1, 4410, 0.25f)) == SO_NO_ERROR, "wav loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle slow = soloud.play(dc, 1.0f, -1.0f);
+		handle back = soloud.play(dc, 1.0f, -1.0f);
+		soloud.setSamplerate(slow, -44100.0f);
+		soloud.setSamplerate(back, -INFINITY);
+		std::vector<float> out = render(soloud, 1024);
+		check(maxAbsChannel(out, 0) == 0.0f, "the voices render silence");
+		check(soloud.isValidVoiceHandle(slow) && soloud.isValidVoiceHandle(back), "the voices keep playing");
+	}
+
+	// Patch 0028: seek turned seconds into frames at the voice's playback
+	// rate, which includes the relative play speed, but mStreamPosition counts
+	// seconds of source; at speed 2 a seek went twice as far.
+	void seek_ignores_play_speed()
+	{
+		std::vector<float> ramp(kRate);
+		for (unsigned int i = 0; i < kRate; i++)
+			ramp[i] = (float)i / kRate;
+		Wav wav;
+		check(loadWav(wav, makeWav(1, ramp)) == SO_NO_ERROR, "wav loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle h = soloud.play(wav, 1.0f, 0.0f, true);
+		soloud.setRelativePlaySpeed(h, 2.0f);
+		check(soloud.seek(h, 0.25) == SO_NO_ERROR, "seek succeeds");
+		check(soloud.getStreamPosition(h) == 0.25, "the stream position is the requested time");
+		AudioSourceInstance *instance = wav.createInstance();
+		instance->init(wav, 0);
+		instance->mSamplerate = instance->mBaseSamplerate * 2;
+		std::vector<float> scratch(4096);
+		check(instance->seek(0.25, scratch.data(), 4096) == SO_NO_ERROR, "instance seek succeeds");
+		float sample = -1.0f;
+		instance->getAudio(&sample, 1, 1);
+		check(sample == ramp[kRate / 4], "the seek lands a quarter second into the source");
+		delete instance;
+	}
+
+	// Patch 0029: the loop wrap seeks with the mixer scratch, which still holds
+	// the frames resampled earlier in the same mix, so any loop point above 0
+	// overwrote them with discarded source audio.
+	void loop_point_keeps_earlier_frames()
+	{
+		std::vector<float> saw(2000);
+		for (unsigned int i = 0; i < saw.size(); i++)
+			saw[i] = (float)(i % 97) / 97.0f - 0.5f;
+		std::vector<float> outputs[2];
+		for (int run = 0; run < 2; run++)
+		{
+			Wav wav;
+			check(loadWav(wav, makeWav(1, saw)) == SO_NO_ERROR, "wav loads");
+			wav.setLooping(true);
+			wav.setLoopPoint(run ? 0.02 : 0.0);
+			Soloud soloud;
+			check(initNull(soloud), "null driver init");
+			soloud.play(wav);
+			outputs[run] = render(soloud, 1500);
+			std::vector<float> more = render(soloud, 400);
+			outputs[run].insert(outputs[run].end(), more.begin(), more.end());
+		}
+		check(outputs[0] == outputs[1], "the frames before the first wrap do not depend on the loop point");
+	}
+
+	// Patch 0030: soloud.h's fallback M_PI (used where <math.h> has none, as
+	// with MSVC) had 12 digits, so a hard-panned voice leaked about 1e-12 into
+	// the other side on Windows but not on Linux.
+	void hard_pan_is_silent_on_the_far_side()
+	{
+		Wav dc;
+		check(loadWav(dc, makeConstantWav(1, 4410, 1.0f)) == SO_NO_ERROR, "wav loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		soloud.setPostClipScaler(1.0f);
+		soloud.play(dc, 1.0f, 1.0f);
+		std::vector<float> out = render(soloud, 512);
+		check(maxAbsChannel(out, 0) < 1e-15f, "the left side is silent");
 	}
 
 	// #345: before init, the active-voice count was 16 but the resample
@@ -722,10 +827,15 @@ namespace
 		{ "inaudible_tick_over_active_cap", inaudible_tick_over_active_cap },
 		{ "protected_voice_stays_active", protected_voice_stays_active },
 		{ "protecting_a_voice_makes_it_active", protecting_a_voice_makes_it_active },
+		{ "ticking_a_voice_makes_it_active", ticking_a_voice_makes_it_active },
 		{ "sound_tail_survives_unaligned_mix_calls", sound_tail_survives_unaligned_mix_calls },
 		{ "zero_step_voice_no_stale_scratch", zero_step_voice_no_stale_scratch },
 		{ "extreme_speed_makes_progress", extreme_speed_makes_progress },
 		{ "generic_seek_small_scratch", generic_seek_small_scratch },
+		{ "negative_sample_rate_renders_silence", negative_sample_rate_renders_silence },
+		{ "seek_ignores_play_speed", seek_ignores_play_speed },
+		{ "loop_point_keeps_earlier_frames", loop_point_keeps_earlier_frames },
+		{ "hard_pan_is_silent_on_the_far_side", hard_pan_is_silent_on_the_far_side },
 		{ "play_stop_without_init", play_stop_without_init },
 		{ "play_after_failed_init", play_after_failed_init },
 		{ "wav_rejects_too_many_channels", wav_rejects_too_many_channels },

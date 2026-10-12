@@ -1,0 +1,22 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 17:57:23 +0300
+Subject: [PATCH] soloud.h: define the fallback M_PI to full precision
+
+---
+ include/soloud.h | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/include/soloud.h b/include/soloud.h
+index d64d787..7818c41 100644
+--- a/include/soloud.h
++++ b/include/soloud.h
+@@ -60,7 +60,7 @@ freely, subject to the following restrictions:
+ #endif
+ 
+ #ifndef M_PI
+-#define M_PI 3.14159265359
++#define M_PI 3.14159265358979323846
+ #endif
+ 
+ #if defined(_WIN32)||defined(_WIN64)

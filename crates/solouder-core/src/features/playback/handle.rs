@@ -9,6 +9,9 @@ pub const VOICE_COUNT: usize = 1024;
 /// voice-group handles.
 const PLAY_INDEX_LIMIT: u32 = 0xfffff;
 
+/// High bits of every voice group handle; the low 12 bits are its index.
+pub(crate) const GROUP_MARK: u32 = 0xffff_f000;
+
 /// Identifies one playing voice, with SoLoud's bit layout: the low 12 bits
 /// hold the voice slot plus one and the high 20 bits the play index.
 ///
@@ -45,6 +48,11 @@ impl Handle {
 
     pub(crate) fn play_index(self) -> u32 {
         self.0 >> 12
+    }
+
+    /// Whether the bits are those of a voice group handle, existing or not.
+    pub(crate) fn has_group_mark(self) -> bool {
+        self.0 & GROUP_MARK == GROUP_MARK
     }
 }
 

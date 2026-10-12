@@ -246,3 +246,20 @@ fn a_clocked_play_keeps_its_delay_and_the_requested_pause() {
     assert_eq!(out[43 * 2], first_only);
     assert!((out[44 * 2] - first_only * 1.5).abs() < 1e-6);
 }
+
+#[test]
+fn ticking_voices_over_the_active_cap_still_get_resample_blocks() {
+    let mut mixer = mixer();
+    mixer.set_max_active_voice_count(2).unwrap();
+    let mut ticking = dc(0.25, 4410);
+    ticking.set_looping(true);
+    ticking.set_inaudible_behavior(true, false);
+    for _ in 0..3 {
+        mixer.play(&ticking);
+    }
+    mixer.play(&dc(0.25, 4410));
+    let out = render(&mut mixer, 4096);
+    assert!(out.iter().all(|s| s.is_finite()));
+    assert_eq!(mixer.active_voice_count(), 2);
+    assert!(out.iter().any(|&s| s != 0.0));
+}

@@ -1,0 +1,77 @@
+# Sound-level controls: counting and stopping a sound's voices (through the
+# engine and through the sound), single-instance sounds, length, 8- and
+# 16-bit raw loads, and sound defaults for loop point, autostop and
+# inaudible ticking (ticking voices always get an active slot, even paused,
+# and setting it on a voice takes effect at once, patch 0026).
+init channels=2
+sound name=a frames=2205 pattern=saw period=60 amp=0.4 looping=1
+sound name=b frames=44101 pattern=noise seed=9 amp=0.2
+sound_query name=a
+sound_query name=b
+play sound=a as=a1
+play sound=a as=a2 pan=0.5
+play sound=b as=b1
+sound_query name=a
+sound_query name=b
+mix frames=500
+stop_sound name=a
+sound_query name=a
+counts
+mix frames=500
+play sound=a as=a3
+stop_sound name=b source=1
+sound_query name=b
+counts
+mix frames=500
+stop_all
+
+# Single instance: each play stops the sound's previous voice.
+sound name=one frames=3000 pattern=saw period=70 amp=0.5 single=1
+play sound=one as=o1
+mix frames=400
+play sound=one as=o2 pan=-0.5
+query h=o1
+query h=o2
+sound_query name=one
+mix frames=400
+stop_all
+
+# 8- and 16-bit raw loads, their samples, length and playback.
+sound name=u8 channels=2 frames=300 pattern=saw period=23 amp=0.9 bits=8
+sound name=s16 channels=3 frames=301 pattern=noise seed=4 amp=1 bits=16 rate=22050
+sound name=bad8 channels=9 frames=4 bits=8
+sound name=bad16 channels=1 frames=0 bits=16
+samples name=u8
+samples name=s16
+sound_query name=u8
+sound_query name=s16
+play sound=u8 as=u
+play sound=s16 as=s
+mix frames=700
+stop_all
+
+# Sound defaults reach new voices.
+sound name=defaults frames=1000 pattern=saw period=30 looping=1 loop_point=0.01 auto_stop=0 tick=1 kill=1
+play sound=defaults as=d1
+query h=d1
+stop h=d1
+
+# Ticking voices take active slots first, even when paused.
+global max_active=2
+sound name=dc frames=4410 looping=1
+sound name=tick frames=4410 looping=1 tick=1
+play sound=dc as=loud1 volume=1 pan=1
+play sound=dc as=loud2 volume=0.9 pan=1
+play sound=tick as=quiet volume=0.1 pan=-1
+mix frames=512
+counts
+set h=quiet pause=1
+mix frames=512
+counts
+set h=quiet pause=0 tick=0 kill=0
+mix frames=512
+counts
+set h=loud1 tick=1 kill=0
+set h=quiet tick=1 kill=0
+mix frames=512
+counts

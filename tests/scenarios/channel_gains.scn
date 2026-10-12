@@ -1,0 +1,63 @@
+# Absolute pan on every source layout (quad copies to the rear, 5.1 and 7.1
+# give the center and subwoofer the mean), absolute pan cancelling a pan fade
+# but keeping the pan value, per-channel volume (ignored past the source's
+# channels), and 16-bit output through both clippers, including values past
+# full scale.
+init channels=8 buffer=512
+sound name=m1 channels=1 frames=4000 pattern=saw period=40 amp=0.5
+sound name=m2 channels=2 frames=4000 pattern=saw period=41 amp=0.5
+sound name=m4 channels=4 frames=4000 pattern=saw period=42 amp=0.5
+sound name=m6 channels=6 frames=4000 pattern=saw period=43 amp=0.5
+sound name=m8 channels=8 frames=4000 pattern=saw period=44 amp=0.5
+play sound=m1 as=v1
+set h=v1 abs_l=0.8 abs_r=0.3
+mix frames=100
+stop h=v1
+play sound=m2 as=v2
+set h=v2 abs_l=0.2 abs_r=0.9
+mix frames=100
+stop h=v2
+play sound=m4 as=v4
+set h=v4 abs_l=0.7 abs_r=0.1
+mix frames=100
+set h=v4 channel=3 channel_volume=0.25
+mix frames=100
+set h=v4 channel=5 channel_volume=0.5
+mix frames=100
+stop h=v4
+play sound=m6 as=v6
+set h=v6 abs_l=0.6 abs_r=0.4
+mix frames=100
+set h=v6 channel=4 channel_volume=1.5
+mix frames=100
+stop h=v6
+play sound=m8 as=v8
+set h=v8 abs_l=1 abs_r=0.5
+mix frames=100
+set h=v8 channel=7 channel_volume=0
+mix frames=100
+stop h=v8
+
+# Absolute pan cancels a pan fade; the pan value stays where the fade left it.
+play sound=m1 as=fp pan=-1
+fade h=fp param=pan to=1 time=0.01
+mix frames=200
+set h=fp abs_l=0.5 abs_r=0.5
+mix frames=300
+query h=fp
+stop h=fp
+
+# 16-bit output.
+init channels=2
+sound name=loud frames=2000 pattern=noise seed=3 amp=1
+play sound=loud as=l1
+play sound=loud as=l2 volume=0.7
+mix16 frames=700
+global clip_scale=1.2
+mix16 frames=700
+init channels=2 clip=hard
+sound name=loud frames=2000 pattern=noise seed=3 amp=1
+play sound=loud as=l1
+play sound=loud as=l2 volume=0.7
+global clip_scale=1.5
+mix16 frames=700

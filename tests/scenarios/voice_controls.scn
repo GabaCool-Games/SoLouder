@@ -1,0 +1,89 @@
+# Per-voice controls: loop points (including one past the end of the sound and
+# one at double speed, patch 0028), seeking forward, back and past the end,
+# autostop off and on, sample rate changes (a negative rate renders silence,
+# patch 0027), pause all, background play, and the version and query values.
+init channels=2 buffer=1024
+version
+sound name=saw frames=2000 pattern=saw period=97 amp=0.5 looping=1 loop_point=0.02
+play sound=saw as=a pan=-0.5
+mix frames=1500
+query h=a
+mix frames=1500
+query h=a
+set h=a loop_point=0.03 speed=2
+mix frames=2000
+query h=a
+stop h=a
+
+# A loop point past the end leaves the voice silent but looping.
+sound name=past frames=300 pattern=saw period=31 amp=0.4 looping=1 loop_point=1
+play sound=past as=p
+mix frames=1024
+query h=p
+mix frames=1024
+query h=p
+stop h=p
+
+# Seek forward, back (rewind, then skip) and past the end.
+sound name=noise frames=3000 pattern=noise seed=5 amp=0.4
+play sound=noise as=b pan=0.5
+mix frames=256
+set h=b seek=0.04
+mix frames=600
+set h=b seek=0.01
+mix frames=600
+query h=b
+set h=b speed=2 seek=0.03
+mix frames=700
+query h=b
+set h=b seek=0.5
+mix frames=1100
+query h=b
+
+# Autostop off keeps a finished voice; turning it back on stops it.
+sound name=held frames=700 pattern=saw period=50 amp=0.3 auto_stop=0
+play sound=held as=c
+mix frames=2048
+query h=c
+counts
+set h=c auto_stop=1
+mix frames=512
+query h=c
+play sound=noise as=d
+set h=d auto_stop=0
+mix frames=4096
+query h=d
+stop h=d
+
+# Sample rates: half, negative (silent, still playing), back to normal.
+play sound=saw as=e
+set h=e rate=22050
+mix frames=1000
+query h=e
+set h=e rate=-44100
+mix frames=1000
+query h=e
+set h=e rate=44100
+mix frames=1000
+query h=e
+
+# Pause all, then resume all.
+play sound=noise as=f pan=0.3
+global pause_all=1
+mix frames=300
+query h=e
+query h=f
+counts
+global pause_all=0
+mix frames=300
+query h=f
+stop_all
+
+# Background play: full gain left and right, pan unchanged.
+play sound=saw as=g background=1 volume=0.5
+mix frames=600
+query h=g
+play sound=saw as=q background=1 paused=1
+query h=q
+set h=q pause=0
+mix frames=300

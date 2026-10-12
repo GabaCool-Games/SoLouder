@@ -79,6 +79,12 @@ impl State {
             "oscillate" => self.oscillate(step),
             "schedule" => self.schedule(step),
             "state" => self.state(step),
+            "mix16" => self.mix16(step),
+            "sound_query" => self.sound_query(step),
+            "stop_sound" => self.stop_sound(step),
+            "group" => self.group(step),
+            "group_add" | "group_destroy" | "group_query" => self.group_op(step),
+            "version" => self.version(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }

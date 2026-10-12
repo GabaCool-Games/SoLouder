@@ -11,6 +11,7 @@ mod ops;
 pub mod pattern;
 pub mod run;
 pub mod scenario;
+mod voice_ops;
 
 pub use compare::{Golden, Stats, compare, load_golden};
 pub use run::{MAX_MIX_FRAMES, Rendered, run};
