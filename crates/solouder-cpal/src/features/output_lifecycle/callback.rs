@@ -17,6 +17,8 @@ pub(crate) struct OutputShared {
     pub state: AtomicU8,
     pub errors: AtomicU64,
     pub callbacks: AtomicU64,
+    /// Frames the most recent callback asked for.
+    pub callback_frames: AtomicU64,
 }
 
 /// Holds the renderer inside the callback closure. However the closure is
@@ -74,6 +76,9 @@ impl Callback {
     /// output stays silent: the mixer's state can no longer be trusted.
     pub fn fill<T: Sample + FromSample<f32>>(&mut self, data: &mut [T]) {
         self.shared.callbacks.fetch_add(1, Ordering::Relaxed);
+        self.shared
+            .callback_frames
+            .store((data.len() / self.channels) as u64, Ordering::Relaxed);
         let renderer = match self.holder.renderer.as_mut() {
             Some(renderer) if !self.shared.panicked.load(Ordering::Relaxed) => renderer,
             _ => return data.fill(T::EQUILIBRIUM),
@@ -135,6 +140,7 @@ mod tests {
         assert_eq!(converted, expected);
         assert!(converted.iter().any(|&s| s != 0));
         assert_eq!(cb.shared.callbacks.load(Ordering::Relaxed), 1);
+        assert_eq!(cb.shared.callback_frames.load(Ordering::Relaxed), 1000);
     }
 
     #[test]

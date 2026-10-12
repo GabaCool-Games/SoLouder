@@ -7,7 +7,7 @@ SoLouder ports the SoLoud audio engine to **native Rust**, with an idiomatic
 keeps SoLoud's mixing behavior without requiring the C++ library in the normal
 Rust build, and adds the fixes and extensions developed for GoreGrind.
 
-**Current status:** milestone B is done. This repository contains the
+**Current status:** milestone C is done. This repository contains the
 patched C++ reference tooling (pinned upstream commit, patch series, fetch
 script, C++ regression tests), the parity ledger, and a Cargo workspace with
 the scenario harness: `tests/scenarios/*.scn` run through a C++ null-driver
@@ -16,7 +16,10 @@ compares them. `solouder-core` plays prepared PCM (play, stop, pause, loop,
 volume, pan, speed, three resamplers, 1 to 8 channels, clipping) and
 `solouder-decoders` decodes WAV files into it; both match the reference in
 every scenario (bit for bit, except the documented 8-bit WAV conversion).
-There is no device output or Bevy plugin yet; see
+The mixer runs on the audio thread behind bounded, wait-free queues
+(`solouder_core::realtime`), `solouder-cpal` plays it on the default device,
+and `bevy_solouder` plays `.wav` assets from entities that stop when
+despawned. Buses, filters, 3D audio and streaming are still to come; see
 [port-status.md](port-status.md).
 
 [ARCHITECTURE.md](ARCHITECTURE.md) owns the target workspace, Vertical Slice
@@ -490,7 +493,7 @@ The ledger's `milestone` column assigns every C API behavior to one of these.
 |---|---|
 | A — Foundation and reference harness | Patched reference and C++ regression tests (done); parity ledger (done); Cargo workspace with pinned Rust/Bevy versions (done); `scripts/check_all.py` and a CI workflow, verified locally on Windows and in a Linux container but not yet run on a CI host (done); scenario format with a C++ null-driver runner and a Rust runner (done, first scenarios: init validation and silence) |
 | B — Offline playback (done) | Prepared PCM and decoded WAV files (done; `solouder-decoders`, Symphonia), planar mixer for 1 to 8 channels (done), handles (done), play/stop/pause/loop with loop point 0 (done), volume/pan (done), point/linear/Catmull-Rom resampling (done), clipping and global volume (done); 12 parity scenarios for playback and WAV decoding, bit-identical on Windows except the 8-bit WAV conversion |
-| C — Windows and Bevy playable slice | CPAL negotiation, bounded control/status, asset loading, playback/despawn example, no-device/allocation tests |
+| C — Windows and Bevy playable slice (done) | Bounded wait-free control, events and audio retirement between game and audio thread, allocation-free renders (done; `solouder_core::realtime`, `realtime_no_alloc`); CPAL negotiation of rate, channels and sample format, panic-to-silence callback, device error states, safe shutdown order (done; `solouder-cpal`, `play_wav` example, checked on a Windows WASAPI device); Bevy plugin with `.wav` asset loader, playback entities, settings, status and messages, stop on despawn, headless mode (done; `bevy_solouder`, `play_and_despawn` example) |
 | D — Routing and DSP parity | Nested buses, queues/groups, virtualization/protection, scheduling, remaining resamplers, voice/bus/global filters |
 | E — Spatial and streaming parity | Listener/emitter systems, attenuation/Doppler/delay, workers, seek/loop regressions, WAV/FLAC/Ogg Vorbis/MP3 |
 | F — Sources and portability | Generators/speech/music, FFT/visualization, Linux/macOS checks, stress/benchmarks, support matrix |
@@ -514,7 +517,16 @@ belong to the milestone that introduces the affected behavior:
   all-protected tables (patch 0020). Done. Inaudible-tick voices (patch 0006)
   move to D with inaudible behavior.
 - **C:** init failure, repeated init/teardown, and callback-before-state
-  shutdown order (patch 0010, #307, GoreGrind teardown lessons).
+  shutdown order (patch 0010, #307, GoreGrind teardown lessons). Done:
+  `device_lifecycle` (`repeated_open_play_close`,
+  `dropping_while_playing_stops_cleanly`, `two_outputs_run_independently`,
+  `invalid_voice_count_fails_before_touching_the_device`), `plugin_lifecycle`
+  (`device_apps_start_play_and_tear_down_repeatedly`,
+  `dropping_a_device_app_mid_playback_returns_promptly`,
+  `without_an_output_players_fail_and_the_app_keeps_running`,
+  `despawning_before_the_clip_loads_never_starts_a_voice`), and the callback
+  unit test `dropping_the_callback_returns_the_renderer`. Device tests skip
+  without hardware unless `SOLOUDER_REQUIRE_DEVICE=1`.
 - **D:** protected-voice ranking (patch 0007), bus default volume and nested
   gain (#381, #395, #280), queue and voice-group fixes (#291, #228, #322),
   filter stability at the voice processing rate.

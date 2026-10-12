@@ -85,6 +85,8 @@ fn repeated_open_play_close() {
         assert_eq!(event, Some(Event::Finished(id, FinishReason::Ended)));
         assert_eq!(output.state(), OutputState::Playing);
         assert!(output.callback_count() > 0);
+        assert!(output.callback_frames() > 0);
+        assert!(!output.info().backend.is_empty());
         assert_eq!(controller.voice_ids_in_use(), 0);
         let renderer = output.close();
         assert!(

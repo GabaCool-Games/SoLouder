@@ -7,26 +7,38 @@ reference, and how it is verified. Per-behavior status lives in
 
 ## Summary
 
-Milestone B (offline playback) is done. The mixer plays prepared PCM with 1
+Milestone C (Windows and Bevy playable slice) is done; milestone B (offline
+playback) before it. The mixer plays prepared PCM with 1
 to 8 channels on outputs of 1 to 8 channels: play, stop, pause, loop, volume,
 pan, relative speed, point/linear/Catmull-Rom resampling, delayed starts,
 protected voices, the active-voice limit, global volume and both clippers.
 WAV files decode into that PCM. Every scenario renders the same samples as
-the C++ reference, bit for bit, except 8-bit WAV (see below). No device
-output, other codecs or Bevy integration exist yet.
+the C++ reference, bit for bit, except 8-bit WAV (see below).
+
+For real-time use the mixer is split into a `Controller` for the game thread
+and a `Renderer` for the audio thread, joined by bounded wait-free queues
+(see [ARCHITECTURE.md](ARCHITECTURE.md#ownership-and-the-real-time-boundary)).
+`solouder-cpal` runs the renderer on the default output device and
+`bevy_solouder` plays `.wav` assets from entities. Other codecs, buses,
+filters and 3D audio do not exist yet.
 
 | Crate | Slices / modules | Contents |
 |---|---|---|
 | `solouder-core` | `contracts` | `Pcm` (validated planar samples), `SAMPLE_GRANULARITY`, `MAX_CHANNELS` |
 | `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping |
 | `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `Handle`, `PlayOptions`, voice table, active-voice selection, resample-buffer pool, bus mixing, voice control and queries |
+| `solouder-core` | `features/realtime` | `split`, `Controller`, `Renderer`, `VoiceId`, `Event`, `Status`, `RealtimeConfig`; retirement of ended voices' PCM to the game thread |
 | `solouder-decoders` | `features/decoded_audio` | `decode_wav` (Symphonia for parsing, dr_wav's sample conversion), `DecodeLimits`, `DecodeError` |
+| `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
+| `bevy_solouder` | `decoded_audio`, `output_lifecycle`, `playback` | `SolouderPlugin`, `AudioClip` and `WavLoader`, `OutputMode` (device or headless), `AudioOutput`, `SoundPlayer`, `PlaybackSettings`, `SoundStatus`, `SoundFinished`/`SoundFailed` |
 | `solouder-parity` | — | Scenario parser, test patterns, WAV fixture loading, Rust runner, comparison with C++ output |
 
 Ledger: the Milestone B playback behaviors are `ported`; `Soloud::init`,
 `AudioSource::setVolume` and `AudioSource::setLooping` are `in-progress`
 (init flags and the rest of the source-level defaults remain), as are
 `Wav::load` and `Wav::loadMem` (WAV only; the other codecs come in E).
+Milestone C ports `Soloud::deinit` and the `getBackend*` queries; `init`
+stays `in-progress` until its remaining flags are done.
 
 ## Verified by scenario
 
@@ -53,6 +65,25 @@ Windows x86-64, except `wav_decode_u8` (7.8e-3, the 8-bit conversion) and
 zero). Run with `python scripts/run_parity.py` or
 `python scripts/check_all.py --reference --parity`.
 
+## Verified by tests (milestone C)
+
+The real-time and device paths have no C++ counterpart in the null-driver
+harness, so they are checked by Rust tests instead of scenarios:
+
+| Test | Checks |
+|---|---|
+| `realtime_tests` (core, 10 tests) | Renders match an offline `Mixer` sample for sample, a stop queued before the first render still reports start and finish, commands for finished voices do nothing, full queues and ID pools reject requests, each render applies a bounded number of commands, ended audio is released by the controller, all-protected tables fail the play |
+| `realtime_no_alloc` (core) | No allocation or free inside any `Renderer::render`: playing, changing settings, stopping, voices ending, voice stealing past the slot count, and `stop_all` |
+| `callback` unit tests (cpal) | Long callbacks render in parts identical to manual renders, conversion to `i16`, a renderer panic gives silence, dropping the callback returns the renderer |
+| `device_lifecycle` (cpal) | Repeated open/play/close, drop while playing, two outputs at once, invalid settings rejected before the device is opened |
+| `headless_playback` (Bevy, 8 tests) | Play to the end, stop on despawn, remove and replace, pause and resume, despawn on finish, `.wav` loading through the asset server, a bad file fails the player |
+| `plugin_lifecycle` (Bevy) | No output keeps the app running and fails plays, despawn before load never starts a voice, a 5000-sound burst gets one outcome per sound with every ID released, repeated device app teardown, prompt drop mid-playback |
+
+Device tests skip on machines without audio output (as in CI) unless
+`SOLOUDER_REQUIRE_DEVICE=1`; they pass on a Windows WASAPI device. The
+workspace also builds, passes clippy and passes its tests on Linux (Docker,
+Rust 1.98.1, no device).
+
 ## Deliberate differences from the reference
 
 | Area | C++ reference | Rust | Why |
@@ -71,7 +102,12 @@ zero). Run with `python scripts/run_parity.py` or
 | WAV variants | dr_wav also reads MS/IMA ADPCM, 12-bit and 64-bit integer PCM | `DecodeError::Unsupported` | Not implemented yet |
 | Unknown files | `Wav::load` detects WAV, Ogg, FLAC and MP3, and tries MP3 for anything else | `decode_wav` reads WAV only and reports `NotRecognized` | Other codecs come in milestone E; the caller picks the decoder |
 | Decode limits | Only the `u32` size checks of patch 0012 | `DecodeLimits::max_samples` (default 256 Mi samples); allocation follows decoded data, not header claims | Untrusted files cannot request huge allocations |
-| Voice end | The audio thread releases the source instance under the engine mutex | The voice's `Arc<[f32]>` is dropped inside the mix call | Acceptable offline; Milestone C moves retirement off the real-time thread |
+| Voice end | The audio thread releases the source instance under the engine mutex | Through `Renderer`, an ended or stopped voice's PCM goes back to the controller and is freed on the game thread; an offline `Mixer` drops it in the mix call unless `keep_retired_audio` is set | Freeing memory on the audio thread can block |
+| Control | Every call locks the audio mutex and applies immediately | Controller calls queue a command, applied at the start of the next render; getters read the last published `Status` | The audio thread never waits for the game |
+| Voice IDs | `play` returns a handle once the voice exists | The controller reserves a `VoiceId` when the play is queued; with all 4096 reserved, `play` fails with `NoFreeVoiceId` (the Bevy plugin reports `NoFreeVoice`) instead of starting late | Commands can target a voice before it starts; a late sound is worse than none |
+| Callback panic | Undefined (an exception unwinds into the backend) | The output plays silence from then on and `Output::state` reports `Panicked` | Unwinding into a foreign callback is undefined behavior |
+| Lost device | Backend-specific | `Output::state` reports `Disconnected` or `Failed` and plays nothing; there is no automatic reconnection yet | Reopening is an application decision for now |
+| Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which joins the callback; the renderer is handed back and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0022 (pan ramp
 leftovers, surround fold-down volumes, no-free-voice handling, raw layout
@@ -81,7 +117,8 @@ validation, the #343 hang) are listed in
 ## Not yet covered
 
 - Init flags other than the clipper (`LEFT_HANDED_3D`, ...), `mixSigned16`,
-  device backends and the real-time command queue (Milestone C).
+  device reconnection, and device output outside Windows WASAPI (checked
+  only to build and skip on Linux).
 - Inaudible behavior, 3D audio, filters, buses, faders, voice groups and
   queues (Milestone D).
 - Streaming, Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).

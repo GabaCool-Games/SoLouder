@@ -3,7 +3,7 @@ Soloud::addVoiceToGroup,engine,Soloud_addVoiceToGroup,routing,D,todo,,
 Soloud::calcFFT,engine,Soloud_calcFFT,visualization,F,todo,,
 Soloud::countAudioSource,engine,Soloud_countAudioSource,playback,B,todo,,
 Soloud::createVoiceGroup,engine,Soloud_createVoiceGroup,routing,D,todo,,
-Soloud::deinit,engine,Soloud_deinit,output_lifecycle,C,todo,,
+Soloud::deinit,engine,Soloud_deinit,output_lifecycle,C,ported,,Dropping or closing solouder_cpal::Output stops the stream before the mixer is freed on the closing thread. device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
 Soloud::destroyVoiceGroup,engine,Soloud_destroyVoiceGroup,routing,D,todo,,
 Soloud::fadeFilterParameter,engine,Soloud_fadeFilterParameter,filters,D,todo,,
 Soloud::fadeGlobalVolume,engine,Soloud_fadeGlobalVolume,playback,D,todo,,
@@ -14,11 +14,11 @@ Soloud::get3dSoundSpeed,engine,Soloud_get3dSoundSpeed,spatial,E,todo,,
 Soloud::getActiveVoiceCount,engine,Soloud_getActiveVoiceCount,playback,B,ported,play_basic pause_stop active_voices,
 Soloud::getApproximateVolume,engine,Soloud_getApproximateVolume,visualization,F,todo,,
 Soloud::getAutoStop,engine,Soloud_getAutoStop,playback,B,todo,,
-Soloud::getBackendBufferSize,engine,Soloud_getBackendBufferSize,output_lifecycle,C,todo,,
-Soloud::getBackendChannels,engine,Soloud_getBackendChannels,output_lifecycle,C,todo,,
-Soloud::getBackendId,engine,Soloud_getBackendId,output_lifecycle,C,todo,,
-Soloud::getBackendSamplerate,engine,Soloud_getBackendSamplerate,output_lifecycle,C,todo,,
-Soloud::getBackendString,engine,Soloud_getBackendString,output_lifecycle,C,todo,,
+Soloud::getBackendBufferSize,engine,Soloud_getBackendBufferSize,output_lifecycle,C,ported,,Output::callback_frames: frames in the latest device callback (the request is OutputConfig::buffer_frames). device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
+Soloud::getBackendChannels,engine,Soloud_getBackendChannels,output_lifecycle,C,ported,,OutputInfo::channels. device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
+Soloud::getBackendId,engine,Soloud_getBackendId,output_lifecycle,C,ported,,OutputInfo::backend names the CPAL host; there is no numeric backend enum. device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
+Soloud::getBackendSamplerate,engine,Soloud_getBackendSamplerate,output_lifecycle,C,ported,,OutputInfo::sample_rate. device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
+Soloud::getBackendString,engine,Soloud_getBackendString,output_lifecycle,C,ported,,"OutputInfo::backend, the CPAL host name (WASAPI, ALSA, ...). device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device."
 Soloud::getErrorString,engine,Soloud_getErrorString,playback,B,todo,,
 Soloud::getFilterParameter,engine,Soloud_getFilterParameter,filters,D,todo,,
 Soloud::getGlobalVolume,engine,Soloud_getGlobalVolume,playback,B,todo,,
@@ -42,7 +42,7 @@ Soloud::getVersion,engine,Soloud_getVersion,playback,B,todo,,
 Soloud::getVoiceCount,engine,Soloud_getVoiceCount,playback,B,ported,play_basic pause_stop active_voices,
 Soloud::getVolume,engine,Soloud_getVolume,playback,B,ported,pause_stop active_voices looping speed_and_resamplers,Rust returns None for a stopped voice; the runner logs the C default.
 Soloud::getWave,engine,Soloud_getWave,visualization,F,todo,,
-Soloud::init,engine,Soloud_init Soloud_initEx,output_lifecycle,C,in-progress,init_validation clipping_and_global,"Null-driver configuration: channel counts, minimum buffer, 0 = default rate/buffer, CLIP_ROUNDOFF on or off. Other flags and device backends pending."
+Soloud::init,engine,Soloud_init Soloud_initEx,output_lifecycle,C,in-progress,init_validation clipping_and_global,"Null-driver configuration: channel counts, minimum buffer, 0 = default rate/buffer, CLIP_ROUNDOFF on or off. Device output through solouder_cpal::open (rate, channels and sample format negotiated; invalid settings fail before the device opens). Other flags pending."
 Soloud::isValidVoiceHandle,engine,Soloud_isValidVoiceHandle,playback,B,ported,pause_stop active_voices looping speed_and_resamplers,Out-of-range slot bits are invalid (patch 0020).
 Soloud::isVoiceGroup,engine,Soloud_isVoiceGroup,routing,D,todo,,
 Soloud::isVoiceGroupEmpty,engine,Soloud_isVoiceGroupEmpty,routing,D,todo,,

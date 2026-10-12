@@ -11,23 +11,32 @@ Jari Komppa and developed with many contributors; see
 
 ## Status
 
-Early (milestone A of [the plan](docs/PORTING.md#milestones-and-acceptance-gates)).
-The Rust mixer cannot play sound yet. What is here today:
+Milestone C of [the plan](docs/PORTING.md#milestones-and-acceptance-gates):
+SoLouder plays WAV files on a Windows audio device, from plain Rust or from
+Bevy entities. Buses, filters, 3D audio, streaming and the other codecs are
+not ported yet; [docs/port-status.md](docs/port-status.md) has the details.
 
 - **A patched C++ reference.** Upstream SoLoud, pinned in
-  `reference/upstream.json`, plus 17 patches in `reference/patches/`. They fix
+  `reference/upstream.json`, plus 22 patches in `reference/patches/`. They fix
   upstream crashes, hangs, and memory-safety bugs that were never merged
   upstream, including the WavStream seek heap corruption
   ([#405](https://github.com/jarikomppa/soloud/issues/405)). Every behavioral
   fix has a C++ regression test in `reference/tests/`.
 - **A parity ledger.** [docs/parity-ledger.csv](docs/parity-ledger.csv) lists
   every behavior of SoLoud's C API, 208 of them. That is the 1:1 target.
-- **A parity harness.** Scenarios in [tests/scenarios/](tests/scenarios/)
+- **A parity harness.** 14 scenarios in [tests/scenarios/](tests/scenarios/)
   run through both the C++ reference and the Rust port, and the outputs are
-  compared sample by sample. Two scenarios exist so far: init validation and
-  silence.
-- **The Rust workspace.** `solouder-core` (the mixer, currently silent) and
-  `solouder-parity` (the harness).
+  compared sample by sample. All match bit for bit except one documented
+  8-bit WAV conversion.
+- **The Rust crates.**
+  - `solouder-core`: the mixer (play, stop, pause, loop, volume, pan, speed,
+    three resamplers, 1 to 8 channels, clipping) and a wait-free
+    controller/renderer split for real-time use.
+  - `solouder-decoders`: WAV decoding.
+  - `solouder-cpal`: output on the default audio device.
+  - `bevy_solouder`: the Bevy plugin (`.wav` assets, `SoundPlayer` entities
+    that stop when despawned, settings, status and messages).
+  - `solouder-parity`: the harness.
 - **Design and porting guides.** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
   and [docs/PORTING.md](docs/PORTING.md).
 
@@ -43,11 +52,20 @@ python scripts/fetch_reference.py           # creates the git-ignored reference/
 python scripts/check_all.py --reference --parity
 ```
 
+On Linux, CPAL also needs the ALSA headers (`libasound2-dev` on Debian and
+Ubuntu). To hear something:
+
+```sh
+cargo run -p solouder-cpal --example play_wav -- tests/fixtures/wav/s16_stereo_44100.wav
+cargo run -p bevy_solouder --example play_and_despawn
+```
+
 ## Repository layout
 
 | Path | Contents |
 |---|---|
-| `crates/` | Rust crates: `solouder-core`, `solouder-parity` |
+| `crates/` | Rust crates: `solouder-core`, `solouder-decoders`, `solouder-cpal`, `bevy_solouder`, `solouder-parity` |
+| `tests/fixtures/` | Generated WAV fixtures (`scripts/gen_wav_fixtures.py`) |
 | `tests/scenarios/` | Parity scenarios shared by the C++ and Rust runners |
 | `docs/` | Architecture, porting guide, parity ledger, port status |
 | `reference/upstream.json` | Upstream URL and pinned commit |

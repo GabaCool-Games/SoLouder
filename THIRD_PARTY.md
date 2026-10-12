@@ -24,5 +24,16 @@ None of this code has been ported yet. The C++ reference checkout under
 | AY | `src/audiosource/ay/` | YM-2149F emulator and resampler from Unreal Speccy by SMT, public domain; SoLoud wrapper zlib | Port with attribution |
 | OpenMPT | `src/audiosource/openmpt/` | Loads libopenmpt (BSD-3-Clause) at runtime | Excluded unless needed |
 
-Rust dependencies are audited separately when they are added. Note that
-Symphonia, the candidate decoder, is MPL-2.0.
+## Rust dependencies
+
+Direct dependencies, checked when they were added. Their own dependencies
+are MIT, Apache-2.0, Zlib, Unicode-3.0 or CC0 variants, except Symphonia's
+crates (MPL-2.0); check again with `cargo tree -e normal -f '{p} {l}'`.
+
+| Crate | Used by | License | Notes |
+|---|---|---|---|
+| `symphonia` 0.6 (`wav`, `pcm` only) | `solouder-decoders` | MPL-2.0 | File-level copyleft: modified Symphonia files would have to stay MPL-2.0. SoLouder uses it unmodified. |
+| `cpal` 0.18 | `solouder-cpal` | Apache-2.0 | Links the platform audio API (WASAPI, ALSA, CoreAudio). |
+| `rtrb` 0.4 | `solouder-core`, `solouder-cpal` | MIT OR Apache-2.0 | Wait-free ring buffers between game and audio thread. |
+| `bevy` 0.20 (`std`, `bevy_asset`) | `bevy_solouder` | MIT OR Apache-2.0 | |
+| `stats_alloc` 0.1 | `solouder-core` tests only | MIT | Counts allocations in `realtime_no_alloc`. |

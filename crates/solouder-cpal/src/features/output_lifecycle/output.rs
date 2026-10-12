@@ -103,6 +103,8 @@ const FAILED: u8 = 2;
 /// Facts about the opened stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct OutputInfo {
+    /// The audio API in use, such as `WASAPI` or `ALSA` (`getBackendString`).
+    pub backend: &'static str,
     /// The device's human-readable name, if the backend reports one.
     pub device_name: Option<String>,
     /// Output sample rate in Hz (the mixer's rate).
@@ -170,6 +172,7 @@ pub fn open(config: &OutputConfig) -> Result<(Output, Controller), OutputError> 
             .map_or(BufferSize::Default, BufferSize::Fixed),
     };
     let info = OutputInfo {
+        backend: host.id().name(),
         device_name: device.description().ok().map(|d| d.name().to_owned()),
         sample_rate: supported.sample_rate(),
         channels: supported.channels(),
@@ -264,6 +267,12 @@ impl Output {
     /// underruns.
     pub fn error_count(&self) -> u64 {
         self.shared.errors.load(Ordering::Relaxed)
+    }
+
+    /// Frames the device asked for in its most recent callback, the closest
+    /// equivalent of `getBackendBufferSize`; 0 before the first callback.
+    pub fn callback_frames(&self) -> u64 {
+        self.shared.callback_frames.load(Ordering::Relaxed)
     }
 
     /// Device callbacks run so far.

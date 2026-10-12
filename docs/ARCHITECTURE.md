@@ -12,10 +12,11 @@ behavioral compatibility, patch preservation, migration milestones, and parity
 validation. Keep design decisions here rather than maintaining a second copy
 in the porting guide.
 
-**Status:** milestone A. The Cargo workspace holds `solouder-core` (mixer
-configuration and a mixer that renders silence) and `solouder-parity` (the
-scenario harness). The decoder, CPAL and Bevy crates, and the Rust-facing types
-described for them below, are still proposed.
+**Status:** milestone C. All five crates exist: `solouder-core` (offline
+mixer and the real-time controller/renderer split), `solouder-decoders`
+(WAV), `solouder-cpal` (device output), `bevy_solouder` (assets, playback
+entities, output lifecycle) and `solouder-parity`. Routing, filters,
+spatial audio, streaming and visualization below are still proposed.
 
 The target is a native Rust mixer, not a binding that requires the C++ SoLoud
 library at runtime. Core audio must remain usable without Bevy or a device.
@@ -141,9 +142,9 @@ crates/
     features/
       output_lifecycle/
   bevy_solouder/src/
-    lib.rs
-    plugin.rs
+    lib.rs                      # SolouderPlugin and system sets
     features/
+      output_lifecycle/
       playback/
       decoded_audio/
       streaming/
@@ -164,10 +165,12 @@ reference/
   soloud/                       # git-ignored checkout (scripts/fetch_reference.py)
 ```
 
-Existing today: `solouder-core` (`contracts/`, `dsp/` and
-`features/playback/`), `solouder-decoders` (`features/decoded_audio/`, WAV),
-`solouder-parity`, `tests/scenarios/`, `tests/fixtures/wav/` and
-`docs/port-status.md`. Versions are pinned in `rust-toolchain.toml` (Rust
+Existing today: `solouder-core` (`contracts/`, `dsp/`, `features/playback/`
+and `features/realtime/`), `solouder-decoders` (`features/decoded_audio/`,
+WAV), `solouder-cpal` (`features/output_lifecycle/`), `bevy_solouder`
+(`features/decoded_audio/`, `features/output_lifecycle/`,
+`features/playback/`), `solouder-parity`, `tests/scenarios/`,
+`tests/fixtures/wav/` and `docs/port-status.md`. Versions are pinned in `rust-toolchain.toml` (Rust
 1.98.1) and the root `Cargo.toml` (Bevy 0.20, CPAL 0.18, Symphonia 0.6).
 
 This illustrates feature ownership, not a requirement to create empty modules
@@ -218,10 +221,24 @@ Bevy notifications / cached playback state
 asset loading / decoding workers ---> prepared audio or bounded PCM buffers
 ```
 
-For the initial CPAL path, the callback drives mixing with preallocated state.
-Offline tests own the same mixer directly without queues or a device. Define
-queue ownership and producer/consumer topology before choosing a channel or
-ring buffer; a supposedly lock-free dependency is not enough by itself.
+For the CPAL path, the callback drives mixing with preallocated state.
+Offline tests own the same mixer directly without queues or a device.
+
+The topology, implemented in `solouder_core::realtime`: `split(mixer)` returns
+a `Controller` (game side) and a `Renderer` (audio side), joined by three
+single-producer single-consumer `rtrb` rings and a few atomics.
+
+| Ring | Producer → consumer | Full behavior |
+|---|---|---|
+| Commands | controller → renderer | The call returns `QueueFull`; nothing is lost silently. The renderer applies at most `commands_per_render` per render and leaves the rest for the next. |
+| Events (`Started`, `Failed`, `Finished`) | renderer → controller | Cannot fill: it holds two events per reservable voice ID, and an ID is only released after its final event is read. |
+| Retired audio | renderer → controller | Ended voices' PCM is handed back to be freed on the game thread; the mixer keeps enough spare capacity for a render's worst case, and overflow is counted in `Status`. |
+
+Voice IDs are generation-checked and reserved by the controller when a play
+is queued, so commands can target a voice before it starts. `Status` (stream
+time, voice counts, renders, deferred commands) is published through atomics
+after every render. Renders are checked allocation-free by the
+`realtime_no_alloc` test.
 
 ### Callback constraints
 
@@ -292,10 +309,12 @@ uses identical prepared PCM so decoder differences do not obscure mixer errors.
 
 ## Bevy integration contract
 
-The proposed `bevy_solouder` crate provides a `SolouderPlugin`, an immutable audio
-asset, a thread-safe controller resource, playback components, and listener/
-emitter components. These are design names, not existing APIs. Keep each
-feature's components, systems, validation, and tests within its slice.
+The `bevy_solouder` crate provides `SolouderPlugin`, the immutable
+`AudioClip` asset with a `.wav` loader, the `SolouderController` resource,
+and the playback components `SoundPlayer`, `PlaybackSettings` and
+`SoundStatus` with `SoundFinished`/`SoundFailed` messages. Buses, filters
+and listener/emitter components are still design names. Keep each feature's
+components, systems, validation, and tests within its slice.
 
 ### ECS model (proposed)
 
@@ -333,9 +352,11 @@ Rules for the mapping:
 - Detached one-shot sounds (no entity) are an explicit, documented choice.
 - Several simultaneous listeners (split-screen) are a deliberate feature with a
   defined mixing policy, not an accident of spawning two listener components.
-- Bevy is pinned (0.20 at the time of writing). Check the exact names for
-  observers, relationships, hooks and messages against that version when the
-  crate is written in milestone C.
+- Bevy is pinned at 0.20. The plugin uses an `on_discard` component hook
+  (runs on replace, removal and despawn) to stop voices, `Message`s for
+  outcomes, and `insert_non_send` for the CPAL stream, which is not `Send` on
+  every platform. Dropping the app drops the stream, which stops the
+  callback before the mixer is freed.
 
 ### Assets and playback
 
