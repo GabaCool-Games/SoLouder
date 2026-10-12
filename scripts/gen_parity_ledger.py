@@ -175,7 +175,7 @@ def main(argv: list[str] | None = None) -> int:
         return 0
 
     LEDGER_PATH.parent.mkdir(parents=True, exist_ok=True)
-    LEDGER_PATH.write_text(text, encoding="utf-8")
+    LEDGER_PATH.write_text(text, encoding="utf-8", newline="\n")
     counts: dict[str, int] = {}
     for row in csv.DictReader(io.StringIO(text)):
         counts[row["status"]] = counts.get(row["status"], 0) + 1
