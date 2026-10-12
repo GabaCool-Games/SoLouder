@@ -1,0 +1,85 @@
+# Fades, oscillations and timers run on each voice's stream time
+# (Soloud::fade*, oscillate*, schedulePause, scheduleStop); the global volume
+# fade ramps across each mix; playClocked spaces sounds started between mixes.
+init channels=2 buffer=512
+sound name=m frames=30000 pattern=saw period=64 amp=0.5 looping=1
+sound name=n frames=30000 pattern=noise seed=5 amp=0.4 looping=1
+play sound=m as=a
+play sound=n as=b pan=-0.5
+fade h=a param=volume to=0.1 time=0.05
+fade h=b param=pan to=0.8 time=0.03
+mix frames=1000
+query h=a
+query h=b
+mix frames=1500
+query h=a
+query h=b
+fade h=a param=speed to=1.7 time=0.04
+oscillate h=b param=volume from=0.2 to=0.9 time=0.02
+mix frames=2000
+query h=a
+query h=b
+# setPan does not cancel a pan fade; setVolume cancels a volume oscillation.
+fade h=a param=pan to=-1 time=0.05
+set h=a pan=0.5
+mix frames=700
+query h=a
+set h=b volume=0.6
+mix frames=700
+query h=b
+# Fading to the current value sets it and cancels; a time of 0 sets at once.
+fade h=b param=volume to=0.6 time=0.5
+fade h=a param=volume to=0.7 time=0
+mix frames=300
+query h=a
+query h=b
+# A speed oscillation passes through values that are not greater than 0.
+oscillate h=a param=speed from=-0.5 to=2 time=0.03
+mix frames=1500
+query h=a
+set h=a speed=1
+# A paused voice's fades wait, and pausing cancels a scheduled pause.
+fade h=b param=pan to=-1 time=0.02
+set h=b pause=1
+mix frames=900
+query h=b
+schedule h=b pause=0.01
+set h=b pause=0
+mix frames=900
+query h=b
+schedule h=a pause=0.01
+schedule h=b stop=0.02
+mix frames=600
+query h=a
+query h=b
+mix frames=600
+query h=a
+query h=b
+set h=a pause=0
+# The global volume fades and oscillates on the mixer's stream time.
+fade param=volume to=0.3 time=0.02
+mix frames=600
+state
+mix frames=600
+state
+oscillate param=volume from=0.5 to=1 time=0.01
+mix frames=900
+state
+mix frames=37
+state
+global volume=1
+state
+mix frames=300
+# Clocked plays: the first after a mix sets the clock; later ones are delayed
+# by the difference, unless it is negative or more than 2048 frames.
+play sound=m as=c1 clock=1.0 volume=0.3
+play sound=m as=c2 clock=1.01 volume=0.3
+play sound=n as=c3 clock=1.1 volume=0.3
+play sound=n as=c4 clock=0.99 volume=0.3 pan=0.5
+mix frames=512
+play sound=m as=c5 clock=2.5 volume=0.2 pan=-0.5
+play sound=m as=c6 clock=2.5401 volume=0.2
+mix frames=2600
+schedule h=a stop=0
+query h=a
+counts

@@ -6,6 +6,7 @@
 //! flushes them to zero) and `cos`/`sin` rounding in the pan law.
 
 pub(crate) mod clip;
+pub(crate) mod fader;
 pub(crate) mod pan;
 pub(crate) mod resample;
 

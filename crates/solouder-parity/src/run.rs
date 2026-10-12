@@ -75,6 +75,10 @@ impl State {
             "global" => self.global(step),
             "query" => self.query(step),
             "counts" => self.counts(step),
+            "fade" => self.fade(step),
+            "oscillate" => self.oscillate(step),
+            "schedule" => self.schedule(step),
+            "state" => self.state(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }

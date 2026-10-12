@@ -118,12 +118,12 @@ namespace
 	}
 
 	// Decimal numbers only (-?digits[.digits]); the Rust runner accepts the
-	// same grammar.
-	float floatArg(const Step &step, const char *key, float fallback)
+	// same grammar. Returns 0 when the key is absent.
+	const std::string *decimalArg(const Step &step, const char *key)
 	{
 		const std::string *raw = step.get(key);
 		if (!raw)
-			return fallback;
+			return 0;
 		const std::string &text = *raw;
 		size_t i = (!text.empty() && text[0] == '-') ? 1 : 0;
 		size_t digits = 0;
@@ -146,7 +146,20 @@ namespace
 		}
 		if (!valid || i != text.size())
 			throw ScenarioError(step.line, "invalid number `" + text + "` for `" + key + "`");
-		return std::strtof(text.c_str(), 0);
+		return raw;
+	}
+
+	float floatArg(const Step &step, const char *key, float fallback)
+	{
+		const std::string *raw = decimalArg(step, key);
+		return raw ? std::strtof(raw->c_str(), 0) : fallback;
+	}
+
+	// Times in seconds, parsed as double like SoLoud's `time`.
+	double timeArg(const Step &step, const char *key, double fallback)
+	{
+		const std::string *raw = decimalArg(step, key);
+		return raw ? std::strtod(raw->c_str(), 0) : fallback;
 	}
 
 	bool flagArg(const Step &step, const char *key, bool fallback)
@@ -432,17 +445,21 @@ namespace
 			}
 			else if (step.op == "play")
 			{
-				static const char *const keys[] = { "sound", "as", "volume", "pan", "paused" };
-				checkKeys(step, keys, 5);
+				static const char *const keys[] = { "sound", "as", "volume", "pan", "paused", "clock" };
+				checkKeys(step, keys, 6);
 				const std::string &soundName = textArg(step, "sound");
 				std::string name = textArg(step, "as");
 				float volume = floatArg(step, "volume", -1.0f);
 				float pan = floatArg(step, "pan", 0.0f);
 				bool paused = flagArg(step, "paused", false);
+				if (step.get("clock") && step.get("paused"))
+					throw ScenarioError(step.line, "`clock` and `paused` cannot be combined");
 				std::map<std::string, SoLoud::Wav *>::iterator it = sounds.find(soundName);
 				if (it == sounds.end())
 					throw ScenarioError(step.line, "no sound named `" + soundName + "`");
-				SoLoud::handle h = engine(step).play(*it->second, volume, pan, paused);
+				SoLoud::handle h = step.get("clock")
+					? engine(step).playClocked(timeArg(step, "clock", 0), *it->second, volume, pan)
+					: engine(step).play(*it->second, volume, pan, paused);
 				handles[name] = h;
 				std::ostringstream line;
 				line << "play " << name << " " << h;
@@ -548,6 +565,70 @@ namespace
 					<< " rate=" << hex32(s.getSamplerate(h))
 					<< " time=" << hex64(s.getStreamTime(h))
 					<< " pos=" << hex64(s.getStreamPosition(h));
+				logLine(line);
+			}
+			else if (step.op == "fade" || step.op == "oscillate")
+			{
+				bool fade = step.op == "fade";
+				static const char *const fadeKeys[] = { "h", "param", "to", "time" };
+				static const char *const oscillateKeys[] = { "h", "param", "from", "to", "time" };
+				if (fade)
+					checkKeys(step, fadeKeys, 4);
+				else
+					checkKeys(step, oscillateKeys, 5);
+				const std::string &param = textArg(step, "param");
+				textArg(step, "to");
+				textArg(step, "time");
+				if (!fade)
+					textArg(step, "from");
+				float from = floatArg(step, "from", 0.0f);
+				float to = floatArg(step, "to", 0.0f);
+				double time = timeArg(step, "time", 0);
+				SoLoud::Soloud &s = engine(step);
+				if (!step.get("h"))
+				{
+					if (param != "volume")
+						throw ScenarioError(step.line, "without `h`, `param` must be `volume` (the global volume)");
+					if (fade)
+						s.fadeGlobalVolume(to, time);
+					else
+						s.oscillateGlobalVolume(from, to, time);
+				}
+				else
+				{
+					SoLoud::handle h = handleArg(step);
+					if (param == "volume")
+						fade ? s.fadeVolume(h, to, time) : s.oscillateVolume(h, from, to, time);
+					else if (param == "pan")
+						fade ? s.fadePan(h, to, time) : s.oscillatePan(h, from, to, time);
+					else if (param == "speed")
+						fade ? s.fadeRelativePlaySpeed(h, to, time) : s.oscillateRelativePlaySpeed(h, from, to, time);
+					else
+						throw ScenarioError(step.line, "unknown param `" + param + "`");
+				}
+			}
+			else if (step.op == "schedule")
+			{
+				static const char *const keys[] = { "h", "pause", "stop" };
+				checkKeys(step, keys, 3);
+				SoLoud::handle h = handleArg(step);
+				if (!step.get("pause") && !step.get("stop"))
+					throw ScenarioError(step.line, "`schedule` needs `pause=` or `stop=`");
+				SoLoud::Soloud &s = engine(step);
+				if (step.get("pause"))
+					s.schedulePause(h, timeArg(step, "pause", 0));
+				if (step.get("stop"))
+					s.scheduleStop(h, timeArg(step, "stop", 0));
+			}
+			else if (step.op == "state")
+			{
+				checkKeys(step, 0, 0);
+				SoLoud::Soloud &s = engine(step);
+				std::ostringstream line;
+				line << "state volume=" << hex32(s.getGlobalVolume())
+					<< " clip_scale=" << hex32(s.getPostClipScaler())
+					<< " resampler=" << s.getMainResampler()
+					<< " max_active=" << s.getMaxActiveVoiceCount();
 				logLine(line);
 			}
 			else if (step.op == "counts")

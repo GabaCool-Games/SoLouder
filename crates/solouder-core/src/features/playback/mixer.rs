@@ -2,12 +2,13 @@
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
 use super::config::{ConfigError, MixerConfig};
+use super::fades::advance_voices;
 use super::mix_bus::{Layout, mix_bus};
-use super::voice::flags;
 use super::voices::Voices;
 use crate::contracts::MAX_CHANNELS;
 use crate::dsp::Resampler;
 use crate::dsp::clip::clip;
+use crate::dsp::fader::{Fader, FaderState};
 
 /// The SoLouder mixer: plays [`Sound`](super::Sound)s and renders interleaved
 /// `f32` output.
@@ -31,6 +32,9 @@ pub struct Mixer {
     pub(super) post_clip_scaler: f32,
     pub(super) resampler: Resampler,
     pub(super) stream_time: f64,
+    pub(super) global_fader: Fader,
+    /// Time of the first clocked play since the last mix (`mLastClockedTime`).
+    pub(super) last_clocked_time: f64,
 }
 
 impl Mixer {
@@ -50,6 +54,8 @@ impl Mixer {
             post_clip_scaler: 0.95,
             resampler: Resampler::default(),
             stream_time: 0.0,
+            global_fader: Fader::default(),
+            last_clocked_time: 0.0,
         })
     }
 
@@ -89,16 +95,17 @@ impl Mixer {
 
         let buffer_time = frames as f32 / sample_rate;
         self.stream_time += f64::from(buffer_time);
-        let volume = self.global_volume;
+        self.last_clocked_time = 0.0;
+        // The global volume ramps across the pass from its value before the
+        // fader step to its value after.
+        let volume0 = self.global_volume;
+        if self.global_fader.state != FaderState::Off {
+            self.global_volume = self.global_fader.get(self.stream_time);
+        }
+        let volumes = (volume0, self.global_volume);
 
         let voices = &mut self.voices;
-        for voice in voices.slots[..voices.highest].iter_mut().flatten() {
-            if !voice.has_flag(flags::PAUSED) {
-                voice.stream_time += f64::from(buffer_time);
-                voice.stream_position +=
-                    f64::from(buffer_time) * f64::from(voice.overall_relative_play_speed);
-            }
-        }
+        advance_voices(voices, buffer_time);
         if voices.dirty {
             voices.calc_active();
         }
@@ -117,7 +124,7 @@ impl Mixer {
             &mut self.scratch,
             channels,
             stride,
-            (volume, volume),
+            volumes,
             self.post_clip_scaler,
         );
         // Planar to interleaved.

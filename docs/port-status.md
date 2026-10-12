@@ -7,6 +7,9 @@ reference, and how it is verified. Per-behavior status lives in
 
 ## Summary
 
+Milestone D (routing and DSP) is in progress: fades, oscillations,
+scheduled pauses and stops, and clocked play are done (see
+[PORTING.md](PORTING.md#milestone-d-units) for the remaining units).
 Milestone C (Windows and Bevy playable slice) is done; milestone B (offline
 playback) before it. The mixer plays prepared PCM with 1
 to 8 channels on outputs of 1 to 8 channels: play, stop, pause, loop, volume,
@@ -25,7 +28,7 @@ filters and 3D audio do not exist yet.
 | Crate | Slices / modules | Contents |
 |---|---|---|
 | `solouder-core` | `contracts` | `Pcm` (validated planar samples), `SAMPLE_GRANULARITY`, `MAX_CHANNELS` |
-| `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping |
+| `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping, faders (linear fades and sine oscillation) |
 | `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `Handle`, `PlayOptions`, voice table, active-voice selection, resample-buffer pool, bus mixing, voice control and queries |
 | `solouder-core` | `features/realtime` | `split`, `Controller`, `Renderer`, `VoiceId`, `Event`, `Status`, `RealtimeConfig`; retirement of ended voices' PCM to the game thread |
 | `solouder-decoders` | `features/decoded_audio` | `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `DecodeLimits`, `DecodeError` |
@@ -55,6 +58,7 @@ stays `in-progress` until its remaining flags are done.
 | `clipping_and_global` | Sums past full scale through both clippers, global volume, post-clip scale | 4,012 |
 | `active_voices` | Protected and loudest voices win the active slots; protecting a voice takes effect at once (patch 0023); changing and invalid limits | 3,212 |
 | `delay_samples` | Delayed starts spanning mix calls | 1,666 |
+| `fades` | Volume, pan and speed fades and oscillations on voice stream time (waiting while paused), which setters cancel them (not `setPan`), fading to the current value, speeds the oscillation passes that are not above 0, scheduled pause and stop and their cancelling, the global volume fade and oscillation ramping across each mix, `playClocked` delays and their limits | 32,498 |
 | `sound_tails` | Sounds play out when mixes of 256, 441 or 480 frames end partway through their last block, with every resampler, slow and fast speeds, a resampled stereo sound and a sound of whole blocks (patch 0024) | 25,758 |
 | `sound_replace` | Reloading a sound name stops the old sound's voices and keeps other sounds playing; a failed reload keeps the old sound | 2,600 |
 | `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV (every code); extensible 5.1, 7.1, 24-in-32-bit, A-law and mu-law headers; channel masks with a high bit or none; extra and odd-sized chunks; six files both sides reject (9, 33 and 65535 channels, no frames, sample rate 0, a header cut short) | 15,562 |

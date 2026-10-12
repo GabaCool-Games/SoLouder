@@ -6,6 +6,7 @@ use std::f64::consts::PI;
 
 use super::sound::Sound;
 use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
+use crate::dsp::fader::Fader;
 
 const MAX: usize = MAX_CHANNELS as usize;
 const BLOCK: usize = SAMPLE_GRANULARITY as usize;
@@ -63,6 +64,19 @@ pub(crate) struct Voice {
     /// Output frames of silence before the voice starts.
     pub delay_samples: u32,
     pub resample: Option<ResampleBlocks>,
+    pub faders: VoiceFaders,
+}
+
+/// A voice's fades and timers, run on its stream time.
+#[derive(Clone, Copy, Debug, Default)]
+pub(crate) struct VoiceFaders {
+    pub volume: Fader,
+    pub pan: Fader,
+    pub speed: Fader,
+    /// Pauses the voice when it finishes (`mPauseScheduler`).
+    pub pause: Fader,
+    /// Stops the voice when it finishes (`mStopScheduler`).
+    pub stop: Fader,
 }
 
 impl Voice {
@@ -92,6 +106,7 @@ impl Voice {
             block_samples: 0,
             delay_samples: 0,
             resample: None,
+            faders: VoiceFaders::default(),
         }
     }
 

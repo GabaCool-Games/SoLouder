@@ -95,6 +95,16 @@ impl Step {
     /// Parses `key` as a decimal number (`-?digits[.digits]`, the only form
     /// both runners accept), or returns `default` when it is absent.
     pub fn number_or(&self, key: &str, default: f32) -> Result<f32, ScenarioError> {
+        self.decimal_or(key, default)
+    }
+
+    /// Parses `key` as a time in seconds (`f64`, like SoLoud's `time`), with
+    /// the same grammar as [`Step::number_or`].
+    pub fn seconds_or(&self, key: &str, default: f64) -> Result<f64, ScenarioError> {
+        self.decimal_or(key, default)
+    }
+
+    fn decimal_or<T: FromStr>(&self, key: &str, default: T) -> Result<T, ScenarioError> {
         let Some(raw) = self.get(key) else {
             return Ok(default);
         };

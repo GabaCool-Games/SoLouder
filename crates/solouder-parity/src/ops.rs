@@ -24,7 +24,7 @@ fn hex64(value: f64) -> String {
 }
 
 impl State {
-    fn handle(&self, step: &Step) -> Result<Handle, ScenarioError> {
+    pub(crate) fn handle(&self, step: &Step) -> Result<Handle, ScenarioError> {
         let name = step.text("h")?;
         self.handles
             .get(name)
@@ -64,7 +64,14 @@ impl State {
     }
 
     pub(crate) fn play(&mut self, step: &Step) -> Result<(), ScenarioError> {
-        step.check_keys(&["sound", "as", "volume", "pan", "paused"])?;
+        step.check_keys(&["sound", "as", "volume", "pan", "paused", "clock"])?;
+        if step.get("clock").is_some() && step.get("paused").is_some() {
+            return Err(step.error("`clock` and `paused` cannot be combined"));
+        }
+        let clock = step
+            .get("clock")
+            .map(|_| step.seconds_or("clock", 0.0))
+            .transpose()?;
         let sound_name = step.text("sound")?;
         let name = step.text("as")?.to_owned();
         let volume = step.number_or("volume", -1.0)?;
@@ -80,7 +87,11 @@ impl State {
             .get(sound_name)
             .cloned()
             .ok_or_else(|| step.error(format!("no sound named `{sound_name}`")))?;
-        let handle = self.mixer(step)?.play_with(&sound, options);
+        let mixer = self.mixer(step)?;
+        let handle = match clock {
+            Some(time) => mixer.play_clocked(time, &sound, options),
+            None => mixer.play_with(&sound, options),
+        };
         self.played
             .entry(sound_name.to_owned())
             .or_default()

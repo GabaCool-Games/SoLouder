@@ -9,6 +9,7 @@ use super::mixer::Mixer;
 use super::sound::Sound;
 use super::voice::{Voice, flags};
 use crate::dsp::Resampler;
+use crate::dsp::fader::FaderState;
 
 /// How [`Mixer::play_with`] starts a voice.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -105,9 +106,11 @@ impl Mixer {
         }
     }
 
-    /// Sets a voice's volume; the change ramps in over the next mix.
+    /// Sets a voice's volume, cancelling a volume fade; the change ramps in
+    /// over the next mix.
     pub fn set_volume(&mut self, handle: Handle, volume: f32) {
         if let Some(voice) = self.voices.get_mut(handle) {
+            voice.faders.volume.state = FaderState::Off;
             voice.set_volume(volume);
             self.voices.dirty = true;
         }
@@ -120,9 +123,11 @@ impl Mixer {
         }
     }
 
-    /// Pauses or resumes a voice. A paused voice keeps its position.
+    /// Pauses or resumes a voice, cancelling a scheduled pause. A paused
+    /// voice keeps its position.
     pub fn set_pause(&mut self, handle: Handle, paused: bool) {
         if let Some(voice) = self.voices.get_mut(handle) {
+            voice.faders.pause.state = FaderState::Off;
             voice.set_flag(flags::PAUSED, paused);
             self.voices.dirty = true;
         }
@@ -148,23 +153,29 @@ impl Mixer {
         self.with_voice(handle, |voice| voice.delay_samples = frames);
     }
 
-    /// Scales a voice's playback rate, changing pitch and speed together.
+    /// Scales a voice's playback rate, changing pitch and speed together, and
+    /// cancels a speed fade (even when the speed is rejected).
     pub fn set_relative_play_speed(
         &mut self,
         handle: Handle,
         speed: f32,
     ) -> Result<(), ControlError> {
         match self.voices.get_mut(handle) {
-            Some(voice) => voice
-                .set_relative_play_speed(speed)
-                .then_some(())
-                .ok_or(ControlError::InvalidSpeed),
+            Some(voice) => {
+                voice.faders.speed.state = FaderState::Off;
+                voice
+                    .set_relative_play_speed(speed)
+                    .then_some(())
+                    .ok_or(ControlError::InvalidSpeed)
+            }
             None => Ok(()),
         }
     }
 
-    /// Volume applied to the whole mix before clipping.
+    /// Volume applied to the whole mix before clipping; cancels a global
+    /// volume fade.
     pub fn set_global_volume(&mut self, volume: f32) {
+        self.global_fader.state = FaderState::Off;
         self.global_volume = volume;
     }
 
@@ -188,7 +199,7 @@ impl Mixer {
         }
     }
 
-    fn with_voice(&mut self, handle: Handle, change: impl FnOnce(&mut Voice)) {
+    pub(super) fn with_voice(&mut self, handle: Handle, change: impl FnOnce(&mut Voice)) {
         if let Some(voice) = self.voices.get_mut(handle) {
             change(voice);
         }
@@ -276,5 +287,25 @@ impl Mixer {
     /// Seconds of output mixed since the mixer was created.
     pub fn stream_time(&self) -> f64 {
         self.stream_time
+    }
+
+    /// The global volume, including the current point of a fade.
+    pub fn global_volume(&self) -> f32 {
+        self.global_volume
+    }
+
+    /// The scale applied after clipping.
+    pub fn post_clip_scaler(&self) -> f32 {
+        self.post_clip_scaler
+    }
+
+    /// The interpolation used for every voice.
+    pub fn main_resampler(&self) -> Resampler {
+        self.resampler
+    }
+
+    /// The active voice limit.
+    pub fn max_active_voice_count(&self) -> u32 {
+        self.voices.max_active() as u32
     }
 }

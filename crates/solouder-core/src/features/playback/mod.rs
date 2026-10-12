@@ -2,6 +2,7 @@
 
 mod config;
 mod control;
+mod fades;
 mod handle;
 mod mix_bus;
 mod mixer;

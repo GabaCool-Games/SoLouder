@@ -224,3 +224,25 @@ fn sound_tails_play_out_when_mixes_end_mid_block() {
         }
     }
 }
+
+#[test]
+fn a_clocked_play_keeps_its_delay_and_the_requested_pause() {
+    let mut mixer = mixer();
+    // Point sampling has no interpolation lag, so voices start on their frame.
+    mixer.set_resampler(Resampler::Point);
+    let first = mixer.play_clocked(5.0, &dc(0.5, 4096), PlayOptions::default());
+    let paused = PlayOptions {
+        paused: true,
+        ..PlayOptions::default()
+    };
+    let second = mixer.play_clocked(5.001, &dc(0.25, 4096), paused);
+    assert_eq!(mixer.is_paused(first), Some(false));
+    assert_eq!(mixer.is_paused(second), Some(true));
+    let first_only = render(&mut mixer, 64)[0];
+    assert!(first_only > 0.0);
+    mixer.set_pause(second, false);
+    let out = render(&mut mixer, 64);
+    // 0.001 s at 44.1 kHz: 44 frames of delay, then both voices.
+    assert_eq!(out[43 * 2], first_only);
+    assert!((out[44 * 2] - first_only * 1.5).abs() < 1e-6);
+}

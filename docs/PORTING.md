@@ -515,6 +515,31 @@ The ledger's `milestone` column assigns every C API behavior to one of these.
 | E — Spatial and streaming parity | Listener/emitter systems, attenuation/Doppler/delay, workers, seek/loop regressions, WAV/FLAC/Ogg Vorbis/MP3 |
 | F — Sources and portability | Generators/speech/music, FFT/visualization, Linux/macOS checks, stress/benchmarks, support matrix |
 
+### Milestone D units
+
+D is delivered in these units, in this order; each ends with passing
+scenarios, ledger rows and a commit.
+
+1. **Fades and scheduling** (done): `fade*`, `oscillate*`, `schedulePause`,
+   `scheduleStop`, `playClocked`, the global volume ramp into the clipper,
+   and the engine getters. Scenario `fades`.
+2. **Voice controls and groups:** the playback rows left from B (loop point,
+   seek, autostop, inaudible behavior and ticking, pause all, absolute pan,
+   channel volume, sample rate, single instance, stop/count by sound,
+   `playBackground`, raw 8/16-bit loads, length), then voice groups, which
+   apply every voice control.
+3. **Filter framework and time-domain filters:** per-voice filters at the
+   voice's rate, global filters, live parameters with fades and
+   oscillations; biquad, lofi, echo, waveshaper and DC removal.
+4. **FFT and the remaining filters:** the FFT, FFT filter, bassboost,
+   robotize, flanger and freeverb.
+5. **Buses:** buses as playable sources, nested routing, bus filters,
+   channels and resampler, `annexSound`, active voice counts and
+   visualization.
+6. **Queues.**
+7. **Real-time control and review:** controller commands for the new
+   controls, documentation, ledger and the milestone review.
+
 Plan work inside a milestone as small parity units: one behavior, its
 scenarios, the Rust implementation, and a passing comparison. Order units
 along the mix pipeline (source read, resampling, pan/expand with ramps, bus
