@@ -169,7 +169,7 @@ Vic::setRegister,source,Vic_setRegister,sources,F,todo,,
 Vizsn::lifecycle,source,Vizsn_create Vizsn_destroy,sources,F,todo,,
 Vizsn::setText,source,Vizsn_setText,sources,F,todo,,
 Wav::getLength,source,Wav_getLength,decoded_audio,B,todo,,
-Wav::lifecycle,source,Wav_create Wav_destroy,decoded_audio,B,todo,,
+Wav::lifecycle,source,Wav_create Wav_destroy,decoded_audio,B,in-progress,sound_replace,"Sound::new; dropping a Sound does not stop its voices (they share its samples), so the parity runner stops them when a name is replaced. Difference in port-status.md."
 Wav::load,source,Wav_load,decoded_audio,B,in-progress,wav_decode wav_decode_u8 wav_playback,"WAV only, through solouder_decoders::decode_wav on bytes the caller reads; Ogg Vorbis, FLAC and MP3 in E. Differences in port-status.md."
 Wav::loadFile,source,Wav_loadFile,decoded_audio,B,todo,,
 Wav::loadMem,source,Wav_loadMem Wav_loadMemEx,decoded_audio,B,in-progress,wav_decode,WAV only: decode_wav takes a byte slice and always copies (no aCopy/aTakeOwnership).

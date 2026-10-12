@@ -53,16 +53,20 @@ stays `in-progress` until its remaining flags are done.
 | `speed_and_resamplers` | Slow, fast and fractional steps with each resampler, speed 0 rejected, extreme steps render silence (patch 0022) | 7,962 |
 | `channel_layouts` | Every source layout on every output layout with pan and volume changes (patch 0019) | 10,647 |
 | `clipping_and_global` | Sums past full scale through both clippers, global volume, post-clip scale | 4,012 |
-| `active_voices` | Protected and loudest voices win the active slots; changing and invalid limits | 2,412 |
+| `active_voices` | Protected and loudest voices win the active slots; protecting a voice takes effect at once (patch 0023); changing and invalid limits | 3,212 |
 | `delay_samples` | Delayed starts spanning mix calls | 1,666 |
+| `sound_replace` | Reloading a sound name stops the old sound's voices and keeps other sounds playing; a failed reload keeps the old sound | 2,600 |
 | `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV (every code); extensible 5.1, 7.1, 24-in-32-bit, A-law and mu-law headers; channel masks with a high bit or none; extra and odd-sized chunks; six files both sides reject (9, 33 and 65535 channels, no frames, sample rate 0, a header cut short) | 15,562 |
 | `wav_decode_u8` | 8-bit WAV (tolerance 1/128, see below) | 1,000 |
 | `wav_playback` | Decoded files played at and away from the output rate, a 5.1 fold-down, a looping file | 8,246 |
 
-Every scenario has an identical log and a maximum sample difference of 0 on
-Windows x86-64, except `wav_decode_u8` (7.8e-3, the 8-bit conversion) and
-`wav_decode` (3e-39: one subnormal float sample the C++ build flushes to
-zero). Run with `python scripts/run_parity.py` or
+Samples are compared bit for bit, except that zero and subnormal values all
+count as zero, because the C++ build flushes subnormals. Every scenario has
+an identical log and identical samples on Windows x86-64; `wav_decode` has
+one subnormal float sample that the C++ build writes as zero, and
+`wav_decode_u8` declares a tolerance of 1/128 for the 8-bit conversion. A
+scenario that renders no samples fails. Run with
+`python scripts/run_parity.py` or
 `python scripts/check_all.py --reference --parity`.
 
 ## Verified by tests (milestone C)
@@ -103,6 +107,7 @@ Rust 1.98.1, no device).
 | WAV variants | dr_wav also reads MS/IMA ADPCM, 12-bit and 64-bit integer PCM | `DecodeError::Unsupported` | Not implemented yet |
 | Unknown files | `Wav::load` detects WAV, Ogg, FLAC and MP3, and tries MP3 for anything else | `decode_wav` reads WAV only and reports `NotRecognized` | Other codecs come in milestone E; the caller picks the decoder |
 | Decode limits | Only the `u32` size checks of patch 0012 | `DecodeLimits::max_samples` (default 256 Mi samples); allocation follows decoded data, not header claims | Untrusted files cannot request huge allocations |
+| Deleting a sound | `~Wav` stops every voice playing it | Dropping a `Sound` leaves its voices playing; they share its samples and release them when they end | No dangling source; stop voices explicitly (the Bevy plugin stops a player's voice when its component goes away) |
 | Voice end | The audio thread releases the source instance under the engine mutex | Through `Renderer`, an ended or stopped voice's PCM goes back to the controller and is freed on the game thread; an offline `Mixer` drops it in the mix call unless `keep_retired_audio` is set | Freeing memory on the audio thread can block |
 | Control | Every call locks the audio mutex and applies immediately | Controller calls queue a command, applied at the start of the next render; getters read the last published `Status` | The audio thread never waits for the game |
 | Voice IDs | `play` returns a handle once the voice exists | The controller reserves a `VoiceId` when the play is queued; with all 4096 reserved, `play` fails with `NoFreeVoiceId` (the Bevy plugin reports `NoFreeVoice`) instead of starting late | Commands can target a voice before it starts; a late sound is worse than none |

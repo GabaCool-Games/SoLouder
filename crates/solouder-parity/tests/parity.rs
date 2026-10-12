@@ -50,8 +50,8 @@ fn scenarios_match_the_cpp_reference() {
         match load_golden(&golden_dir, &name) {
             Ok(Some(golden)) => match compare(&rendered, &golden) {
                 Ok(stats) => println!(
-                    "{name}: {} samples, max abs diff {:e}, rms {:e}",
-                    stats.samples, stats.max_abs, stats.rms
+                    "{name}: {} samples, max abs diff {:e}, rms {:e}, {} subnormal vs zero",
+                    stats.samples, stats.max_abs, stats.rms, stats.flushed
                 ),
                 Err(message) => failures.push(format!("{name}: {message}")),
             },

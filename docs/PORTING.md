@@ -139,11 +139,12 @@ share their base function and the methods every source or filter exposes
 A row is `ported` only when its scenarios pass against the reference. Run
 `python scripts/gen_parity_ledger.py --check` in CI.
 
-Numerical tolerance: compare against a scalar (non-SIMD) reference build. Aim
-for bit-exact output on scalar paths; otherwise the maximum absolute
-difference must stay within 1e-6, and the scenario records the measured
-maximum and RMS difference. Larger tolerances (for example lossy decoders) are
-documented per scenario.
+Numerical tolerance: compare against a scalar (non-SIMD) reference build.
+Scenarios are bit-exact by default, with zero and subnormal values counted as
+equal because the reference flushes subnormals. A scenario that cannot be
+bit-exact declares a `tolerance` (at most 1e-6 unless documented, for example
+for lossy decoders), and the runner prints the measured maximum and RMS
+difference.
 
 C++-only extension points that the C API cannot express (custom
 `AudioSource`/`Filter` subclasses, `File` implementations, the

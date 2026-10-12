@@ -58,7 +58,7 @@ impl State {
                 let mut sound = Sound::new(pcm);
                 sound.set_volume(volume);
                 sound.set_looping(looping);
-                self.sounds.insert(name.clone(), sound);
+                self.store(name.clone(), sound);
                 SO_NO_ERROR
             }
             Err(error) => load_code(&error),

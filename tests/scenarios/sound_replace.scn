@@ -1,0 +1,30 @@
+# Reloading a sound name replaces the sound. In C++ the old Wav is deleted,
+# which stops every voice still playing it; a load that fails keeps the old
+# sound and its voices. Voices of other sounds keep playing.
+init channels=2 buffer=512
+sound name=a frames=4000 pattern=saw period=70 amp=0.5 looping=1
+sound name=b frames=4000 pattern=noise seed=3 amp=0.25 looping=1
+play sound=a as=a1
+play sound=a as=a2 pan=0.5
+play sound=b as=b1 pan=-0.5
+mix frames=300
+counts
+sound name=a frames=0
+mix frames=200
+counts
+query h=a1
+sound name=a frames=3000 pattern=dc amp=0.3
+mix frames=200
+counts
+query h=a1
+query h=a2
+query h=b1
+play sound=a as=a3
+mix frames=300
+load name=b file=wav/bad_zero_rate.wav
+mix frames=100
+load name=b file=wav/s16_stereo_44100.wav
+mix frames=200
+counts
+query h=b1
+query h=a3

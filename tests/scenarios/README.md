@@ -32,18 +32,20 @@ Each runner produces:
   `<name>.f32`.
 - **Log:** one text line per step that returns a value, written to `<name>.log`.
 
-Samples must match within the scenario's tolerance (maximum absolute
-difference, default `1e-6`). Log lines must match exactly.
+Samples must have identical bits, except that zero and subnormal values
+all count as zero (the C++ build flushes subnormals). A scenario may declare
+a `tolerance` (maximum absolute difference) instead. Log lines must match
+exactly, and a scenario must render at least one sample.
 
 ## Operations
 
 | Operation | Arguments | Effect | Log line |
 |---|---|---|---|
-| `tolerance` | `abs` (float) | Maximum absolute sample difference for this scenario. Rust side only. | — |
+| `tolerance` | `abs` (float) | Maximum absolute sample difference for this scenario; 0 (the default) asks for identical bits. Rust side only. | — |
 | `init` | `channels` (default 2), `rate` (0 = default 44100), `buffer` (0 = default 2048), `clip` (`roundoff`, default, or `hard`) | A new engine: `Soloud::init` with the null driver and `CLIP_ROUNDOFF` or no flags. Forgets all sounds and handles. | `init <code>` |
 | `mix` | `frames` (0 to 4096) | `Soloud::mix` for that many frames. | — |
-| `sound` | `name`, `frames`, `channels` (1), `rate` (44100), `pattern` (`dc`, `saw`, `noise`; default `dc`), `amp` (1), `period` (`saw`, 100), `seed` (`noise`, 1), `volume` (1), `looping` (0) | Generates planar samples (see below), loads them with `Wav::loadRawWave` (copied) and applies `setVolume`/`setLooping`. A failed load registers nothing. `channels * frames` is at most 4194304. | `sound <name> <code>` |
-| `load` | `name`, `file`, `volume` (1), `looping` (0) | Loads a fixture: `Wav::load` in C++, `solouder_decoders::decode_wav` in Rust, then `setVolume`/`setLooping`. A failed load registers nothing. | `load <name> <code>` |
+| `sound` | `name`, `frames`, `channels` (1), `rate` (44100), `pattern` (`dc`, `saw`, `noise`; default `dc`), `amp` (1), `period` (`saw`, 100), `seed` (`noise`, 1), `volume` (1), `looping` (0) | Generates planar samples (see below), loads them with `Wav::loadRawWave` (copied) and applies `setVolume`/`setLooping`. A failed load registers nothing; a successful one under an existing name deletes the old `Wav`, which stops its voices. `channels * frames` is at most 4194304. | `sound <name> <code>` |
+| `load` | `name`, `file`, `volume` (1), `looping` (0) | Loads a fixture: `Wav::load` in C++, `solouder_decoders::decode_wav` in Rust, then `setVolume`/`setLooping`. A failed load registers nothing; replacing a name stops the old sound's voices, as for `sound`. | `load <name> <code>` |
 | `samples` | `name` | Appends the sound's decoded samples, channel after channel, to the samples. | `samples <name> <channels> <frames> <rate>` (`rate` as `f32` bits in 8 hex digits) |
 | `play` | `sound`, `as` (handle name), `volume` (-1 = the sound's), `pan` (0), `paused` (0) | `Soloud::play`; stores the handle under `as`. | `play <as> <handle>` |
 | `stop` | `h` | `Soloud::stop`. | — |

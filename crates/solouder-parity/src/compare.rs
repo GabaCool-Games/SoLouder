@@ -23,6 +23,20 @@ pub struct Stats {
     pub max_abs: f32,
     /// Root-mean-square difference.
     pub rms: f64,
+    /// Samples that match only because one side is subnormal and the other
+    /// zero.
+    pub flushed: usize,
+}
+
+/// Zero for any zero or subnormal value: the C++ reference runs with
+/// denormals flushed to zero, so it can write zero where Rust keeps a
+/// subnormal.
+fn flush(sample: f32) -> f32 {
+    if sample == 0.0 || sample.is_subnormal() {
+        0.0
+    } else {
+        sample
+    }
 }
 
 /// Reads `<dir>/<name>.f32` and `<dir>/<name>.log`. Returns `None` when the
@@ -53,8 +67,11 @@ pub fn load_golden(dir: &Path, name: &str) -> io::Result<Option<Golden>> {
     Ok(Some(Golden { samples, log }))
 }
 
-/// Compares a Rust run with the reference output. Non-finite samples on
-/// either side are always a mismatch.
+/// Compares a Rust run with the reference output. With a tolerance of 0 the
+/// samples must have identical bits, except that zero and subnormal values
+/// all count as zero; otherwise they may differ by up to the tolerance.
+/// Non-finite samples on either side, and scenarios without samples, are
+/// always a mismatch.
 pub fn compare(rendered: &Rendered, golden: &Golden) -> Result<Stats, String> {
     if rendered.log != golden.log {
         return Err(format!(
@@ -69,29 +86,40 @@ pub fn compare(rendered: &Rendered, golden: &Golden) -> Result<Stats, String> {
             golden.samples.len()
         ));
     }
+    if rendered.samples.is_empty() {
+        return Err("the scenario renders no samples, so it checks no audio".to_owned());
+    }
     let mut max_abs = 0.0_f32;
     let mut sum_squares = 0.0_f64;
+    let mut flushed = 0;
     for (index, (&rust, &cpp)) in rendered.samples.iter().zip(&golden.samples).enumerate() {
         let difference = (rust - cpp).abs();
-        if !rust.is_finite() || !cpp.is_finite() || difference > rendered.tolerance {
+        let exact = rendered.tolerance == 0.0;
+        let matches = if exact {
+            flush(rust).to_bits() == flush(cpp).to_bits()
+        } else {
+            difference <= rendered.tolerance
+        };
+        if !rust.is_finite() || !cpp.is_finite() || !matches {
             return Err(format!(
-                "sample {index}: rust {rust}, c++ {cpp} (tolerance {})",
+                "sample {index}: rust {rust:e} ({:08x}), c++ {cpp:e} ({:08x}) (tolerance {})",
+                rust.to_bits(),
+                cpp.to_bits(),
                 rendered.tolerance
             ));
+        }
+        if exact && rust.to_bits() != cpp.to_bits() {
+            flushed += 1;
         }
         max_abs = max_abs.max(difference);
         sum_squares += f64::from(difference) * f64::from(difference);
     }
     let samples = rendered.samples.len();
-    let rms = if samples == 0 {
-        0.0
-    } else {
-        (sum_squares / samples as f64).sqrt()
-    };
     Ok(Stats {
         samples,
         max_abs,
-        rms,
+        rms: (sum_squares / samples as f64).sqrt(),
+        flushed,
     })
 }
 
@@ -103,7 +131,14 @@ mod tests {
         Rendered {
             samples,
             log: vec!["init 0".to_owned()],
+            tolerance: 0.0,
+        }
+    }
+
+    fn tolerant(samples: Vec<f32>) -> Rendered {
+        Rendered {
             tolerance: 1e-6,
+            ..rendered(samples)
         }
     }
 
@@ -115,23 +150,53 @@ mod tests {
     }
 
     #[test]
-    fn matching_output_passes_with_stats() {
-        let stats = compare(&rendered(vec![0.5, 0.25]), &golden(vec![0.5, 0.2500005])).unwrap();
-        assert_eq!(stats.samples, 2);
-        assert!(stats.max_abs > 0.0 && stats.max_abs <= 1e-6);
+    fn identical_output_passes_exactly() {
+        let stats = compare(&rendered(vec![0.5, -0.25]), &golden(vec![0.5, -0.25])).unwrap();
+        assert_eq!((stats.samples, stats.max_abs, stats.flushed), (2, 0.0, 0));
     }
 
     #[test]
-    fn differences_beyond_tolerance_fail() {
-        assert!(compare(&rendered(vec![0.5]), &golden(vec![0.6])).is_err());
+    fn any_difference_fails_without_a_tolerance() {
+        let next = f32::from_bits(0.25_f32.to_bits() + 1);
+        assert!(compare(&rendered(vec![0.25]), &golden(vec![next])).is_err());
+        assert!(compare(&rendered(vec![f32::MIN_POSITIVE]), &golden(vec![0.0])).is_err());
+    }
+
+    #[test]
+    fn subnormals_match_zero() {
+        let tiny = f32::from_bits(1);
+        let stats = compare(
+            &rendered(vec![tiny, -tiny, 0.0, -0.0]),
+            &golden(vec![0.0, 0.0, -0.0, tiny]),
+        )
+        .unwrap();
+        assert_eq!(stats.flushed, 4);
+    }
+
+    #[test]
+    fn a_tolerance_allows_small_differences() {
+        let stats = compare(&tolerant(vec![0.5, 0.25]), &golden(vec![0.5, 0.2500005])).unwrap();
+        assert!(stats.max_abs > 0.0 && stats.max_abs <= 1e-6);
+        assert!(compare(&tolerant(vec![0.5]), &golden(vec![0.6])).is_err());
+    }
+
+    #[test]
+    fn length_and_non_finite_differences_fail() {
         assert!(compare(&rendered(vec![0.5]), &golden(vec![0.5, 0.0])).is_err());
         assert!(compare(&rendered(vec![f32::NAN]), &golden(vec![f32::NAN])).is_err());
+        let infinity = f32::INFINITY;
+        assert!(compare(&rendered(vec![infinity]), &golden(vec![infinity])).is_err());
+    }
+
+    #[test]
+    fn scenarios_without_samples_fail() {
+        assert!(compare(&rendered(vec![]), &golden(vec![])).is_err());
     }
 
     #[test]
     fn log_differences_fail() {
-        let mut other = golden(vec![]);
+        let mut other = golden(vec![0.0]);
         other.log = vec!["init 1".to_owned()];
-        assert!(compare(&rendered(vec![]), &other).is_err());
+        assert!(compare(&rendered(vec![0.0]), &other).is_err());
     }
 }

@@ -23,7 +23,8 @@ pub struct Rendered {
     pub samples: Vec<f32>,
     /// One line per step that returns a value.
     pub log: Vec<String>,
-    /// Maximum absolute sample difference allowed against the reference.
+    /// Maximum absolute sample difference allowed against the reference;
+    /// 0 (the default) asks for identical bits.
     pub tolerance: f32,
 }
 
@@ -32,11 +33,12 @@ pub fn run(scenario: &Scenario) -> Result<Rendered, ScenarioError> {
     let mut state = State {
         mixer: None,
         sounds: HashMap::new(),
+        played: HashMap::new(),
         handles: HashMap::new(),
         rendered: Rendered {
             samples: Vec::new(),
             log: Vec::new(),
-            tolerance: 1e-6,
+            tolerance: 0.0,
         },
     };
     for step in &scenario.steps {
@@ -49,6 +51,9 @@ pub(crate) struct State {
     pub mixer: Option<Mixer>,
     /// Sounds by scenario name; cleared by `init`.
     pub sounds: HashMap<String, Sound>,
+    /// Voices started from each sound name, stopped when the name is
+    /// reloaded; cleared by `init`.
+    pub played: HashMap<String, Vec<Handle>>,
     /// Handles by scenario name; cleared by `init`.
     pub handles: HashMap<String, Handle>,
     pub rendered: Rendered,
@@ -72,6 +77,19 @@ impl State {
             "counts" => self.counts(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
+    }
+
+    /// Registers a loaded sound. Replacing a name stops the old sound's
+    /// voices, as deleting the old `Wav` does in C++.
+    pub fn store(&mut self, name: String, sound: Sound) {
+        if let Some(handles) = self.played.remove(&name)
+            && let Some(mixer) = self.mixer.as_mut()
+        {
+            for handle in handles {
+                mixer.stop(handle);
+            }
+        }
+        self.sounds.insert(name, sound);
     }
 
     pub fn log(&mut self, line: String) {
@@ -112,6 +130,7 @@ impl State {
             clipper,
         };
         self.sounds.clear();
+        self.played.clear();
         self.handles.clear();
         self.mixer = None;
         let code = match Mixer::new(config) {

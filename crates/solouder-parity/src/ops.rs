@@ -57,7 +57,7 @@ impl State {
             let mut sound = Sound::new(pcm);
             sound.set_volume(volume);
             sound.set_looping(looping);
-            self.sounds.insert(name.clone(), sound);
+            self.store(name.clone(), sound);
         });
         self.log(format!("sound {name} {}", code(result)));
         Ok(())
@@ -81,6 +81,10 @@ impl State {
             .cloned()
             .ok_or_else(|| step.error(format!("no sound named `{sound_name}`")))?;
         let handle = self.mixer(step)?.play_with(&sound, options);
+        self.played
+            .entry(sound_name.to_owned())
+            .or_default()
+            .push(handle);
         self.handles.insert(name.clone(), handle);
         self.log(format!("play {name} {}", handle.raw()));
         Ok(())
