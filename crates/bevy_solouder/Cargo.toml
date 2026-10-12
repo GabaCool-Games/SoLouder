@@ -1,0 +1,20 @@
+[package]
+name = "bevy_solouder"
+description = "Bevy plugin for SoLouder: audio assets, playback entities and device output"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+solouder-core.workspace = true
+solouder-cpal.workspace = true
+solouder-decoders.workspace = true
+bevy = { workspace = true, features = ["std", "bevy_asset"] }
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+solouder-core.workspace = true

@@ -18,6 +18,9 @@ jobs:
           python-version: "3.12"
       # rustup installs the toolchain pinned in rust-toolchain.toml.
       - run: rustup show
+      # CPAL's ALSA backend links against libasound on Linux.
+      - if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y libasound2-dev
       - uses: Swatinem/rust-cache@v2
       - run: python scripts/fetch_reference.py
       - run: python scripts/check_all.py --reference --parity
