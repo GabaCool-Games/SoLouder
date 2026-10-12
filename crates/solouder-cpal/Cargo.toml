@@ -1,0 +1,19 @@
+[package]
+name = "solouder-cpal"
+description = "SoLouder device output through CPAL: runs a solouder-core renderer in the audio callback"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[dependencies]
+solouder-core.workspace = true
+cpal.workspace = true
+rtrb.workspace = true
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+solouder-decoders.workspace = true
