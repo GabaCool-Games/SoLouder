@@ -112,10 +112,13 @@ pub trait FilterInstance: Send + fmt::Debug {
         }
     }
 
-    /// Allocates what the first [`FilterInstance::filter`] call with this
-    /// channel count and rate would, so that call does not. The real-time
-    /// controller calls it on its own thread; a first call with other values
-    /// allocates as usual. Does nothing by default.
+    /// Reserves the memory the first [`FilterInstance::filter`] calls need
+    /// with up to this many channels, at up to this rate, so those calls do
+    /// not allocate. Their results do not change: a first call still sizes
+    /// its buffers for its own channel count, rate and parameters, inside
+    /// the reserved memory. The real-time controller calls it on its own
+    /// thread; calls that need more than was reserved allocate as usual.
+    /// Does nothing by default.
     fn prepare(&mut self, _channels: usize, _sample_rate: f32) {}
 
     /// Filters one channel in place.
@@ -141,6 +144,19 @@ impl fmt::Display for InvalidFilterParams {
 }
 
 impl std::error::Error for InvalidFilterParams {}
+
+/// Sets `buffer` to `len` zeros, reusing its memory when it is large
+/// enough.
+pub(crate) fn zeroed(buffer: &mut Vec<f32>, len: usize) {
+    buffer.clear();
+    buffer.resize(len, 0.0);
+}
+
+/// Reserves room for `len` values in an empty `buffer`. Failing to is not an
+/// error: the first use then allocates.
+pub(crate) fn reserve(buffer: &mut Vec<f32>, len: usize) {
+    let _ = buffer.try_reserve_exact(len.saturating_sub(buffer.len()));
+}
 
 /// Frames in `seconds` of audio at `rate`, rounded up, as SoLoud sizes its
 /// delay lines: `(int)ceil(seconds * rate)`, at least 1 (reference patches

@@ -120,6 +120,19 @@ impl Mixer {
         self.voices.retired.put_filter(old);
     }
 
+    /// Items the mixer will retire without a new request: one for each
+    /// voice playing and each sound waiting in a queue, plus those already
+    /// kept.
+    pub(crate) fn pending_retirements(&self) -> usize {
+        let voices = &self.voices;
+        voices.count() + voices.queues.queued() + voices.retired.kept_len()
+    }
+
+    /// The queues the mixer already has storage for.
+    pub(crate) fn queue_ids(&self) -> Vec<SoundId> {
+        self.voices.queues.ids().collect()
+    }
+
     /// Room for `queues` more queues' storage.
     pub(crate) fn reserve_queues(&mut self, queues: usize) {
         self.voices.queues.reserve(queues);

@@ -55,6 +55,11 @@ pub(crate) mod private {
         fn queue_id(&self) -> Option<SoundId> {
             None
         }
+
+        /// The bus whose voices the voice mixes, for a bus.
+        fn bus_id(&self) -> Option<SoundId> {
+            None
+        }
     }
 }
 

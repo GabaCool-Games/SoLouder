@@ -66,6 +66,10 @@ impl fmt::Debug for Retired {
 }
 
 impl Retired {
+    pub fn kept_len(&self) -> usize {
+        self.kept.len()
+    }
+
     pub fn put(&mut self, pcm: Pcm) {
         self.keep_item(Garbage::Pcm(pcm));
     }
@@ -90,6 +94,14 @@ impl Retired {
             self.kept.push(RetiredItem(Garbage::Voice(boxed)));
         } else {
             self.overflowed += 1;
+        }
+    }
+
+    /// Makes a box for a voice started on this thread, if retired voices
+    /// are kept.
+    pub fn add_box(&mut self) {
+        if self.keep {
+            self.boxes.push(Box::new(None));
         }
     }
 
@@ -119,7 +131,8 @@ impl Mixer {
     /// drains, instead of freeing it inside the mixer: each ended voice,
     /// replaced filter instance and finished queued sound is one item.
     /// Allocates the list, and a box for each voice already playing, so call
-    /// it before handing the mixer to a real-time thread. Beyond `capacity`,
+    /// it before handing the mixer to a real-time thread. Plays after this
+    /// call allocate a box for their voice. Beyond `capacity`,
     /// items are dropped in place and counted by [`Mixer::retired_overflow`].
     pub fn keep_retired(&mut self, capacity: usize) {
         let voices = self.voices.count();

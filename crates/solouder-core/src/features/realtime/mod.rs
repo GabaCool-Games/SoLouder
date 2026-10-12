@@ -10,6 +10,7 @@
 //! Each queue has one producer and one consumer. Offline code can keep using
 //! [`Mixer`] directly.
 
+mod bus_layouts;
 mod command;
 mod controller;
 mod controller_routing;
@@ -73,9 +74,14 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
     // Every request that makes the renderer retire an item (a play, a filter
     // swap, a queued sound) spends one of these credits, and each item
     // collected returns one, so the mixer's kept list holds everything not
-    // yet collected and never has to free memory itself.
+    // yet collected and never has to free memory itself. What the mixer
+    // already holds will be retired without a request, so the list also has
+    // room for it.
     let retire_credits = 2 * voice_ids;
-    mixer.keep_retired(retire_credits);
+    mixer.keep_retired(retire_credits + mixer.pending_retirements());
+    let mut queues = mixer.queue_ids();
+    let max_queues = queues.len() + config.queues;
+    queues.reserve_exact(config.queues);
     mixer.reserve_queues(config.queues);
     let (command_tx, command_rx) = rtrb::RingBuffer::new(config.command_capacity.max(1));
     let (event_tx, event_rx) = rtrb::RingBuffer::new(voice_ids * 2);
@@ -87,9 +93,10 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
         retired: retired_rx,
         ids: IdPool::new(voice_ids),
         retire_credits,
-        queues: Vec::with_capacity(config.queues),
-        max_queues: config.queues,
+        queues,
+        max_queues,
         config: mixer.config(),
+        buses: Default::default(),
         shared: Arc::clone(&shared),
     };
     let renderer = Renderer {
@@ -112,3 +119,7 @@ mod tests;
 #[cfg(test)]
 #[path = "routing_tests.rs"]
 mod routing_tests;
+
+#[cfg(test)]
+#[path = "layout_tests.rs"]
+mod layout_tests;

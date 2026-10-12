@@ -634,10 +634,19 @@ Checked against the gates below on 2026-10-12:
   regression list above is covered.
 - **Real time:** every D control is reachable through `Controller` and
   renders the same samples as the offline mixer; renders neither allocate nor
-  free with filters, buses and queues. Limits are listed in
+  free with filters, buses and queues, including mixers split after offline
+  use. Limits are listed in
   [port-status.md](port-status.md#real-time-coverage): voice groups and most
-  queries are offline-only, seek errors are not reported, and a flanger
-  delay that grows past its line reallocates during the render.
+  queries are offline-only, seek errors are not reported, and a filter whose
+  first use needs more memory than was reserved (a voice sped up before its
+  first block, a flanger delay above 0.1 s) allocates during the render.
+- **Review:** an independent review of unit 7 found six defects: bus filter
+  swaps prepared for the bus's settings rather than its playing voice (a
+  flanger could index past its line), delays changed before a filter's first
+  use allocating or changing samples, uncounted retirements in mixers split
+  after offline use, `keep_retired` missing voices played after it, and
+  voices played out by a seek reported as stopped. Each is fixed and has a
+  test (`layout_tests`, the `first_use` section of `realtime_no_alloc`).
 - **Structure:** `cargo clippy -D warnings`, `cargo fmt --check`, the
   400-line limit, the ledger check and the C++ regression tests pass
   (`check_all.py --reference --parity`).

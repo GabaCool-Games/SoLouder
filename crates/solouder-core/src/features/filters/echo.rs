@@ -1,7 +1,9 @@
 // Ported from SoLoud src/filter/soloud_echofilter.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
-use super::{Filter, FilterInstance, FilterParams, InvalidFilterParams, delay_frames};
+use super::{
+    Filter, FilterInstance, FilterParams, InvalidFilterParams, delay_frames, reserve, zeroed,
+};
 
 /// A feedback delay.
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -66,7 +68,6 @@ impl Filter for EchoFilter {
             buffer: Vec::new(),
             max_frames: 0,
             offset: 0,
-            prepared: false,
         })
     }
 
@@ -92,24 +93,11 @@ impl Filter for EchoFilter {
 #[derive(Debug)]
 struct EchoInstance {
     params: FilterParams,
-    /// Planar delay line, `max_frames` per channel; allocated by the first
-    /// `filter` call, when the channel count and rate are known.
+    /// Planar delay line, `max_frames` per channel; sized by the first
+    /// `filter` call, for the delay, channel count and rate it runs with.
     buffer: Vec<f32>,
     max_frames: usize,
     offset: usize,
-    /// `buffer` was allocated by `prepare`, for a first call that may not
-    /// match it.
-    prepared: bool,
-}
-
-impl EchoInstance {
-    fn size_line(&mut self, delay: f32, channels: usize, sample_rate: f32) {
-        let max_frames = delay_frames(delay, sample_rate);
-        if self.max_frames != max_frames || self.buffer.len() != max_frames * channels {
-            self.max_frames = max_frames;
-            self.buffer = vec![0.0; max_frames * channels];
-        }
-    }
 }
 
 impl FilterInstance for EchoInstance {
@@ -117,12 +105,14 @@ impl FilterInstance for EchoInstance {
         &self.params
     }
 
+    /// Reserves a line for the delay the instance was created with, the
+    /// largest the `DELAY` parameter goes.
     fn prepare(&mut self, channels: usize, sample_rate: f32) {
-        if self.buffer.is_empty() {
-            let delay = self.params.values()[EchoFilter::DELAY as usize];
-            self.size_line(delay, channels, sample_rate);
-            self.prepared = true;
-        }
+        let delay = self.params.values()[EchoFilter::DELAY as usize];
+        reserve(
+            &mut self.buffer,
+            delay_frames(delay, sample_rate) * channels,
+        );
     }
 
     fn params_mut(&mut self) -> &mut FilterParams {
@@ -146,9 +136,9 @@ impl FilterInstance for EchoInstance {
             p[EchoFilter::DECAY as usize],
             p[EchoFilter::FILTER as usize],
         );
-        if self.buffer.is_empty() || self.prepared {
-            self.prepared = false;
-            self.size_line(delay, channels, sample_rate);
+        if self.buffer.is_empty() {
+            self.max_frames = delay_frames(delay, sample_rate);
+            zeroed(&mut self.buffer, self.max_frames * channels);
         }
         let len = delay_frames(delay, sample_rate).min(self.max_frames);
         let line = &mut self.buffer;

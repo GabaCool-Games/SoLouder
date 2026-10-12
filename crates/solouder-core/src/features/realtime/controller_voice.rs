@@ -121,12 +121,16 @@ impl Controller {
         if speed.is_nan() || speed <= 0.0 {
             return Err(ControllerError::InvalidSpeed);
         }
-        self.voice(id, VoiceCommand::Speed(speed))
+        self.voice(id, VoiceCommand::Speed(speed))?;
+        self.buses.set_speed(id, speed);
+        Ok(())
     }
 
     /// Sets the rate the voice's sound plays at before speed.
     pub fn set_sample_rate(&mut self, id: VoiceId, rate: f32) -> Result<(), ControllerError> {
-        self.voice(id, VoiceCommand::SampleRate(rate))
+        self.voice(id, VoiceCommand::SampleRate(rate))?;
+        self.buses.set_sample_rate(id, rate);
+        Ok(())
     }
 
     /// Fades the voice's volume to `to` over `seconds`.
@@ -151,7 +155,9 @@ impl Controller {
         to: f32,
         seconds: f64,
     ) -> Result<(), ControllerError> {
-        self.voice(id, VoiceCommand::Fade(Faded::Speed, to, seconds))
+        self.voice(id, VoiceCommand::Fade(Faded::Speed, to, seconds))?;
+        self.buses.raise_speed(id, to);
+        Ok(())
     }
 
     /// Oscillates the voice's volume between `from` and `to`.
@@ -187,7 +193,9 @@ impl Controller {
         to: f32,
         seconds: f64,
     ) -> Result<(), ControllerError> {
-        self.voice(id, VoiceCommand::Oscillate(Faded::Speed, from, to, seconds))
+        self.voice(id, VoiceCommand::Oscillate(Faded::Speed, from, to, seconds))?;
+        self.buses.raise_speed(id, from.max(to));
+        Ok(())
     }
 
     /// Pauses the voice `seconds` from now.

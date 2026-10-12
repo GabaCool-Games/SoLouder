@@ -114,7 +114,7 @@ impl Renderer {
     }
 
     /// Reports every voice in the table that is no longer playing.
-    fn report_gone(&mut self, reason: FinishReason) {
+    pub(super) fn report_gone(&mut self, reason: FinishReason) {
         let Self {
             mixer,
             live,

@@ -1,7 +1,9 @@
 // Ported from SoLoud src/filter/soloud_dcremovalfilter.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
-use super::{Filter, FilterInstance, FilterParams, InvalidFilterParams, delay_frames};
+use super::{
+    Filter, FilterInstance, FilterParams, InvalidFilterParams, delay_frames, reserve, zeroed,
+};
 
 /// Removes a constant offset by subtracting the running average of the last
 /// `length` seconds.
@@ -41,7 +43,6 @@ impl Filter for DcRemovalFilter {
             totals: Vec::new(),
             frames: 0,
             offset: 0,
-            prepared: false,
         })
     }
 }
@@ -51,27 +52,13 @@ struct DcRemovalInstance {
     params: FilterParams,
     /// Copied at creation (reference patch 0035).
     length: f32,
-    /// Planar window of the last `frames` inputs per channel; allocated by the
-    /// first `filter` call, when the channel count and rate are known.
+    /// Planar window of the last `frames` inputs per channel; sized by the
+    /// first `filter` call, for the channel count and rate it runs with.
     buffer: Vec<f32>,
     /// Running sum of each channel's window.
     totals: Vec<f32>,
     frames: usize,
     offset: usize,
-    /// The window was allocated by `prepare`, for a first call that may not
-    /// match it.
-    prepared: bool,
-}
-
-impl DcRemovalInstance {
-    fn size_window(&mut self, channels: usize, sample_rate: f32) {
-        let frames = delay_frames(self.length, sample_rate);
-        if self.frames != frames || self.totals.len() != channels {
-            self.frames = frames;
-            self.buffer = vec![0.0; frames * channels];
-            self.totals = vec![0.0; channels];
-        }
-    }
 }
 
 impl FilterInstance for DcRemovalInstance {
@@ -80,10 +67,9 @@ impl FilterInstance for DcRemovalInstance {
     }
 
     fn prepare(&mut self, channels: usize, sample_rate: f32) {
-        if self.buffer.is_empty() {
-            self.size_window(channels, sample_rate);
-            self.prepared = true;
-        }
+        let frames = delay_frames(self.length, sample_rate);
+        reserve(&mut self.buffer, frames * channels);
+        reserve(&mut self.totals, channels);
     }
 
     fn params_mut(&mut self) -> &mut FilterParams {
@@ -101,9 +87,10 @@ impl FilterInstance for DcRemovalInstance {
     ) {
         self.params.update(time);
         let wet = self.params.values()[DcRemovalFilter::WET as usize];
-        if self.buffer.is_empty() || self.prepared {
-            self.prepared = false;
-            self.size_window(channels, sample_rate);
+        if self.buffer.is_empty() {
+            self.frames = delay_frames(self.length, sample_rate);
+            zeroed(&mut self.buffer, self.frames * channels);
+            zeroed(&mut self.totals, channels);
         }
         let len = self.frames;
         for i in 0..frames {

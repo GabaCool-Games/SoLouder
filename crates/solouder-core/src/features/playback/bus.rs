@@ -118,6 +118,10 @@ impl Sealed for Bus {
             default_volume: self.settings.volume,
         }
     }
+
+    fn bus_id(&self) -> Option<SoundId> {
+        Some(self.id)
+    }
 }
 
 /// A bus voice's state (`BusInstance`).

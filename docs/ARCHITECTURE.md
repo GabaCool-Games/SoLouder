@@ -237,16 +237,19 @@ single-producer single-consumer `rtrb` rings and a few atomics.
 Voice IDs are generation-checked and reserved by the controller when a play
 is queued, so commands can target a voice before it starts. The controller
 builds each voice on the game thread, in a box that later carries it back:
-the voice's filter instances are created and their delay lines and FFT
-buffers sized for the voice's channels and rate before the play is sent, and
-global and bus filter instances are sized for the output or bus layout the
-same way. A queue's sound list is allocated by the controller the first time
+the voice's filter instances are created, and memory for their delay lines
+and FFT buffers reserved for the voice's channels and rate, before the play is
+sent; global and bus filter instances are prepared for the output layout or
+the bus voice the same way. Filters still size their buffers at first use,
+inside the reserved memory, so delays changed before then render as they do
+offline. A queue's sound list is allocated by the controller the first time
 the queue is played. `Status` (stream time, voice counts, renders, deferred
 commands, rejected queue sounds) is published through atomics after every
 render. Renders are checked allocation-free by the `realtime_no_alloc` test,
-including with every filter that allocates lazily, buses and queues; the one
-exception is a flanger whose delay parameter grows past its line, which
-reallocates the line on the audio thread as SoLoud does.
+including with every filter that allocates lazily, buses, queues, and delays
+and channel settings changed before a filter first runs. A first use that
+needs more than was reserved still allocates (see port-status.md,
+"Real-time coverage").
 
 ### Callback constraints
 

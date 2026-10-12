@@ -3,6 +3,7 @@
 
 use super::command::{Command, Faded, ParamChange, VoiceCommand};
 use super::renderer::Renderer;
+use super::status::FinishReason;
 use crate::features::playback::{FilterTarget, Handle, Mixer};
 
 impl Renderer {
@@ -11,7 +12,13 @@ impl Renderer {
         match command {
             Command::Voice(id, change) => {
                 let handle = self.live.handle(id).unwrap_or(Handle::INVALID);
+                let seek = matches!(change, VoiceCommand::Seek(_));
                 apply_voice(mixer, handle, change);
+                // A bus seek mixes: voices it plays to their end are gone
+                // before a later command in this render can take their slot.
+                if seek {
+                    self.report_gone(FinishReason::Ended);
+                }
             }
             Command::GlobalVolume(volume) => mixer.set_global_volume(volume),
             Command::FadeGlobalVolume { to, seconds } => mixer.fade_global_volume(to, seconds),

@@ -6,6 +6,7 @@ use std::sync::Arc;
 use rtrb::{Consumer, Producer};
 
 use super::VoiceId;
+use super::bus_layouts::BusLayouts;
 use super::command::{Command, PlayRequest};
 use super::ids::IdPool;
 use super::status::{Event, Shared, Status};
@@ -74,6 +75,8 @@ pub struct Controller {
     pub(super) max_queues: usize,
     /// The mixer's output layout, which global filters run at.
     pub(super) config: MixerConfig,
+    /// The layout of each bus voice started here, which bus filters run at.
+    pub(super) buses: BusLayouts,
     pub(super) shared: Arc<Shared>,
 }
 
@@ -201,6 +204,7 @@ impl Controller {
         }
         let mut prepared = source.prepare();
         prepared.prepare_filters(options.speed);
+        let layout = (prepared.voice.channels(), prepared.voice.base_sample_rate);
         let request = PlayRequest {
             id,
             voice: prepared.into(),
@@ -216,6 +220,10 @@ impl Controller {
             return Err(error);
         }
         self.retire_credits -= 1;
+        if let Some(bus) = source.bus_id() {
+            self.buses
+                .started(bus, id, layout.0, layout.1, options.speed);
+        }
         Ok(id)
     }
 
@@ -232,6 +240,7 @@ impl Controller {
         let event = self.events.pop().ok()?;
         if event.is_final() {
             self.ids.release(event.id());
+            self.buses.finished(event.id());
         }
         Some(event)
     }

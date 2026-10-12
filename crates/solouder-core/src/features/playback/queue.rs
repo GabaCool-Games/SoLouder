@@ -162,6 +162,16 @@ impl Queues {
         self.get(id).map_or(0, VecDeque::len)
     }
 
+    /// The queues that have storage.
+    pub fn ids(&self) -> impl Iterator<Item = SoundId> + '_ {
+        self.0.iter().map(|(id, _)| *id)
+    }
+
+    /// Sounds waiting in every queue.
+    pub fn queued(&self) -> usize {
+        self.0.iter().map(|(_, items)| items.len()).sum()
+    }
+
     /// Adds storage for queue `id`, unless it has some, in which case
     /// `storage` is handed back. Does not allocate if
     /// [`Queues::reserve`] made room.

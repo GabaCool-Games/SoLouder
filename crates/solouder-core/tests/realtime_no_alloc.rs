@@ -169,6 +169,76 @@ fn routing(controller: &mut Controller, renderer: &mut Renderer, out: &mut [f32]
     assert_eq!(controller.status().rejected_queue_sounds, 2);
 }
 
+/// Filter instances first running at another layout than the one they were
+/// created for: a bus whose channel setting changed after it started, a bus
+/// at double speed, and delays changed before a filter's first block.
+fn first_use(controller: &mut Controller, renderer: &mut Renderer, out: &mut [f32]) {
+    let mut bus = Bus::new();
+    let fast = PlayOptions {
+        speed: 2.0,
+        ..PlayOptions::default()
+    };
+    controller.play_with(&bus, fast).unwrap();
+    controller
+        .bus_play(&bus, &sound(2, 4000, 44100.0), PlayOptions::default())
+        .unwrap();
+    measured_render(renderer, &mut out[..2 * 256], "starting a fast bus");
+    bus.set_channels(1).unwrap();
+    let bus_filters: [Arc<dyn Filter>; 4] = [
+        Arc::new(EchoFilter::default()),
+        Arc::new(DcRemovalFilter::default()),
+        Arc::new(FlangerFilter::default()),
+        Arc::new(FftFilter),
+    ];
+    for (slot, filter) in bus_filters.into_iter().enumerate() {
+        controller
+            .set_bus_filter(&mut bus, slot as u32, Some(filter))
+            .unwrap();
+    }
+    controller
+        .set_global_filter(0, Some(&EchoFilter::default()))
+        .unwrap();
+    controller
+        .set_filter_parameter(FilterTarget::Global, 0, EchoFilter::DELAY, 0.1)
+        .unwrap();
+    controller
+        .set_global_filter(1, Some(&FlangerFilter::default()))
+        .unwrap();
+    controller
+        .set_filter_parameter(FilterTarget::Global, 1, FlangerFilter::DELAY, 0.001)
+        .unwrap();
+    let mut echoed = sound(2, 3000, 44100.0);
+    echoed.set_filter(0, Some(Arc::new(EchoFilter::default())));
+    let voice = controller.play(&echoed).unwrap();
+    drop(echoed);
+    controller
+        .set_filter_parameter(FilterTarget::Voice(voice), 0, EchoFilter::DELAY, 0.05)
+        .unwrap();
+    measured_render(
+        renderer,
+        &mut out[..2 * 512],
+        "filters first running at another layout or delay",
+    );
+    controller
+        .set_filter_parameter(FilterTarget::Global, 1, FlangerFilter::DELAY, 0.1)
+        .unwrap();
+    measured_render(
+        renderer,
+        &mut out[..2 * 512],
+        "a flanger delay growing to its maximum",
+    );
+
+    controller.stop_all().unwrap();
+    controller.set_global_filter(0, None).unwrap();
+    controller.set_global_filter(1, None).unwrap();
+    drop(bus);
+    for _ in 0..3 {
+        measured_render(renderer, &mut out[..2 * 64], "retiring first-use filters");
+    }
+    drain(controller);
+    assert_eq!(controller.status().retired_overflow, 0);
+}
+
 #[test]
 fn rendering_never_allocates_or_frees() {
     let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
@@ -274,6 +344,7 @@ fn rendering_never_allocates_or_frees() {
     drain(&mut controller);
 
     routing(&mut controller, &mut renderer, out);
+    first_use(&mut controller, &mut renderer, out);
 
     // The game side goes away first; the audio thread keeps rendering.
     drop(controller);

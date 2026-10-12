@@ -96,16 +96,22 @@ impl Controller {
     }
 
     /// Sets or clears filter `slot` of `bus` for later plays and, if the bus
-    /// is playing, replaces its voice's filter (`Bus::setFilter`).
+    /// is playing, replaces its voice's filter (`Bus::setFilter`). The
+    /// instance is prepared for the bus voice this controller started last,
+    /// whose channels and speed can differ from `bus`'s settings now.
     pub fn set_bus_filter(
         &mut self,
         bus: &mut Bus,
         slot: u32,
         filter: Option<Arc<dyn Filter>>,
     ) -> Result<(), ControllerError> {
+        let (channels, rate) = self
+            .buses
+            .of(bus.id())
+            .unwrap_or((bus.channels() as usize, BUS_RATE));
         let instance = filter.as_ref().map(|filter| {
             let mut instance = filter.create_instance();
-            instance.prepare(bus.channels() as usize, BUS_RATE);
+            instance.prepare(channels, rate);
             instance
         });
         if (slot as usize) < FILTERS_PER_STREAM {

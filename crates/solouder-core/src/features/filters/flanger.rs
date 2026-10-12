@@ -3,7 +3,7 @@
 
 use std::f64::consts::PI;
 
-use super::{Filter, FilterInstance, FilterParams, InvalidFilterParams};
+use super::{Filter, FilterInstance, FilterParams, InvalidFilterParams, reserve};
 use crate::dsp::c_int;
 
 /// A short delay swept by a cosine LFO, mixed with the dry signal
@@ -68,7 +68,7 @@ impl Filter for FlangerFilter {
 
     fn param_max(&self, index: u32) -> f32 {
         match index {
-            Self::DELAY => 0.1,
+            Self::DELAY => MAX_DELAY,
             Self::FREQ => 100.0,
             _ => 1.0,
         }
@@ -90,17 +90,20 @@ struct FlangerInstance {
     index: f64,
 }
 
+/// The largest `DELAY` parameter value.
+const MAX_DELAY: f32 = 0.1;
+
 impl FlangerInstance {
-    /// Grows the delay line to `len` frames per channel, cleared. When the
-    /// allocation fails the call leaves the audio unfiltered, as SoLoud does
-    /// when `new` returns null.
+    /// Grows the delay line to `len` frames per channel, cleared, reusing
+    /// memory reserved by `prepare`. When the allocation fails the call
+    /// leaves the audio unfiltered, as SoLoud does when `new` returns null.
     fn reserve(&mut self, len: u32, channels: usize) -> bool {
-        if self.buffer_len >= len {
+        if self.buffer_len >= len && self.buffer.len() >= self.buffer_len as usize * channels {
             return true;
         }
-        self.buffer_len = len;
-        let total = len as usize * channels;
-        self.buffer = Vec::new();
+        self.buffer_len = self.buffer_len.max(len);
+        let total = self.buffer_len as usize * channels;
+        self.buffer.clear();
         if self.buffer.try_reserve_exact(total).is_err() {
             self.buffer_len = 0;
             return false;
@@ -122,9 +125,12 @@ impl FilterInstance for FlangerInstance {
         &self.params
     }
 
+    /// Reserves a line for the largest delay the `DELAY` parameter goes to,
+    /// or the instance's own delay if that is longer.
     fn prepare(&mut self, channels: usize, sample_rate: f32) {
         let delay = self.params.values()[FlangerFilter::DELAY as usize];
-        self.reserve(line_frames(delay, sample_rate), channels);
+        let frames = line_frames(delay.max(MAX_DELAY), sample_rate);
+        reserve(&mut self.buffer, frames as usize * channels);
     }
 
     fn params_mut(&mut self) -> &mut FilterParams {

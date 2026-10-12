@@ -96,6 +96,7 @@ impl Mixer {
             stop_others,
             default_volume,
         } = source.prepare();
+        self.voices.retired.add_box();
         self.start_voice(voice, stop_others, default_volume, options)
     }
 
