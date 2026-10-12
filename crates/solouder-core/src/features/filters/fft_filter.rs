@@ -51,6 +51,10 @@ impl FilterInstance for FftInstance {
         &self.params
     }
 
+    fn prepare(&mut self, channels: usize, _sample_rate: f32) {
+        self.stft.reserve(channels);
+    }
+
     fn params_mut(&mut self) -> &mut FilterParams {
         &mut self.params
     }
@@ -126,6 +130,16 @@ impl Default for Stft {
 }
 
 impl Stft {
+    /// Grows the buffers to `channels` channels.
+    pub(super) fn reserve(&mut self, channels: usize) {
+        if self.input.len() < TWICE * channels {
+            self.input.resize(TWICE * channels, 0.0);
+            self.mix.resize(TWICE * channels, 0.0);
+            self.last_phase.resize(WINDOW * channels, 0.0);
+            self.sum_phase.resize(WINDOW * channels, 0.0);
+        }
+    }
+
     pub(super) fn filter_channel(
         &mut self,
         samples: &mut [f32],
@@ -134,12 +148,7 @@ impl Stft {
         channels: usize,
         mut transform: impl FnMut(&mut [f32; WINDOW], Phases<'_>),
     ) {
-        if self.input.len() < TWICE * channels {
-            self.input.resize(TWICE * channels, 0.0);
-            self.mix.resize(TWICE * channels, 0.0);
-            self.last_phase.resize(WINDOW * channels, 0.0);
-            self.sum_phase.resize(WINDOW * channels, 0.0);
-        }
+        self.reserve(channels);
         let ring = |offset: u32| offset as usize & (TWICE - 1);
         let input = &mut self.input[TWICE * channel..][..TWICE];
         let mix = &mut self.mix[TWICE * channel..][..TWICE];

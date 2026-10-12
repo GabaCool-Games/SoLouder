@@ -7,7 +7,7 @@ reference, and how it is verified. Per-behavior status lives in
 
 ## Summary
 
-Milestone D (routing and DSP) is in progress: fades, oscillations,
+Milestone D (routing and DSP) is done: fades, oscillations,
 scheduled pauses and stops, clocked play, the remaining voice controls (loop
 points, seeking, autostop, inaudible ticking, absolute pan and channel gains,
 sample rates, pause all, background play, single-instance sounds, stopping
@@ -16,8 +16,8 @@ voice groups, SoLoud's FFT, and per-voice and global filters (biquad,
 lofi, echo, waveshaper, DC removal, the FFT pitch filter, bassboost,
 robotize, flanger and freeverb) with live parameters, fades and oscillations,
 buses (nested, with their own channels, resampler, filters and
-visualization data) and queues are done (see
-[PORTING.md](PORTING.md#milestone-d-units) for the remaining units).
+visualization data) and queues, offline and through the real-time
+`Controller` (see [PORTING.md](PORTING.md#milestone-d-review)).
 Milestone C (Windows and Bevy playable slice) is done; milestone B (offline
 playback) before it. The mixer plays prepared PCM with 1
 to 8 channels on outputs of 1 to 8 channels: play, stop, pause, loop, volume,
@@ -31,8 +31,8 @@ and a `Renderer` for the audio thread, joined by bounded wait-free queues
 (see [ARCHITECTURE.md](ARCHITECTURE.md#ownership-and-the-real-time-boundary)).
 `solouder-cpal` runs the renderer on the default output device and
 `bevy_solouder` plays `.wav` assets from entities. Other codecs and 3D audio
-do not exist yet, and buses and queues are not reachable through the
-`Controller` yet.
+do not exist yet. Voice groups and the voice, bus and queue queries are
+available on the offline `Mixer` only (see "Real-time coverage" below).
 
 | Crate | Slices / modules | Contents |
 |---|---|---|
@@ -40,7 +40,7 @@ do not exist yet, and buses and queues are not reachable through the
 | `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping, faders (linear fades and sine oscillation), `fft` (Ooura's split-radix FFT as SoLoud has it), `waveform` (`generateWaveform`) |
 | `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `Bus`, `Queue`, `Playable`, `SoundId`, `Handle`, `PlayOptions`, `FilterTarget`, voice table, active-voice selection, resample-buffer pool, bus mixing (nested bus voices, bus seeking, visualization data), queued sounds, voice control and queries, fades and timers, voice groups, sound, bus and global filter slots and their parameters, `f32` and `i16` output |
 | `solouder-core` | `features/filters` | `Filter` and `FilterInstance` traits, `FilterParams` (live values with fades), `BiquadResonantFilter`, `LofiFilter`, `EchoFilter`, `WaveShaperFilter`, `DcRemovalFilter`, `FftFilter`, `BassboostFilter`, `RobotizeFilter`, `FlangerFilter`, `FreeverbFilter` |
-| `solouder-core` | `features/realtime` | `split`, `Controller`, `Renderer`, `VoiceId`, `Event`, `Status`, `RealtimeConfig`; retirement of ended voices' PCM to the game thread |
+| `solouder-core` | `features/realtime` | `split`, `Controller` (plays, voice and global controls, fades and schedules, filters and their parameters, bus settings and `annex_sound`, queued sounds), `Renderer`, `VoiceId`, `FilterTarget`, `Event`, `Status`, `RealtimeConfig`; voices and filter instances prepared on the game thread, and ended voices, replaced filters and rejected queue sounds retired to it |
 | `solouder-decoders` | `features/decoded_audio` | `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `DecodeLimits`, `DecodeError` |
 | `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
 | `bevy_solouder` | `decoded_audio`, `output_lifecycle`, `playback` | `SolouderPlugin`, `AudioClip` and `WavLoader`, `OutputMode` (device or headless), `AudioOutput`, `SoundPlayer`, `PlaybackSettings`, `SoundStatus`, `SoundFinished`/`SoundFailed` |
@@ -99,7 +99,7 @@ scenario except `filters_spectral` (see "Math functions" below). Run with
 `python scripts/run_parity.py` or
 `python scripts/check_all.py --reference --parity`.
 
-## Verified by tests (milestone C)
+## Verified by tests (milestones C and D)
 
 The real-time and device paths have no C++ counterpart in the null-driver
 harness, so they are checked by Rust tests instead of scenarios:
@@ -107,7 +107,8 @@ harness, so they are checked by Rust tests instead of scenarios:
 | Test | Checks |
 |---|---|
 | `realtime_tests` (core, 14 tests) | Renders match an offline `Mixer` sample for sample, a stop queued before the first render still reports start and finish, commands for finished voices do nothing, full queues and ID pools reject requests, each render applies a bounded number of commands, ended audio is released by the controller, all-protected tables fail the play, a stolen voice finishes with `Stolen` before its replacement starts, uncollected audio blocks plays instead of being freed in the render, a dropped renderer disconnects the controller, play options set speed and protection from the first frame |
-| `realtime_no_alloc` (core) | No allocation or free inside any `Renderer::render`, with a fresh sound per play and the smallest retirement queue: playing, every control, stopping, voices ending, voice stealing past the slot count, all-protected failures, `stop_all`, and rendering after the controller is dropped |
+| `routing_tests` (core, 3 tests) | A real-time session with voice and global filters, a filtered bus, a queue, clocked and background plays, fades, filter parameter fades, seeks, a bus filter swap, `annex_sound` and `stop_sound` renders the same samples as the offline `Mixer`, bit for bit; bus and queue plays report their events, and a play through a bus that is not playing fails; queues past `RealtimeConfig::queues` are refused |
+| `realtime_no_alloc` (core) | No allocation or free inside any `Renderer::render`, with a fresh sound per play and the smallest retirement queue: playing, every control, stopping, voices ending, voice stealing past the slot count, all-protected failures, `stop_all`, rendering after the controller is dropped, and voices, a bus and a queue using every filter that allocates lazily (echo, DC removal, FFT, bassboost, flanger), with global and bus filter swaps, seeks, and sounds queued past the queue's limit |
 | `callback` unit tests (cpal) | Long callbacks render in parts identical to manual renders, conversion to `i16`, a panic injected inside the render silences the output and hands its payload off the audio thread, conversions clamp to `[-1, 1)` (24-bit 1.0 would otherwise be out of range) and play NaN as silence, dropping the callback returns the renderer |
 | `device_lifecycle` (cpal) | Repeated open/play/close, drop while playing, two outputs at once, invalid voice counts and buffer sizes rejected before the device is opened |
 | `headless_playback` (Bevy, 8 tests) | Play to the end, stop on despawn, remove and replace, pause and resume, despawn on finish, `.wav` loading through the asset server, a bad file fails the player |
@@ -131,7 +132,7 @@ Rust 1.98.1, no device).
 | Filter parameter reads | `getFilterParameter` returns `INVALID_PARAMETER` (1.0) without a filter and 0 past the last parameter; handle 0 means the global filters | `Mixer::filter_parameter` returns `None` for both; `FilterTarget::Global` replaces handle 0 | 1.0 and 0 are also real parameter values |
 | Filter objects | `setFilter` keeps a pointer: changed settings reach later plays, and deleting the filter first leaves the sound with a dangling pointer | Sounds hold an `Arc<dyn Filter>` whose settings are fixed; set a new filter to change them | No dangling filters, and no locking between the game and audio threads |
 | Biquad type | `setParams` takes an `int` and accepts 0 to 3 (3 acts as lowpass) | `BiquadType` has the three real types; the live `TYPE` parameter still takes any value | A type that does not exist is not a setting |
-| Filters in real time | Not applicable | Through `Renderer`, a filtered sound's instances are created, and their delay lines and FFT buffers allocated, on the audio thread; real-time-safe filters come with milestone D unit 7 | The offline mixer matches the reference first |
+| Filters in real time | Filter instances are created, and their delay lines and FFT buffers allocated, on the audio thread, under the engine mutex | `Controller` creates a voice's filter instances, and the global and bus instances it sets, on the game thread, and sizes their buffers for the channels and rate they will run at (`FilterInstance::prepare`); replaced instances are retired to the game thread. A flanger whose delay parameter grows past its line still reallocates the line during the render, as SoLoud does | The audio thread neither allocates nor frees; the flanger's growth clears its line, so it cannot be sized ahead |
 | Math functions | SoLoud's sources include `math.h`, not `cmath`, so on MSVC `sin`, `cos`, `atan2` and `sqrt` of a `float` run in double precision; with GCC's libstdc++ they resolve to the `float` versions | Follows the MSVC build: the value is widened to `f64`, the function runs, and the result is rounded to `f32` | The Windows reference is the one the scenarios compare against. A Linux GCC build of the reference renders every scenario identically except `filters_spectral` (the FFT filter's `atan2`, `cos` and `sin`), which differs in the last bits |
 | Robotize waveform | `setParams` takes the waveform as an `int` | Also an `i32`, with the waveforms as `dsp::waveform` constants; indices without a waveform act as square, as in C++ | Keeps the live `WAVE` parameter and the setting in step |
 | FFT filter buffers | Sized for the channel count of the first call; a later call with more channels writes past them | Grow to the larger count | Memory safety; unreachable from the mixer, which keeps a voice's channel count |
@@ -156,11 +157,11 @@ Rust 1.98.1, no device).
 | Unknown files | `Wav::load` detects WAV, Ogg, FLAC and MP3, and tries MP3 for anything else | `decode_wav` reads WAV only and reports `NotRecognized` | Other codecs come in milestone E; the caller picks the decoder |
 | Decode limits | Only the `u32` size checks of patch 0012 | `DecodeLimits::max_samples` (default 256 Mi samples); allocation follows decoded data, not header claims | Untrusted files cannot request huge allocations |
 | Deleting a sound | `~Wav` stops every voice playing it | Dropping a `Sound` leaves its voices playing; they share its samples and release them when they end | No dangling source; stop voices explicitly (the Bevy plugin stops a player's voice when its component goes away) |
-| Voice end | The audio thread releases the source instance under the engine mutex | Through `Renderer`, an ended or stopped voice's PCM goes back to the controller and is freed on the game thread; an offline `Mixer` drops it in the mix call unless `keep_retired_audio` is set | Freeing memory on the audio thread can block |
+| Voice end | The audio thread releases the source instance under the engine mutex | Through `Renderer`, an ended or stopped voice's PCM goes back to the controller and is freed on the game thread; an offline `Mixer` drops it in the mix call unless `keep_retired` is set | Freeing memory on the audio thread can block |
 | Control | Every call locks the audio mutex and applies immediately | Controller calls queue a command, applied at the start of the next render; getters read the last published `Status` | The audio thread never waits for the game |
 | Voice IDs | `play` returns a handle once the voice exists | The controller reserves a `VoiceId` when the play is queued; with all 4096 reserved, `play` fails with `NoFreeVoiceId` (the Bevy plugin reports `NoFreeVoice`) instead of starting late | Commands can target a voice before it starts; a late sound is worse than none |
 | Voice stealing | A new voice silently takes the oldest unprotected voice's slot | The stolen voice reports `Finished(id, FinishReason::Stolen)` before the new voice's `Started` | The owner learns why its sound ended |
-| Finished-audio backpressure | Not applicable (freed in place) | Each queued play reserves room for its audio to come back; while the controller has not collected finished audio with `poll_event` or `release_retired_audio`, `play` fails with `QueueFull` | The render never frees memory, however long the game goes without polling |
+| Finished-audio backpressure | Not applicable (freed in place) | Each queued play reserves room for its audio to come back; filter swaps and queued sounds reserve room the same way; while the controller has not collected finished items with `poll_event` or `release_retired`, these calls fail with `QueueFull` | The render never frees memory, however long the game goes without polling |
 | Play settings | `play` takes volume, pan and paused; speed and protection are later calls | `PlayOptions` also carries speed and protection, applied before the first frame | A queued follow-up command could miss the first render |
 | Output conversion | The backend converts whatever the mix holds | Samples are clamped to `[-1, 1)` and NaN plays as silence before conversion | Integer conversions of 1.0 overflow (24-bit gives an invalid value) |
 | Callback panic | Undefined (an exception unwinds into the backend) | The output plays silence from then on, `Output::state` reports `Panicked`, and `Output::panic_message` gives the message; best-effort, because the panic hook still runs on the audio thread | Unwinding into a foreign callback is undefined behavior |
@@ -188,12 +189,43 @@ listed in
 and queues that outlive their engine or play on several engines) has no Rust
 counterpart: sounds hold no engine pointer, and voices own their samples.
 
+## Real-time coverage
+
+Through `Controller`, every milestone D control applies on the audio thread
+at the start of the next render, and the result matches the offline `Mixer`
+bit for bit (`routing_tests`):
+
+- Plays: `play`, `play_with`, `play_clocked`, `play_background`, `bus_play`
+  and `bus_play_clocked`, for sounds, buses and queues.
+- Voice controls: stop, stop all, stop a sound's voices, volume, pan,
+  absolute pan, channel volume, pause, pause all, looping, loop point,
+  autostop, inaudible behavior, protection, delay, seek, speed, sample rate,
+  their fades and oscillations, and scheduled pauses and stops.
+- Global volume with its fade and oscillation, the post-clip scaler and the
+  resampler.
+- Filters: global filter slots, and setting, fading and oscillating the
+  parameters of global and voice filters (`FilterTarget`); bus filters,
+  resampler and visualization (on the `Bus` and its playing voice);
+  `annex_sound`; `queue_play`.
+
+Limits:
+
+| Area | Behavior |
+|---|---|
+| Mixer only | Voice groups, voice getters other than those in `Status`, bus wave, FFT and voice counts, queue counts and `is_current`, and filter parameter reads |
+| Seek errors | A seek backwards on a bus or queue voice, which they cannot do, is ignored; `CannotSeekBack` is not reported |
+| Queued sounds | A sound the renderer cannot queue (queue not playing, or full) is retired and counted in `Status::rejected_queue_sounds`, not reported on its own. Each queued sound holds a retirement credit until it has played and been collected. A controller plays at most `RealtimeConfig::queues` distinct queues (default 64); each queue's list is allocated on its first play |
+| Filter sizing | Instances are sized for the voice's channels and rate when the play is sent. If its speed or sample rate changes before its first mixed block, echo, DC removal and flanger size their lines at their first use, on the audio thread, as SoLoud does; a flanger delay that grows past its line reallocates it the same way |
+| Finish reasons | `FinishReason::Ended` covers playing to the end and a scheduled stop coming due; `Stopped` covers stop commands, stopping a bus or a sound's voices, and a play that replaced the voice |
+
 ## Not yet covered
 
 - Init flags other than the clipper (`LEFT_HANDED_3D`, ...), device
   reconnection, and device output outside Windows WASAPI (checked only to
   build and skip on Linux).
-- The real-time controller commands for the milestone D controls, filters,
-  buses and queues (milestone D unit 7), and 3D audio with the `INAUDIBLE` flag it sets,
-  including `Bus::play3d` and `play3dClocked` (Milestone E).
+- 3D audio with the `INAUDIBLE` flag it sets, including `Bus::play3d` and
+  `play3dClocked` (Milestone E).
+- Voice groups, voice getters, bus wave, FFT and voice counts, queue counts,
+  and filter parameter reads through the `Controller` (see "Real-time
+  coverage").
 - Streaming, Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).

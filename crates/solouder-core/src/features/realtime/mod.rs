@@ -12,13 +12,17 @@
 
 mod command;
 mod controller;
+mod controller_routing;
+mod controller_voice;
 mod ids;
 mod renderer;
+mod renderer_control;
 mod status;
 
 use std::sync::Arc;
 
 pub use controller::{Controller, ControllerError};
+pub use controller_routing::FilterTarget;
 pub use ids::VoiceId;
 pub use renderer::Renderer;
 pub use status::{Event, FinishReason, Status};
@@ -38,10 +42,14 @@ pub struct RealtimeConfig {
     /// Commands applied per render; the rest wait for the next one, so a
     /// burst of requests cannot make one render arbitrarily slow.
     pub commands_per_render: usize,
-    /// Retired audio buffers in flight to the controller. Buffers beyond this
-    /// wait on the audio thread, in storage reserved for them, until the
-    /// queue has room.
+    /// Retired items (ended voices, replaced filter instances, played
+    /// queued sounds) in flight to the controller. Items beyond this wait on
+    /// the audio thread, in storage reserved for them, until the queue has
+    /// room.
     pub retired_capacity: usize,
+    /// Distinct queues the controller may play; the renderer reserves room
+    /// for their queued sounds.
+    pub queues: usize,
 }
 
 impl Default for RealtimeConfig {
@@ -51,6 +59,7 @@ impl Default for RealtimeConfig {
             command_capacity: 4096,
             commands_per_render: 512,
             retired_capacity: 4096,
+            queues: 64,
         }
     }
 }
@@ -61,12 +70,13 @@ impl Default for RealtimeConfig {
 pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer) {
     let voice_ids = config.voice_ids.max(1);
     let commands_per_render = config.commands_per_render.max(1);
-    // A play retires at most two buffers: the request's sound, and the
-    // voice's audio when it finishes. The controller holds two credits per
-    // voice ID and spends two per play, so the mixer's kept list holds
-    // everything not yet collected and never has to free audio itself.
+    // Every request that makes the renderer retire an item (a play, a filter
+    // swap, a queued sound) spends one of these credits, and each item
+    // collected returns one, so the mixer's kept list holds everything not
+    // yet collected and never has to free memory itself.
     let retire_credits = 2 * voice_ids;
-    mixer.keep_retired_audio(retire_credits);
+    mixer.keep_retired(retire_credits);
+    mixer.reserve_queues(config.queues);
     let (command_tx, command_rx) = rtrb::RingBuffer::new(config.command_capacity.max(1));
     let (event_tx, event_rx) = rtrb::RingBuffer::new(voice_ids * 2);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(config.retired_capacity.max(1));
@@ -77,6 +87,9 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
         retired: retired_rx,
         ids: IdPool::new(voice_ids),
         retire_credits,
+        queues: Vec::with_capacity(config.queues),
+        max_queues: config.queues,
+        config: mixer.config(),
         shared: Arc::clone(&shared),
     };
     let renderer = Renderer {
@@ -95,3 +108,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
 #[cfg(test)]
 #[path = "realtime_tests.rs"]
 mod tests;
+
+#[cfg(test)]
+#[path = "routing_tests.rs"]
+mod routing_tests;

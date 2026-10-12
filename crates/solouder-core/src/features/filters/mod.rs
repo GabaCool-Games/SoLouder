@@ -112,6 +112,12 @@ pub trait FilterInstance: Send + fmt::Debug {
         }
     }
 
+    /// Allocates what the first [`FilterInstance::filter`] call with this
+    /// channel count and rate would, so that call does not. The real-time
+    /// controller calls it on its own thread; a first call with other values
+    /// allocates as usual. Does nothing by default.
+    fn prepare(&mut self, _channels: usize, _sample_rate: f32) {}
+
     /// Filters one channel in place.
     fn filter_channel(
         &mut self,

@@ -41,6 +41,7 @@ impl Filter for DcRemovalFilter {
             totals: Vec::new(),
             frames: 0,
             offset: 0,
+            prepared: false,
         })
     }
 }
@@ -57,11 +58,32 @@ struct DcRemovalInstance {
     totals: Vec<f32>,
     frames: usize,
     offset: usize,
+    /// The window was allocated by `prepare`, for a first call that may not
+    /// match it.
+    prepared: bool,
+}
+
+impl DcRemovalInstance {
+    fn size_window(&mut self, channels: usize, sample_rate: f32) {
+        let frames = delay_frames(self.length, sample_rate);
+        if self.frames != frames || self.totals.len() != channels {
+            self.frames = frames;
+            self.buffer = vec![0.0; frames * channels];
+            self.totals = vec![0.0; channels];
+        }
+    }
 }
 
 impl FilterInstance for DcRemovalInstance {
     fn params(&self) -> &FilterParams {
         &self.params
+    }
+
+    fn prepare(&mut self, channels: usize, sample_rate: f32) {
+        if self.buffer.is_empty() {
+            self.size_window(channels, sample_rate);
+            self.prepared = true;
+        }
     }
 
     fn params_mut(&mut self) -> &mut FilterParams {
@@ -79,10 +101,9 @@ impl FilterInstance for DcRemovalInstance {
     ) {
         self.params.update(time);
         let wet = self.params.values()[DcRemovalFilter::WET as usize];
-        if self.buffer.is_empty() {
-            self.frames = delay_frames(self.length, sample_rate);
-            self.buffer = vec![0.0; self.frames * channels];
-            self.totals = vec![0.0; channels];
+        if self.buffer.is_empty() || self.prepared {
+            self.prepared = false;
+            self.size_window(channels, sample_rate);
         }
         let len = self.frames;
         for i in 0..frames {

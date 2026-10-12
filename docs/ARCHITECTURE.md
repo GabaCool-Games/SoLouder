@@ -232,13 +232,21 @@ single-producer single-consumer `rtrb` rings and a few atomics.
 |---|---|---|
 | Commands | controller → renderer | The call returns `QueueFull`; nothing is lost silently. The renderer applies at most `commands_per_render` per render and leaves the rest for the next. |
 | Events (`Started`, `Failed`, `Finished`) | renderer → controller | Cannot fill: it holds two events per reservable voice ID, and an ID is only released after its final event is read. |
-| Retired audio | renderer → controller | Ended voices' PCM is handed back to be freed on the game thread; the mixer keeps enough spare capacity for a render's worst case, and overflow is counted in `Status`. |
+| Retired items | renderer → controller | Ended and stopped voices (with their samples and filter instances), replaced filter instances, and queued sounds that could not be queued are handed back to be dropped on the game thread. Every command that can retire something costs a credit, and credits return only as retired items are collected, so the mixer's preallocated list cannot overflow in normal use; overflow is still counted in `Status`. |
 
 Voice IDs are generation-checked and reserved by the controller when a play
-is queued, so commands can target a voice before it starts. `Status` (stream
-time, voice counts, renders, deferred commands) is published through atomics
-after every render. Renders are checked allocation-free by the
-`realtime_no_alloc` test.
+is queued, so commands can target a voice before it starts. The controller
+builds each voice on the game thread, in a box that later carries it back:
+the voice's filter instances are created and their delay lines and FFT
+buffers sized for the voice's channels and rate before the play is sent, and
+global and bus filter instances are sized for the output or bus layout the
+same way. A queue's sound list is allocated by the controller the first time
+the queue is played. `Status` (stream time, voice counts, renders, deferred
+commands, rejected queue sounds) is published through atomics after every
+render. Renders are checked allocation-free by the `realtime_no_alloc` test,
+including with every filter that allocates lazily, buses and queues; the one
+exception is a flanger whose delay parameter grows past its line, which
+reallocates the line on the audio thread as SoLoud does.
 
 ### Callback constraints
 

@@ -166,6 +166,7 @@ impl LiveTable {
     }
 
     /// Removes every voice, calling `on_removed` with its ID.
+    #[cfg(test)]
     pub fn clear(&mut self, mut on_removed: impl FnMut(VoiceId)) {
         while let Some(&index) = self.live.last() {
             let id = self.entries[index as usize].expect("live entries exist").id;

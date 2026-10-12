@@ -7,7 +7,7 @@ SoLouder ports the SoLoud audio engine to **native Rust**, with an idiomatic
 keeps SoLoud's mixing behavior without requiring the C++ library in the normal
 Rust build, and adds the fixes and extensions developed for GoreGrind.
 
-**Current status:** milestone C is done. This repository contains the
+**Current status:** milestone D is done. This repository contains the
 patched C++ reference tooling (pinned upstream commit, patch series, fetch
 script, C++ regression tests), the parity ledger, and a Cargo workspace with
 the scenario harness: `tests/scenarios/*.scn` run through a C++ null-driver
@@ -19,8 +19,9 @@ every scenario (bit for bit, except the documented 8-bit WAV conversion).
 The mixer runs on the audio thread behind bounded, wait-free queues
 (`solouder_core::realtime`), `solouder-cpal` plays it on the default device,
 and `bevy_solouder` plays `.wav` assets from entities that stop when
-despawned. Milestone D (fades, voice controls and groups, filters, buses and
-queues) is in progress; 3D audio and streaming are still to come; see
+despawned. Milestone D added fades, scheduling, the remaining voice
+controls, voice groups, filters, buses and queues, offline and through the
+real-time controller; 3D audio and streaming (milestone E) are next; see
 [port-status.md](port-status.md).
 
 [ARCHITECTURE.md](ARCHITECTURE.md) owns the target workspace, Vertical Slice
@@ -537,7 +538,7 @@ The ledger's `milestone` column assigns every C API behavior to one of these.
 | A — Foundation and reference harness | Patched reference and C++ regression tests (done); parity ledger (done); Cargo workspace with pinned Rust/Bevy versions (done); `scripts/check_all.py` and a CI workflow, verified locally on Windows and in a Linux container but not yet run on a CI host (done); scenario format with a C++ null-driver runner and a Rust runner (done, first scenarios: init validation and silence) |
 | B — Offline playback (done) | Prepared PCM and decoded WAV files (done; `solouder-decoders`), planar mixer for 1 to 8 channels (done), handles (done), play/stop/pause/loop (done; loop points in D), volume/pan (done), point/linear/Catmull-Rom resampling (done), clipping and global volume (done); 12 parity scenarios for playback and WAV decoding, bit-identical on Windows except the 8-bit WAV conversion |
 | C — Windows and Bevy playable slice (done) | Bounded wait-free control, events and audio retirement between game and audio thread, allocation-free renders (done; `solouder_core::realtime`, `realtime_no_alloc`); CPAL negotiation of rate, channels and sample format, panic-to-silence callback, device error states, safe shutdown order (done; `solouder-cpal`, `play_wav` example, checked on a Windows WASAPI device); Bevy plugin with `.wav` asset loader, playback entities, settings, status and messages, stop on despawn, headless mode (done; `bevy_solouder`, `play_and_despawn` example) |
-| D — Routing and DSP parity | Nested buses, queues/groups, virtualization/protection, scheduling, remaining resamplers, voice/bus/global filters |
+| D — Routing and DSP parity (done) | Nested buses, queues/groups, virtualization/protection, scheduling, remaining resamplers, voice/bus/global filters (done; see the [review](#milestone-d-review)) |
 | E — Spatial and streaming parity | Listener/emitter systems, attenuation/Doppler/delay, workers, seek/loop regressions, WAV/FLAC/Ogg Vorbis/MP3 |
 | F — Sources and portability | Generators/speech/music, FFT/visualization, Linux/macOS checks, stress/benchmarks, support matrix |
 
@@ -570,8 +571,11 @@ scenarios, ledger rows and a commit.
 6. **Queues** (done): queues as playable sources, gapless queued sounds,
    the 32-sound limit, parameters, seeking forward and looping queues.
    Patches 0049 and 0050. Scenario `queues`.
-7. **Real-time control and review:** controller commands for the new
-   controls, documentation, ledger and the milestone review.
+7. **Real-time control and review** (done): controller commands for the
+   new controls, filters, buses and queues; voices and filter instances
+   prepared on the game thread; replaced filters and rejected queue sounds
+   retired to it. Tests `routing_tests` and the routing section of
+   `realtime_no_alloc`.
 
 Plan work inside a milestone as small parity units: one behavior, its
 scenarios, the Rust implementation, and a passing comparison. Order units
@@ -603,16 +607,40 @@ belong to the milestone that introduces the affected behavior:
   `despawning_before_the_clip_loads_never_starts_a_voice`), and the callback
   unit test `dropping_the_callback_returns_the_renderer`. Device tests skip
   without hardware unless `SOLOUDER_REQUIRE_DEVICE=1`.
-- **D:** protected-voice ranking (patch 0007), bus default volume and nested
-  gain (#381, #395, #280), queue fixes (#291). Filter stability at the voice
-  processing rate is done (patch 0031, `filters_voice`,
-  `biquad_above_the_voice_nyquist_frequency_stays_bounded`). The voice-group defects (#228, a deadlock in
+- **D:** protected-voice ranking (patch 0007: `active_voices`,
+  `loudest_and_protected_voices_are_active`), bus default volume and nested
+  gain (#381, #395, #280: `buses`, `bus_mixes_its_voices_through_its_own_pan`),
+  queue stops (#291: `queues`), filter stability at the voice processing rate
+  (patch 0031, `filters_voice`,
+  `biquad_above_the_voice_nyquist_frequency_stays_bounded`). Done. The voice-group defects (#228, a deadlock in
   `trimVoiceGroup_internal`; #322, its allocation size) cannot occur in Rust:
   groups are `Vec`s on the mixer's single owner (`voice_groups`).
 - **E:** non-Ogg seek/loop (patch 0002), looping streams not ending (patch
   0005), stream seek (patch 0009, #396), decoder metadata validation and
   fuzzing (patch 0012), long-duration drift (#314), 3D initialization (patch
   0013, #95).
+
+### Milestone D review
+
+Checked against the gates below on 2026-10-12:
+
+- **Parity:** all 64 milestone D ledger rows are `ported`. The 30 scenarios
+  render the same samples as the Windows reference build, bit for bit
+  (subnormals counted as zero; `wav_decode_u8` keeps its documented
+  tolerance). On Linux (GCC, Ubuntu 20.04) the reference differs only in
+  `filters_spectral`, in the last bits of the FFT filter's math functions.
+- **Reference defects:** patches 0026 to 0050 fix the defects milestone D
+  reached in the C++ reference, each with a C++ regression test; the D
+  regression list above is covered.
+- **Real time:** every D control is reachable through `Controller` and
+  renders the same samples as the offline mixer; renders neither allocate nor
+  free with filters, buses and queues. Limits are listed in
+  [port-status.md](port-status.md#real-time-coverage): voice groups and most
+  queries are offline-only, seek errors are not reported, and a flanger
+  delay that grows past its line reallocates during the render.
+- **Structure:** `cargo clippy -D warnings`, `cargo fmt --check`, the
+  400-line limit, the ledger check and the C++ regression tests pass
+  (`check_all.py --reference --parity`).
 
 Each milestone requires a compiling enabled feature set, passing tests, VSA
 review, Rust files at or below 400 lines, an updated ledger, and documented

@@ -33,9 +33,12 @@ impl Event {
 /// Why a voice finished.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FinishReason {
-    /// It played to the end.
+    /// It ended during a mix: it played to the end, or a scheduled stop came
+    /// due.
     Ended,
-    /// A stop command stopped it.
+    /// A command stopped it: a stop, stopping its bus or every voice of its
+    /// sound, or a play that replaced it (a single-instance sound, or a bus
+    /// or queue played again).
     Stopped,
     /// Every voice slot was busy and a new play took this voice's slot (the
     /// oldest unprotected voice is the one stolen). Reported just before the
@@ -63,9 +66,13 @@ pub struct Status {
     /// Commands still queued after the last render: more than the per-render
     /// limit arrived, or they were queued while it ran.
     pub deferred_commands: u64,
-    /// Audio buffers the audio thread had to free itself. The controller
-    /// reserves room for every buffer a play can retire, so this stays 0.
+    /// Retired items the audio thread had to free itself. The controller
+    /// reserves room for every item a request can retire, so this stays 0
+    /// for voices started through it.
     pub retired_overflow: u64,
+    /// Sounds [`Controller::queue_play`](super::Controller::queue_play)
+    /// sent that could not be queued: the queue was not playing or was full.
+    pub rejected_queue_sounds: u64,
 }
 
 /// The snapshot, shared through atomics so neither side waits.
@@ -77,6 +84,7 @@ pub(crate) struct Shared {
     renders: AtomicU64,
     deferred_commands: AtomicU64,
     retired_overflow: AtomicU64,
+    rejected_queue_sounds: AtomicU64,
 }
 
 impl Shared {
@@ -90,6 +98,8 @@ impl Shared {
             .store(status.deferred_commands, relaxed);
         self.retired_overflow
             .store(status.retired_overflow, relaxed);
+        self.rejected_queue_sounds
+            .store(status.rejected_queue_sounds, relaxed);
         // Readers that see this count see the fields stored before it.
         self.renders.store(status.renders, Ordering::Release);
     }
@@ -104,6 +114,7 @@ impl Shared {
             renders,
             deferred_commands: self.deferred_commands.load(relaxed),
             retired_overflow: self.retired_overflow.load(relaxed),
+            rejected_queue_sounds: self.rejected_queue_sounds.load(relaxed),
         }
     }
 }

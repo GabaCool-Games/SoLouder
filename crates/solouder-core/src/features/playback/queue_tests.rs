@@ -1,6 +1,7 @@
 use super::*;
 use crate::contracts::Pcm;
 use crate::dsp::Clipper;
+use crate::features::playback::Mixer;
 use crate::features::playback::{MixerConfig, QueueError};
 
 fn mixer() -> Mixer {

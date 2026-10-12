@@ -6,24 +6,29 @@ use std::sync::Arc;
 use rtrb::{Consumer, Producer};
 
 use super::VoiceId;
-use super::command::Command;
+use super::command::{Command, PlayRequest};
 use super::ids::IdPool;
 use super::status::{Event, Shared, Status};
-use crate::contracts::Pcm;
-use crate::dsp::Resampler;
-use crate::features::playback::{Handle, PlayOptions, Sound};
+use crate::features::playback::{
+    Bus, Handle, MixerConfig, PlayOptions, Playable, QUEUE_MAX, RetiredItem, SoundId, Start,
+};
 
 /// Why the controller refused a request. Nothing was queued.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[non_exhaustive]
 pub enum ControllerError {
-    /// The command queue is full; the audio thread has not caught up.
+    /// The command queue is full; the audio thread has not caught up. Also
+    /// returned while the audio thread holds as much released memory as it
+    /// has room for, because [`Controller::poll_event`] has not collected it.
     QueueFull,
     /// Every voice ID is in use. IDs come back when their final event is
     /// read with [`Controller::poll_event`].
     NoFreeVoiceId,
     /// Play speeds must be greater than 0.
     InvalidSpeed,
+    /// More distinct queues were played than
+    /// [`RealtimeConfig::queues`](super::RealtimeConfig::queues) allows.
+    TooManyQueues,
     /// The renderer has been dropped: nothing will apply this request, and
     /// voices already queued or playing will not report again.
     Disconnected,
@@ -35,6 +40,7 @@ impl fmt::Display for ControllerError {
             Self::QueueFull => write!(f, "the audio command queue is full"),
             Self::NoFreeVoiceId => write!(f, "every voice ID is in use"),
             Self::InvalidSpeed => write!(f, "play speed must be greater than 0"),
+            Self::TooManyQueues => write!(f, "too many queues"),
             Self::Disconnected => write!(f, "the audio renderer is gone"),
         }
     }
@@ -47,22 +53,32 @@ impl std::error::Error for ControllerError {}
 ///
 /// Requests take effect at the start of a later render, in the order they
 /// were made. Call [`Controller::poll_event`] regularly: it frees the IDs of
-/// finished voices, and the audio of finished voices is released through it
-/// on this thread rather than on the audio thread.
+/// finished voices, and the memory the renderer no longer uses (ended
+/// voices, replaced filters, played queued sounds) is freed through it on
+/// this thread rather than on the audio thread.
+///
+/// Voices, filter instances and queue storage are built here, so a request
+/// may allocate; the renderer never does.
 #[derive(Debug)]
 pub struct Controller {
     pub(super) commands: Producer<Command>,
     pub(super) events: Consumer<Event>,
-    pub(super) retired: Consumer<Pcm>,
+    pub(super) retired: Consumer<RetiredItem>,
     pub(super) ids: IdPool,
-    /// Retired buffers the renderer may still send back without running out
-    /// of reserved storage; a play spends two.
+    /// Retired items the renderer may still send back without running out
+    /// of reserved storage. A play, a filter swap and a queued sound each
+    /// spend one.
     pub(super) retire_credits: usize,
+    /// Queues the renderer has storage for.
+    pub(super) queues: Vec<SoundId>,
+    pub(super) max_queues: usize,
+    /// The mixer's output layout, which global filters run at.
+    pub(super) config: MixerConfig,
     pub(super) shared: Arc<Shared>,
 }
 
 impl Controller {
-    fn send(&mut self, command: Command) -> Result<(), ControllerError> {
+    pub(super) fn send(&mut self, command: Command) -> Result<(), ControllerError> {
         if self.commands.is_abandoned() {
             return Err(ControllerError::Disconnected);
         }
@@ -71,25 +87,96 @@ impl Controller {
             .map_err(|_| ControllerError::QueueFull)
     }
 
-    /// Plays `sound` with default options.
-    pub fn play(&mut self, sound: &Sound) -> Result<VoiceId, ControllerError> {
-        self.play_with(sound, PlayOptions::default())
+    /// Sends a command that makes the renderer retire one item.
+    pub(super) fn send_retiring(&mut self, command: Command) -> Result<(), ControllerError> {
+        if self.retire_credits == 0 {
+            return Err(ControllerError::QueueFull);
+        }
+        self.send(command)?;
+        self.retire_credits -= 1;
+        Ok(())
+    }
+
+    /// Plays `source` with default options.
+    pub fn play(&mut self, source: &impl Playable) -> Result<VoiceId, ControllerError> {
+        self.play_with(source, PlayOptions::default())
     }
 
     /// Queues a play request and returns the ID of its voice-to-be. The
     /// voice reports [`Event::Started`] or [`Event::Failed`], and later
     /// [`Event::Finished`]. Speed and protection in `options` apply from the
-    /// first mixed frame. The voice plays on the main output whatever
-    /// `options.bus` says.
+    /// first mixed frame. `options.bus` is ignored: play through a bus with
+    /// [`Controller::bus_play`].
     ///
     /// Fails with [`ControllerError::QueueFull`] when the command queue is
-    /// full, and also when the audio thread holds as much finished audio as
+    /// full, and also when the audio thread holds as much released memory as
     /// it has room for because [`Controller::poll_event`] has not collected
     /// it.
     pub fn play_with(
         &mut self,
-        sound: &Sound,
+        source: &impl Playable,
         options: PlayOptions,
+    ) -> Result<VoiceId, ControllerError> {
+        self.start(source, options, Start::Now, None)
+    }
+
+    /// [`Mixer::play_clocked`](crate::Mixer::play_clocked): starts the voice
+    /// delayed by the time `sound_time` lies after the previous clocked
+    /// play's, so sounds triggered from a game loop keep their spacing.
+    pub fn play_clocked(
+        &mut self,
+        sound_time: f64,
+        source: &impl Playable,
+        options: PlayOptions,
+    ) -> Result<VoiceId, ControllerError> {
+        self.start(source, options, Start::Clocked(sound_time), None)
+    }
+
+    /// [`Mixer::play_background`](crate::Mixer::play_background): full gain
+    /// on the left and right speakers, for music and ambience.
+    pub fn play_background(
+        &mut self,
+        source: &impl Playable,
+        volume: Option<f32>,
+        paused: bool,
+    ) -> Result<VoiceId, ControllerError> {
+        let options = PlayOptions {
+            volume,
+            paused,
+            ..PlayOptions::default()
+        };
+        self.start(source, options, Start::Background, None)
+    }
+
+    /// Plays `source` through `bus`'s voice (`Bus::play`). The play fails
+    /// with [`Event::Failed`] if the bus is not playing when it is applied.
+    pub fn bus_play(
+        &mut self,
+        bus: &Bus,
+        source: &impl Playable,
+        options: PlayOptions,
+    ) -> Result<VoiceId, ControllerError> {
+        self.start(source, options, Start::Now, Some(bus.id()))
+    }
+
+    /// [`Controller::play_clocked`] through `bus` (`Bus::playClocked`).
+    pub fn bus_play_clocked(
+        &mut self,
+        bus: &Bus,
+        sound_time: f64,
+        source: &impl Playable,
+        options: PlayOptions,
+    ) -> Result<VoiceId, ControllerError> {
+        let start = Start::Clocked(sound_time);
+        self.start(source, options, start, Some(bus.id()))
+    }
+
+    fn start(
+        &mut self,
+        source: &impl Playable,
+        options: PlayOptions,
+        start: Start,
+        bus: Option<SoundId>,
     ) -> Result<VoiceId, ControllerError> {
         if options.speed.is_nan() || options.speed <= 0.0 {
             return Err(ControllerError::InvalidSpeed);
@@ -97,24 +184,38 @@ impl Controller {
         if self.commands.is_abandoned() {
             return Err(ControllerError::Disconnected);
         }
-        if self.commands.slots() == 0 {
+        let queue = source.queue_id().filter(|id| !self.queues.contains(id));
+        let needed = 1 + usize::from(queue.is_some());
+        if self.commands.slots() < needed || self.retire_credits == 0 {
             return Err(ControllerError::QueueFull);
+        }
+        if queue.is_some() && self.queues.len() >= self.max_queues {
+            return Err(ControllerError::TooManyQueues);
         }
         let id = self.ids.allocate().ok_or(ControllerError::NoFreeVoiceId)?;
-        if self.retire_credits < 2 {
-            self.ids.release(id);
-            return Err(ControllerError::QueueFull);
+        if let Some(queue) = queue {
+            let storage = std::collections::VecDeque::with_capacity(QUEUE_MAX);
+            // Cannot fail: there is room for both commands.
+            let _ = self.send(Command::QueueStorage(queue, storage));
+            self.queues.push(queue);
         }
-        let sound = sound.clone();
-        let options = PlayOptions {
-            bus: Handle::INVALID,
-            ..options
+        let mut prepared = source.prepare();
+        prepared.prepare_filters(options.speed);
+        let request = PlayRequest {
+            id,
+            voice: prepared.into(),
+            options: PlayOptions {
+                bus: Handle::INVALID,
+                ..options
+            },
+            start,
+            bus,
         };
-        if let Err(error) = self.send(Command::Play { id, sound, options }) {
+        if let Err(error) = self.send(Command::Play(request)) {
             self.ids.release(id);
             return Err(error);
         }
-        self.retire_credits -= 2;
+        self.retire_credits -= 1;
         Ok(id)
     }
 
@@ -124,86 +225,21 @@ impl Controller {
         !self.commands.is_abandoned()
     }
 
-    /// Stops the voice; it reports [`Event::Finished`] with
-    /// [`FinishReason::Stopped`](super::FinishReason::Stopped).
-    pub fn stop(&mut self, id: VoiceId) -> Result<(), ControllerError> {
-        self.send(Command::Stop(id))
-    }
-
-    /// Stops every voice.
-    pub fn stop_all(&mut self) -> Result<(), ControllerError> {
-        self.send(Command::StopAll)
-    }
-
-    /// Sets the voice's volume (ramped over the next render).
-    pub fn set_volume(&mut self, id: VoiceId, volume: f32) -> Result<(), ControllerError> {
-        self.send(Command::Volume(id, volume))
-    }
-
-    /// Sets the voice's stereo pan, -1 (left) to 1 (right).
-    pub fn set_pan(&mut self, id: VoiceId, pan: f32) -> Result<(), ControllerError> {
-        self.send(Command::Pan(id, pan))
-    }
-
-    /// Pauses or resumes the voice.
-    pub fn set_pause(&mut self, id: VoiceId, paused: bool) -> Result<(), ControllerError> {
-        self.send(Command::Pause(id, paused))
-    }
-
-    /// Turns looping on or off for the voice.
-    pub fn set_looping(&mut self, id: VoiceId, looping: bool) -> Result<(), ControllerError> {
-        self.send(Command::Looping(id, looping))
-    }
-
-    /// Protects the voice from being stolen or made inactive.
-    pub fn set_protect(&mut self, id: VoiceId, protect: bool) -> Result<(), ControllerError> {
-        self.send(Command::Protect(id, protect))
-    }
-
-    /// Sets the voice's relative play speed, which must be greater than 0.
-    pub fn set_relative_play_speed(
-        &mut self,
-        id: VoiceId,
-        speed: f32,
-    ) -> Result<(), ControllerError> {
-        if speed.is_nan() || speed <= 0.0 {
-            return Err(ControllerError::InvalidSpeed);
-        }
-        self.send(Command::Speed(id, speed))
-    }
-
-    /// Sets the volume applied to the whole mix.
-    pub fn set_global_volume(&mut self, volume: f32) -> Result<(), ControllerError> {
-        self.send(Command::GlobalVolume(volume))
-    }
-
-    /// Sets the scale applied after clipping.
-    pub fn set_post_clip_scaler(&mut self, scale: f32) -> Result<(), ControllerError> {
-        self.send(Command::PostClipScaler(scale))
-    }
-
-    /// Selects the resampler for every voice.
-    pub fn set_resampler(&mut self, resampler: Resampler) -> Result<(), ControllerError> {
-        self.send(Command::Resampler(resampler))
-    }
-
     /// The next voice event, if any. A final event frees its voice ID.
-    /// Also releases, on this thread, audio the renderer no longer uses.
+    /// Also frees, on this thread, memory the renderer no longer uses.
     pub fn poll_event(&mut self) -> Option<Event> {
-        self.release_retired_audio();
+        self.release_retired();
         let event = self.events.pop().ok()?;
         if event.is_final() {
             self.ids.release(event.id());
         }
-        if let Event::Failed(_) = event {
-            // No voice was created, so no voice audio will come back.
-            self.retire_credits += 1;
-        }
         Some(event)
     }
 
-    /// Drops audio buffers the renderer has finished with. Returns how many.
-    pub fn release_retired_audio(&mut self) -> usize {
+    /// Frees the memory the renderer has finished with: ended voices,
+    /// replaced filter instances and played queued sounds. Returns how many
+    /// items were freed.
+    pub fn release_retired(&mut self) -> usize {
         let mut released = 0;
         while self.retired.pop().is_ok() {
             released += 1;

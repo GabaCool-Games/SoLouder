@@ -178,14 +178,6 @@ impl Voice {
         count
     }
 
-    /// The voice's samples, released when it stops.
-    pub fn into_pcm(self) -> Option<Pcm> {
-        match self.source {
-            VoiceSource::Pcm { pcm, .. } => Some(pcm),
-            VoiceSource::Bus(_) | VoiceSource::Queue { .. } => None,
-        }
-    }
-
     /// The bus state, for a bus voice.
     pub fn as_bus(&self) -> Option<&BusVoice> {
         match &self.source {

@@ -5,7 +5,7 @@ use std::fmt;
 
 use super::mixer::Mixer;
 use super::queue::{QUEUE_MAX, Queue, Queued};
-use super::sound::Sound;
+use super::sound::{Sound, SoundId};
 use super::source::Playable;
 use super::voice::VoiceSource;
 
@@ -66,9 +66,13 @@ impl Mixer {
     }
 
     fn queue_is_playing(&self, queue: &Queue) -> bool {
+        self.queue_id_is_playing(queue.id())
+    }
+
+    pub(crate) fn queue_id_is_playing(&self, queue: SoundId) -> bool {
         self.voices.slots[..self.voices.highest]
             .iter()
             .flatten()
-            .any(|v| v.sound_id == queue.id() && matches!(v.source, VoiceSource::Queue { .. }))
+            .any(|v| v.sound_id == queue && matches!(v.source, VoiceSource::Queue { .. }))
     }
 }

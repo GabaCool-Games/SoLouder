@@ -8,7 +8,9 @@ use super::bus;
 use super::handle::{Handle, next_play_index};
 use super::mixer::Mixer;
 use super::queue;
+use super::sound::SoundId;
 use super::source::Playable;
+use super::source::private::Prepared;
 use super::voice::{Voice, VoiceSource, flags};
 use crate::dsp::Resampler;
 use crate::dsp::fader::FaderState;
@@ -89,7 +91,12 @@ impl Mixer {
     /// nothing plays and [`Handle::INVALID`] is returned. A single-instance
     /// sound, and any bus, first stops its other voices.
     pub fn play_with(&mut self, source: &impl Playable, options: PlayOptions) -> Handle {
-        source.play_on(self, options)
+        let Prepared {
+            voice,
+            stop_others,
+            default_volume,
+        } = source.prepare();
+        self.start_voice(voice, stop_others, default_volume, options)
     }
 
     /// The common part of `play_with`: `default_volume` is the source's.
@@ -104,6 +111,7 @@ impl Mixer {
             self.voices.stop_sound(voice.sound_id);
         }
         let Some(slot) = self.voices.find_free() else {
+            self.voices.retired.put_voice(voice);
             return Handle::INVALID;
         };
         let play_index = self.voices.play_index;
@@ -160,7 +168,11 @@ impl Mixer {
     /// Stops every voice of `source` and its clones (`Soloud::stopAudioSource`;
     /// `AudioSource::stop` is this call on each mixer).
     pub fn stop_sound(&mut self, source: &impl Playable) {
-        self.voices.stop_sound(source.source_id());
+        self.stop_sound_id(source.source_id());
+    }
+
+    pub(crate) fn stop_sound_id(&mut self, id: SoundId) {
+        self.voices.stop_sound(id);
     }
 
     /// Sets a voice's volume, cancelling a volume fade; the change ramps in

@@ -68,6 +68,10 @@ impl FilterInstance for BassboostInstance {
         &self.params
     }
 
+    fn prepare(&mut self, channels: usize, _sample_rate: f32) {
+        self.stft.reserve(channels);
+    }
+
     fn params_mut(&mut self) -> &mut FilterParams {
         &mut self.params
     }

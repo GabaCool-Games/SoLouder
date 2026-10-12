@@ -10,10 +10,16 @@
 //! The counting allocator is global, so this file holds a single test.
 
 use std::alloc::System;
+use std::sync::Arc;
 
-use solouder_core::realtime::{RealtimeConfig, split};
+use solouder_core::filters::{
+    BassboostFilter, BiquadResonantFilter, DcRemovalFilter, EchoFilter, FftFilter, Filter,
+    FlangerFilter, FreeverbFilter,
+};
+use solouder_core::realtime::{FilterTarget, RealtimeConfig, split};
 use solouder_core::{
-    Controller, ControllerError, Mixer, MixerConfig, Pcm, PlayOptions, Renderer, Resampler, Sound,
+    Bus, Controller, ControllerError, Mixer, MixerConfig, Pcm, PlayOptions, Queue, Renderer,
+    Resampler, Sound,
 };
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
@@ -62,6 +68,105 @@ fn play_fresh(
             Err(other) => panic!("{other:?}"),
         }
     }
+}
+
+/// Filters, buses and queues. Every filter whose instance allocates when it
+/// first runs is used, and the game side drops its filters and sources
+/// before rendering, so the renderer would free them if it dropped what it
+/// replaces.
+fn routing(controller: &mut Controller, renderer: &mut Renderer, out: &mut [f32]) {
+    let filters: Vec<Arc<dyn Filter>> = vec![
+        Arc::new(EchoFilter::default()),
+        Arc::new(DcRemovalFilter::default()),
+        Arc::new(FftFilter),
+        Arc::new(BassboostFilter::default()),
+        Arc::new(FlangerFilter::default()),
+        Arc::new(FreeverbFilter::default()),
+        Arc::new(BiquadResonantFilter::default()),
+    ];
+    let mut bus = Bus::new();
+    bus.set_filter(0, Some(Arc::clone(&filters[0])));
+    bus.set_filter(1, Some(Arc::clone(&filters[4])));
+    let bus_id = controller.play(&bus).unwrap();
+    let mut children = Vec::new();
+    for (i, filter) in filters.iter().enumerate() {
+        let mut filtered = sound(2, 3000, 22050.0);
+        filtered.set_filter(i as u32 % 8, Some(Arc::clone(filter)));
+        let options = PlayOptions {
+            speed: 1.25,
+            ..PlayOptions::default()
+        };
+        children.push(controller.bus_play(&bus, &filtered, options).unwrap());
+    }
+    controller.set_global_filter(0, Some(&*filters[1])).unwrap();
+    controller.set_global_filter(1, Some(&*filters[2])).unwrap();
+    let mut queue = Queue::new();
+    queue.set_params(44100.0, 2).unwrap();
+    let queue_id = controller.play(&queue).unwrap();
+    for _ in 0..34 {
+        controller
+            .queue_play(&queue, &sound(2, 300, 44100.0))
+            .unwrap();
+    }
+    controller
+        .play_clocked(0.5, &sound(1, 2000, 44100.0), PlayOptions::default())
+        .unwrap();
+    controller
+        .play_background(&sound(2, 2000, 44100.0), Some(0.5), false)
+        .unwrap();
+    measured_render(
+        renderer,
+        &mut out[..2 * 512],
+        "starting filtered voices, a bus and a queue",
+    );
+
+    let child = children[0];
+    controller.fade_volume(child, 0.2, 0.01).unwrap();
+    controller.oscillate_pan(child, -1.0, 1.0, 0.01).unwrap();
+    controller
+        .set_filter_parameter(FilterTarget::Voice(child), 0, 0, 0.5)
+        .unwrap();
+    controller
+        .fade_filter_parameter(FilterTarget::Global, 0, 0, 0.3, 0.01)
+        .unwrap();
+    controller.seek(children[1], 0.02).unwrap();
+    controller.seek(queue_id, 0.001).unwrap();
+    controller
+        .set_bus_filter(&mut bus, 0, Some(Arc::clone(&filters[5])))
+        .unwrap();
+    controller.set_bus_filter(&mut bus, 1, None).unwrap();
+    controller
+        .set_bus_resampler(&mut bus, Resampler::Point)
+        .unwrap();
+    controller.set_bus_visualization(&mut bus, true).unwrap();
+    controller.set_global_filter(0, None).unwrap();
+    controller.set_global_filter(1, Some(&*filters[3])).unwrap();
+    drop(filters);
+    measured_render(
+        renderer,
+        &mut out[..2 * 700],
+        "controls, filter swaps and seeks",
+    );
+    for frames in [1, 333, 4096, 4096] {
+        measured_render(
+            renderer,
+            &mut out[..2 * frames],
+            "queued sounds playing out",
+        );
+    }
+
+    controller.stop(bus_id).unwrap();
+    controller.stop_sound(&queue).unwrap();
+    drop(bus);
+    drop(queue);
+    measured_render(renderer, &mut out[..2 * 64], "stopping a bus and a queue");
+    controller.stop_all().unwrap();
+    for _ in 0..4 {
+        measured_render(renderer, &mut out[..2 * 64], "retiring the rest");
+    }
+    drain(controller);
+    assert_eq!(controller.status().retired_overflow, 0);
+    assert_eq!(controller.status().rejected_queue_sounds, 2);
 }
 
 #[test]
@@ -166,6 +271,9 @@ fn rendering_never_allocates_or_frees() {
     controller.stop_all().unwrap();
     measured_render(&mut renderer, &mut out[..2 * 64], "stop all protected");
     assert_eq!(controller.status().retired_overflow, 0);
+    drain(&mut controller);
+
+    routing(&mut controller, &mut renderer, out);
 
     // The game side goes away first; the audio thread keeps rendering.
     drop(controller);

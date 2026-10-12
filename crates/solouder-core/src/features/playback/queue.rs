@@ -4,11 +4,10 @@
 
 use std::collections::VecDeque;
 
-use super::control::{ControlError, PlayOptions};
-use super::handle::Handle;
-use super::mixer::Mixer;
+use super::control::ControlError;
 use super::retire::Retired;
 use super::sound::{Sound, SoundId};
+use super::source::private::{Prepared, Sealed};
 use super::source::{Playable, SourceSettings, source_settings_api};
 use super::voice::{Voice, VoiceSource, flags};
 use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
@@ -94,19 +93,28 @@ impl Playable for Queue {
     fn source_id(&self) -> SoundId {
         self.id
     }
+}
 
-    fn play_on(&self, mixer: &mut Mixer, options: PlayOptions) -> Handle {
+impl Sealed for Queue {
+    fn prepare(&self) -> Prepared {
         let source = VoiceSource::Queue {
             channels: self.channels,
         };
-        let voice = Voice::new(
-            &self.settings,
-            self.id,
-            source,
-            self.sample_rate,
-            flags::PROTECTED,
-        );
-        mixer.start_voice(voice, true, self.settings.volume, options)
+        Prepared {
+            voice: Voice::new(
+                &self.settings,
+                self.id,
+                source,
+                self.sample_rate,
+                flags::PROTECTED,
+            ),
+            stop_others: true,
+            default_volume: self.settings.volume,
+        }
+    }
+
+    fn queue_id(&self) -> Option<SoundId> {
+        Some(self.id)
     }
 }
 
@@ -132,6 +140,10 @@ impl Queued {
     fn has_ended(&self) -> bool {
         !self.looping && self.offset >= self.pcm.frames()
     }
+
+    pub fn into_pcm(self) -> Pcm {
+        self.pcm
+    }
 }
 
 /// The sounds queued on each queue played on a mixer (`Queue::mSource`).
@@ -148,6 +160,33 @@ impl Queues {
 
     pub fn count(&self, id: SoundId) -> usize {
         self.get(id).map_or(0, VecDeque::len)
+    }
+
+    /// Adds storage for queue `id`, unless it has some, in which case
+    /// `storage` is handed back. Does not allocate if
+    /// [`Queues::reserve`] made room.
+    pub fn insert(&mut self, id: SoundId, storage: VecDeque<Queued>) -> Option<VecDeque<Queued>> {
+        if self.get(id).is_some() || self.0.len() == self.0.capacity() {
+            return Some(storage);
+        }
+        self.0.push((id, storage));
+        None
+    }
+
+    /// Room for `queues` more queues.
+    pub fn reserve(&mut self, queues: usize) {
+        self.0.reserve_exact(queues);
+    }
+
+    /// Queues `item` in existing storage without growing it.
+    pub fn push_existing(&mut self, id: SoundId, item: Queued) -> Result<(), Queued> {
+        match self.0.iter_mut().find(|(q, _)| *q == id) {
+            Some((_, items)) if items.len() < items.capacity() => {
+                items.push_back(item);
+                Ok(())
+            }
+            _ => Err(item),
+        }
     }
 
     pub fn push(&mut self, id: SoundId, item: Queued) {

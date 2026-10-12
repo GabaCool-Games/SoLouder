@@ -5,9 +5,9 @@
 //! behavioral parity with the C++ reference is tested. Device output and the
 //! Bevy integration live in separate crates.
 //!
-//! Status: milestone D in progress. Prepared PCM sounds play, stop, pause,
-//! seek and loop with volume, pan, speed, fades, resampling and
-//! [`filters`], alone or in voice groups, mixed into 1 to 8 channels, either
+//! Status: milestone D done. Prepared PCM sounds play, stop, pause, seek and
+//! loop with volume, pan, speed, fades, resampling and [`filters`], alone, in
+//! voice groups, through buses or queued, mixed into 1 to 8 channels, either
 //! offline through
 //! [`Mixer`] or from an audio callback through the [`realtime`]
 //! controller/renderer pair.

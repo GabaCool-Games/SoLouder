@@ -4,17 +4,16 @@ use std::sync::Arc;
 
 use rtrb::{Consumer, Producer};
 
-use super::command::Command;
+use super::command::{Command, PlayRequest};
 use super::ids::LiveTable;
 use super::status::{Event, FinishReason, Shared, Status};
-use crate::contracts::Pcm;
-use crate::features::playback::{Handle, Mixer, MixerConfig};
+use crate::features::playback::{Handle, Mixer, MixerConfig, RetiredItem};
 
 /// Owns the mixer on the audio thread. Each [`Renderer::render`] applies
 /// queued commands, mixes, and reports finished voices. Rendering does not
-/// allocate, free memory, lock or wait: audio that voices release is handed
-/// back to the controller, which reserved room for it when it accepted the
-/// play.
+/// allocate, free memory, lock or wait: what voices and filters release is
+/// handed back to the controller, which reserved room for it when it
+/// accepted the request.
 ///
 /// Drop the renderer on a thread that may free memory, after the audio
 /// callback that uses it has stopped.
@@ -23,7 +22,7 @@ pub struct Renderer {
     pub(super) mixer: Mixer,
     pub(super) commands: Consumer<Command>,
     pub(super) events: Producer<Event>,
-    pub(super) retired: Producer<Pcm>,
+    pub(super) retired: Producer<RetiredItem>,
     pub(super) live: LiveTable,
     pub(super) shared: Arc<Shared>,
     pub(super) commands_per_render: usize,
@@ -42,16 +41,7 @@ impl Renderer {
     pub fn render(&mut self, output: &mut [f32]) {
         self.apply_commands();
         self.mixer.mix_interleaved(output);
-        let Self {
-            mixer,
-            live,
-            events,
-            ..
-        } = self;
-        live.retain(
-            |handle| !mixer.is_valid_voice_handle(handle),
-            |id| report(events, Event::Finished(id, FinishReason::Ended)),
-        );
+        self.report_gone(FinishReason::Ended);
         self.release_retired();
         self.publish();
     }
@@ -67,66 +57,83 @@ impl Renderer {
     }
 
     fn apply(&mut self, command: Command) {
-        let mixer = &mut self.mixer;
-        let live = &self.live;
-        let handle = |id| live.handle(id).unwrap_or(Handle::INVALID);
         match command {
-            Command::Play { id, sound, options } => {
-                let mixer = &mut self.mixer;
-                let handle = mixer.play_with(&sound, options);
-                let stole = mixer.take_stolen();
-                if handle == Handle::INVALID {
-                    report(&mut self.events, Event::Failed(id));
-                } else {
-                    // The slot's previous voice is gone: stolen just now, or
-                    // (defensively) ended without being noticed yet.
-                    let slot = handle.slot();
-                    if let Some(old) = slot.and_then(|slot| self.live.remove_slot(slot)) {
-                        let reason = if stole {
-                            FinishReason::Stolen
-                        } else {
-                            FinishReason::Ended
-                        };
-                        report(&mut self.events, Event::Finished(old, reason));
-                    }
-                    self.live.insert(id, handle);
-                    report(&mut self.events, Event::Started(id));
-                }
-                mixer.retire_audio(sound.into_pcm());
-            }
+            Command::Play(request) => self.start(request),
             Command::Stop(id) => {
                 if let Some(handle) = self.live.remove(id) {
                     self.mixer.stop(handle);
                     report(&mut self.events, Event::Finished(id, FinishReason::Stopped));
+                    self.report_gone(FinishReason::Stopped);
                 }
             }
             Command::StopAll => {
                 self.mixer.stop_all();
-                let events = &mut self.events;
-                self.live
-                    .clear(|id| report(events, Event::Finished(id, FinishReason::Stopped)));
+                self.report_gone(FinishReason::Stopped);
             }
-            Command::Volume(id, volume) => mixer.set_volume(handle(id), volume),
-            Command::Pan(id, pan) => mixer.set_pan(handle(id), pan),
-            Command::Pause(id, paused) => mixer.set_pause(handle(id), paused),
-            Command::Looping(id, looping) => mixer.set_looping(handle(id), looping),
-            Command::Protect(id, protect) => mixer.set_protect_voice(handle(id), protect),
-            Command::Speed(id, speed) => {
-                let _ = mixer.set_relative_play_speed(handle(id), speed);
+            Command::StopSound(sound) => {
+                self.mixer.stop_sound_id(sound);
+                self.report_gone(FinishReason::Stopped);
             }
-            Command::GlobalVolume(volume) => mixer.set_global_volume(volume),
-            Command::PostClipScaler(scale) => mixer.set_post_clip_scaler(scale),
-            Command::Resampler(resampler) => mixer.set_resampler(resampler),
+            Command::QueueAdd { queue, item } => {
+                if self.mixer.queue_push(queue, item).is_err() {
+                    self.status.rejected_queue_sounds += 1;
+                }
+            }
+            command => self.apply_control(command),
         }
     }
 
-    /// Moves retired audio to the controller, as much as the queue holds.
+    fn start(&mut self, request: PlayRequest) {
+        let PlayRequest {
+            id,
+            voice,
+            options,
+            start,
+            bus,
+        } = request;
+        let handle = self.mixer.start_boxed(voice, options, start, bus);
+        let stole = self.mixer.take_stolen();
+        // The slot's previous voice was stolen, or stopped by this play.
+        if let Some(old) = handle.slot().and_then(|slot| self.live.remove_slot(slot)) {
+            let reason = if stole {
+                FinishReason::Stolen
+            } else {
+                FinishReason::Stopped
+            };
+            report(&mut self.events, Event::Finished(old, reason));
+        }
+        // Other voices the play stopped: instances of a single-instance
+        // sound, bus or queue, and the voices of such a bus.
+        self.report_gone(FinishReason::Stopped);
+        if handle == Handle::INVALID {
+            report(&mut self.events, Event::Failed(id));
+            return;
+        }
+        self.live.insert(id, handle);
+        report(&mut self.events, Event::Started(id));
+    }
+
+    /// Reports every voice in the table that is no longer playing.
+    fn report_gone(&mut self, reason: FinishReason) {
+        let Self {
+            mixer,
+            live,
+            events,
+            ..
+        } = self;
+        live.retain(
+            |handle| !mixer.is_valid_voice_handle(handle),
+            |id| report(events, Event::Finished(id, reason)),
+        );
+    }
+
+    /// Moves retired items to the controller, as many as the queue holds.
     fn release_retired(&mut self) {
         let room = self.retired.slots();
         let retired = &mut self.retired;
-        self.mixer.drain_retired_audio(room, |pcm| {
-            // Cannot fail: at most `room` buffers are drained.
-            let _ = retired.push(pcm);
+        self.mixer.drain_retired(room, |item| {
+            // Cannot fail: at most `room` items are drained.
+            let _ = retired.push(item);
         });
     }
 
@@ -142,7 +149,7 @@ impl Renderer {
 
 /// The event queue holds two events per voice ID and an ID is reused only
 /// after its final event is read, so pushing cannot fail.
-fn report(events: &mut Producer<Event>, event: Event) {
+pub(super) fn report(events: &mut Producer<Event>, event: Event) {
     let pushed = events.push(event);
     debug_assert!(pushed.is_ok(), "event queue sized for every voice ID");
 }

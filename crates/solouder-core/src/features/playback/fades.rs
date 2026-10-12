@@ -162,6 +162,13 @@ impl Mixer {
                 ..options
             },
         );
+        self.clock(handle, sound_time, options.paused);
+        handle
+    }
+
+    /// Delays a voice started paused by `play_clocked` to `sound_time`, and
+    /// unpauses it unless `paused`.
+    pub(crate) fn clock(&mut self, handle: Handle, sound_time: f64, paused: bool) {
         if self.last_clocked_time == 0.0 {
             self.last_clocked_time = sound_time;
         }
@@ -173,8 +180,7 @@ impl Mixer {
             0
         };
         self.set_delay_samples(handle, frames);
-        self.set_pause(handle, options.paused);
-        handle
+        self.set_pause(handle, paused);
     }
 }
 

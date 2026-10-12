@@ -11,27 +11,29 @@ Jari Komppa and developed with many contributors; see
 
 ## Status
 
-Milestone C of [the plan](docs/PORTING.md#milestones-and-acceptance-gates):
+Milestone D of [the plan](docs/PORTING.md#milestones-and-acceptance-gates):
 SoLouder plays WAV files on a Windows audio device, from plain Rust or from
-Bevy entities. Buses, filters, 3D audio, streaming and the other codecs are
-not ported yet; [docs/port-status.md](docs/port-status.md) has the details.
+Bevy entities, with SoLoud's voice controls, fades, voice groups, filters,
+buses and queues. 3D audio, streaming and the other codecs are not ported
+yet; [docs/port-status.md](docs/port-status.md) has the details.
 
 - **A patched C++ reference.** Upstream SoLoud, pinned in
-  `reference/upstream.json`, plus 25 patches in `reference/patches/`. They fix
+  `reference/upstream.json`, plus 50 patches in `reference/patches/`. They fix
   upstream crashes, hangs, and memory-safety bugs that were never merged
   upstream, including the WavStream seek heap corruption
   ([#405](https://github.com/jarikomppa/soloud/issues/405)). Every behavioral
   fix has a C++ regression test in `reference/tests/`.
 - **A parity ledger.** [docs/parity-ledger.csv](docs/parity-ledger.csv) lists
   every behavior of SoLoud's C API, 208 of them. That is the 1:1 target.
-- **A parity harness.** 14 scenarios in [tests/scenarios/](tests/scenarios/)
+- **A parity harness.** 30 scenarios in [tests/scenarios/](tests/scenarios/)
   run through both the C++ reference and the Rust port, and the outputs are
   compared sample by sample. All match bit for bit except one documented
   8-bit WAV conversion.
 - **The Rust crates.**
-  - `solouder-core`: the mixer (play, stop, pause, loop, volume, pan, speed,
-    three resamplers, 1 to 8 channels, clipping) and a wait-free
-    controller/renderer split for real-time use.
+  - `solouder-core`: the mixer (play, stop, pause, loop, seek, volume, pan,
+    speed, fades, three resamplers, 1 to 8 channels, clipping, voice groups,
+    ten filters, buses and queues) and a wait-free controller/renderer split
+    for real-time use.
   - `solouder-decoders`: WAV decoding.
   - `solouder-cpal`: output on the default audio device.
   - `bevy_solouder`: the Bevy plugin (`.wav` assets, `SoundPlayer` entities

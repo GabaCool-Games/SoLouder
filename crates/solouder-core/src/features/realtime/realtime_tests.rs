@@ -163,8 +163,8 @@ fn finished_audio_is_released_by_the_controller() {
     let tone = sound(100);
     controller.play(&tone).unwrap();
     render(&mut renderer, 512);
-    // The request's copy of the sound and the voice's samples.
-    assert_eq!(controller.release_retired_audio(), 2);
+    // The voice, with its samples, in the box it was sent in.
+    assert_eq!(controller.release_retired(), 1);
     assert_eq!(controller.status().retired_overflow, 0);
 }
 
@@ -175,10 +175,11 @@ fn a_full_retirement_queue_holds_audio_in_the_renderer() {
         ..RealtimeConfig::default()
     });
     controller.play(&sound(100)).unwrap();
+    controller.play(&sound(100)).unwrap();
     render(&mut renderer, 512);
-    assert_eq!(controller.release_retired_audio(), 1);
+    assert_eq!(controller.release_retired(), 1);
     render(&mut renderer, 64);
-    assert_eq!(controller.release_retired_audio(), 1);
+    assert_eq!(controller.release_retired(), 1);
     assert_eq!(controller.status().retired_overflow, 0);
 }
 
@@ -241,13 +242,16 @@ fn uncollected_audio_blocks_plays_instead_of_being_freed_in_render() {
         ..RealtimeConfig::default()
     });
     // Every play uses its own buffer, dropped before rendering, so the
-    // renderer holds the last reference to each.
+    // renderer holds the last reference to each. Two voices end per render
+    // and one retired item leaves per render, so items pile up.
     let mut refused = false;
     for _ in 0..64 {
-        match controller.play(&sound(1)) {
-            Ok(_) => {}
-            Err(ControllerError::QueueFull) => refused = true,
-            Err(other) => panic!("{other:?}"),
+        for _ in 0..2 {
+            match controller.play(&sound(1)) {
+                Ok(_) => {}
+                Err(ControllerError::QueueFull) => refused = true,
+                Err(other) => panic!("{other:?}"),
+            }
         }
         render(&mut renderer, 64);
         events(&mut controller);
@@ -259,7 +263,7 @@ fn uncollected_audio_blocks_plays_instead_of_being_freed_in_render() {
     );
     for _ in 0..64 {
         render(&mut renderer, 0);
-        controller.release_retired_audio();
+        controller.release_retired();
     }
     controller.play(&sound(1)).unwrap();
 }

@@ -4,9 +4,7 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 
-use super::control::PlayOptions;
-use super::handle::Handle;
-use super::mixer::Mixer;
+use super::source::private::{Prepared, Sealed};
 use super::source::{Playable, SourceSettings, source_settings_api};
 use super::voice::{Voice, VoiceSource};
 use crate::contracts::Pcm;
@@ -85,10 +83,15 @@ impl Playable for Sound {
     fn source_id(&self) -> SoundId {
         self.id
     }
+}
 
-    fn play_on(&self, mixer: &mut Mixer, options: PlayOptions) -> Handle {
-        let stop_others = self.settings.single_instance;
-        mixer.start_voice(self.voice(), stop_others, self.settings.volume, options)
+impl Sealed for Sound {
+    fn prepare(&self) -> Prepared {
+        Prepared {
+            voice: self.voice(),
+            stop_others: self.settings.single_instance,
+            default_volume: self.settings.volume,
+        }
     }
 }
 

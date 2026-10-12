@@ -3,30 +3,59 @@
 
 use std::sync::Arc;
 
-use super::control::PlayOptions;
-use super::handle::Handle;
-use super::mixer::Mixer;
 use super::sound::SoundId;
 use super::voice::flags;
 use crate::features::filters::{FILTERS_PER_STREAM, Filter, FilterInstance};
 
 type FilterSlots = [Option<Arc<dyn Filter>>; FILTERS_PER_STREAM];
 
-/// Something [`Mixer::play_with`] can start: a [`Sound`](super::Sound) or a
-/// [`Bus`](super::Bus).
+/// Something [`Mixer::play_with`](super::Mixer::play_with) can start: a
+/// [`Sound`](super::Sound), [`Bus`](super::Bus) or [`Queue`](super::Queue).
 pub trait Playable: private::Sealed {
     /// Identifies the source and its clones.
     fn source_id(&self) -> SoundId;
-
-    #[doc(hidden)]
-    fn play_on(&self, mixer: &mut Mixer, options: PlayOptions) -> Handle;
 }
 
-mod private {
-    pub trait Sealed {}
-    impl Sealed for super::super::Sound {}
-    impl Sealed for super::super::Bus {}
-    impl Sealed for super::super::Queue {}
+pub(crate) mod private {
+    use super::super::voice::Voice;
+    use super::SoundId;
+
+    /// A voice built from a source, ready to start on any mixer.
+    #[derive(Debug)]
+    pub struct Prepared {
+        pub(crate) voice: Voice,
+        /// Stop the source's other voices first (single instance, bus, queue).
+        pub(crate) stop_others: bool,
+        /// The volume used when the play gives none.
+        pub(crate) default_volume: f32,
+    }
+
+    impl Prepared {
+        /// Allocates what the voice's filters need at their first call:
+        /// at the voice's rate once `speed` applies, on its channels.
+        pub(crate) fn prepare_filters(&mut self, speed: f32) {
+            let voice = &mut self.voice;
+            let mut rate = voice.base_sample_rate;
+            if speed > 0.0 {
+                rate *= speed;
+            }
+            let channels = voice.channels();
+            for filter in voice.filters.iter_mut().flatten() {
+                filter.prepare(channels, rate);
+            }
+        }
+    }
+
+    pub trait Sealed {
+        /// Builds a voice; allocates, so the real-time controller calls it
+        /// on its own thread.
+        fn prepare(&self) -> Prepared;
+
+        /// The queue whose sounds the voice plays, for a queue.
+        fn queue_id(&self) -> Option<SoundId> {
+            None
+        }
+    }
 }
 
 /// Playback defaults every source has (`AudioSource`).

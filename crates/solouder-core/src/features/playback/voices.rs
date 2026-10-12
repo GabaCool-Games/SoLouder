@@ -194,9 +194,7 @@ impl Voices {
                 }
             }
             let bus = voice.as_bus().and_then(|bus| bus.handle);
-            if let Some(pcm) = voice.into_pcm() {
-                self.retired.put(pcm);
-            }
+            self.retired.put_voice(voice);
             if let Some(bus) = bus {
                 for child in 0..self.highest {
                     if self.slots[child].as_ref().is_some_and(|v| v.bus == bus) {

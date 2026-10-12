@@ -2,11 +2,11 @@
 // src/core/soloud_audiosource.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
-use super::control::{ControlError, PlayOptions};
+use super::control::ControlError;
 use super::handle::Handle;
 use super::mix_bus::{Layout, mix_bus};
-use super::mixer::Mixer;
 use super::sound::SoundId;
+use super::source::private::{Prepared, Sealed};
 use super::source::{Playable, SourceSettings, source_settings_api};
 use super::voice::{Voice, VoiceSource, flags};
 use super::voices::{BLOCK_LEN, Voices};
@@ -18,7 +18,7 @@ const MAX: usize = MAX_CHANNELS as usize;
 /// Frames of visualization data.
 pub(crate) const WAVE_LEN: usize = 256;
 /// A bus's sample rate before speed (`AudioSource::mBaseSamplerate`).
-const BUS_RATE: f32 = 44100.0;
+pub(crate) const BUS_RATE: f32 = 44100.0;
 
 /// A mixing bus (`Bus`): voices played through it are mixed at the bus
 /// voice's rate, and the bus voice plays that mix like a sound, with its own
@@ -106,12 +106,17 @@ impl Playable for Bus {
     fn source_id(&self) -> SoundId {
         self.id
     }
+}
 
-    fn play_on(&self, mixer: &mut Mixer, options: PlayOptions) -> Handle {
+impl Sealed for Bus {
+    fn prepare(&self) -> Prepared {
         let source = VoiceSource::Bus(Box::new(BusVoice::new(self)));
         let extra = flags::PROTECTED | flags::INAUDIBLE_TICK;
-        let voice = Voice::new(&self.settings, self.id, source, BUS_RATE, extra);
-        mixer.start_voice(voice, true, self.settings.volume, options)
+        Prepared {
+            voice: Voice::new(&self.settings, self.id, source, BUS_RATE, extra),
+            stop_others: true,
+            default_volume: self.settings.volume,
+        }
     }
 }
 

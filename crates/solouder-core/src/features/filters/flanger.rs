@@ -110,9 +110,21 @@ impl FlangerInstance {
     }
 }
 
+/// Frames of delay line a delay needs. A delay out of the int range
+/// converts to INT_MIN, and even a delay of 0 needs one frame of line
+/// (reference patch 0044).
+fn line_frames(delay: f32, sample_rate: f32) -> u32 {
+    c_int(f64::from((delay * sample_rate).ceil())).max(1) as u32
+}
+
 impl FilterInstance for FlangerInstance {
     fn params(&self) -> &FilterParams {
         &self.params
+    }
+
+    fn prepare(&mut self, channels: usize, sample_rate: f32) {
+        let delay = self.params.values()[FlangerFilter::DELAY as usize];
+        self.reserve(line_frames(delay, sample_rate), channels);
     }
 
     fn params_mut(&mut self) -> &mut FilterParams {
@@ -135,10 +147,8 @@ impl FilterInstance for FlangerInstance {
             values[FlangerFilter::DELAY as usize],
             values[FlangerFilter::FREQ as usize],
         );
-        // A delay out of the int range converts to INT_MIN, and even a delay
-        // of 0 needs one frame of line (reference patch 0044).
         let max_frames = c_int(f64::from((delay * sample_rate).ceil())).max(0);
-        if !self.reserve(max_frames.max(1) as u32, channels) {
+        if !self.reserve(line_frames(delay, sample_rate), channels) {
             return;
         }
         let len = self.buffer_len;
