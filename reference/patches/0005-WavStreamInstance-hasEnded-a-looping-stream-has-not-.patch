@@ -12,7 +12,7 @@ From upstream PR #379 (pgrAm).
  1 file changed, 1 insertion(+), 1 deletion(-)
 
 diff --git a/src/audiosource/wav/soloud_wavstream.cpp b/src/audiosource/wav/soloud_wavstream.cpp
-index 9657798..7195fe4 100644
+index 090e8da..96731b6 100644
 --- a/src/audiosource/wav/soloud_wavstream.cpp
 +++ b/src/audiosource/wav/soloud_wavstream.cpp
 @@ -397,7 +397,7 @@ namespace SoLoud

@@ -206,7 +206,7 @@ index 5c6b3c3..56ddab0 100755
  			{
  				for (k = 0; k < decoder->channels; k++)
 diff --git a/src/audiosource/wav/soloud_wavstream.cpp b/src/audiosource/wav/soloud_wavstream.cpp
-index 7195fe4..67e7a96 100644
+index 96731b6..f25f59f 100644
 --- a/src/audiosource/wav/soloud_wavstream.cpp
 +++ b/src/audiosource/wav/soloud_wavstream.cpp
 @@ -422,6 +422,16 @@ namespace SoLoud

@@ -6,7 +6,7 @@ Subject: [PATCH] build: make the static MSVC runtime opt-in
 
 Forcing /MT broke anyone linking the static library into a /MD
 application (LNK2038 runtime mismatch). The default is the upstream /MD
-again; GoreGrind's self-contained DLL turns the option on.
+again; turn the option on for a self-contained DLL.
 ---
  contrib/CMakeLists.txt | 5 ++++-
  1 file changed, 4 insertions(+), 1 deletion(-)

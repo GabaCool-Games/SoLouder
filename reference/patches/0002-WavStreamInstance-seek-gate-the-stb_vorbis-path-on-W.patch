@@ -7,7 +7,7 @@ Subject: [PATCH] WavStreamInstance::seek: gate the stb_vorbis path on
 mCodec is a union, so for WAV/FLAC/MP3 streams mCodec.mOgg aliases the
 dr_wav/dr_flac/dr_mp3 handle and is non-null. The bare if (mCodec.mOgg)
 ran stb_vorbis_seek on a drwav struct and corrupted the native heap
-(GoreGrind macOS crashes on every streamed-WAV seek and loop wrap).
+on every streamed WAV seek and loop wrap.
 
 Co-Authored-By: Claude Opus 5.5 (1M context) <noreply@anthropic.com>
 Claude-Session: https://claude.ai/code/session_01HJbhV4uV7uHP6Crq1pC3di
@@ -16,7 +16,7 @@ Claude-Session: https://claude.ai/code/session_01HJbhV4uV7uHP6Crq1pC3di
  1 file changed, 4 insertions(+), 1 deletion(-)
 
 diff --git a/src/audiosource/wav/soloud_wavstream.cpp b/src/audiosource/wav/soloud_wavstream.cpp
-index 3ced545..0bc584f 100644
+index 3ced545..c83d80d 100644
 --- a/src/audiosource/wav/soloud_wavstream.cpp
 +++ b/src/audiosource/wav/soloud_wavstream.cpp
 @@ -341,7 +341,10 @@ namespace SoLoud
@@ -26,7 +26,7 @@ index 3ced545..0bc584f 100644
 -		if (mCodec.mOgg)
 +		// mCodec is a union: for WAV/FLAC/MP3 streams mCodec.mOgg aliases mWav/mFlac/mMp3 and is
 +		// non-null, so the old bare `if (mCodec.mOgg)` ran stb_vorbis_seek on a dr_wav struct and
-+		// corrupted the heap (GoreGrind macOS crashes, 2026-10-07/08). Gate on the real file type.
++		// corrupted the heap. Gate on the real file type.
 +		if (mParent->mFiletype == WAVSTREAM_OGG && mCodec.mOgg)
  		{
  			int pos = (int)floor(mBaseSamplerate * aSeconds);

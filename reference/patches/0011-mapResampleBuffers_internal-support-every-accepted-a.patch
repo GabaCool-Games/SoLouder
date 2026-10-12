@@ -6,8 +6,8 @@ Subject: [PATCH] mapResampleBuffers_internal: support every accepted
 
 setMaxActiveVoiceCount accepts up to VOICE_COUNT - 1, but this function
 kept a char live[256] guarded by SOLOUD_ASSERT(mMaxActiveVoices < 256).
-On MSVC the assert is a __debugbreak even in release builds (GoreGrind
-had to cap at 255); with asserts disabled the memset overran the stack
+On MSVC the assert is a __debugbreak even in release builds,
+so callers had to stay at 255 voices; with asserts disabled the memset overran the stack
 array. Size it by VOICE_COUNT.
 ---
  src/core/soloud.cpp | 4 ++--

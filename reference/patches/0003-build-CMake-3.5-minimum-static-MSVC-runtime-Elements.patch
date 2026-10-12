@@ -5,8 +5,8 @@ Subject: [PATCH] build: CMake 3.5 minimum, static MSVC runtime, Elements.def
  header-only
 
 CMake 4 rejects cmake_minimum_required below 3.5. Policy CMP0091 plus
-CMAKE_MSVC_RUNTIME_LIBRARY gives a self-contained /MT Windows DLL for
-GoreGrind. speech/Elements.def is an included table, not a module
+CMAKE_MSVC_RUNTIME_LIBRARY gives a self-contained /MT Windows DLL.
+speech/Elements.def is an included table, not a module
 definition file, so MSVC must not treat it as a source.
 ---
  contrib/CMakeLists.txt | 6 +++++-
