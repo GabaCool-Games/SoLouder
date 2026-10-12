@@ -1,0 +1,51 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 18:47:45 +0300
+Subject: [PATCH] BassboostFilter, FlangerFilter, FreeverbFilter: setParams
+ rejects NaN
+
+---
+ src/filter/soloud_bassboostfilter.cpp | 2 +-
+ src/filter/soloud_flangerfilter.cpp   | 2 +-
+ src/filter/soloud_freeverbfilter.cpp  | 2 +-
+ 3 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/filter/soloud_bassboostfilter.cpp b/src/filter/soloud_bassboostfilter.cpp
+index 4ee8866..d76012f 100644
+--- a/src/filter/soloud_bassboostfilter.cpp
++++ b/src/filter/soloud_bassboostfilter.cpp
+@@ -49,7 +49,7 @@ namespace SoLoud
+ 
+ 	result BassboostFilter::setParams(float aBoost)
+ 	{
+-		if (aBoost < 0)
++		if (!(aBoost >= 0))
+ 			return INVALID_PARAMETER;
+ 		mBoost = aBoost;
+ 		return SO_NO_ERROR;
+diff --git a/src/filter/soloud_flangerfilter.cpp b/src/filter/soloud_flangerfilter.cpp
+index a55098b..6a85d4e 100644
+--- a/src/filter/soloud_flangerfilter.cpp
++++ b/src/filter/soloud_flangerfilter.cpp
+@@ -100,7 +100,7 @@ namespace SoLoud
+ 
+ 	result FlangerFilter::setParams(float aDelay, float aFreq)
+ 	{
+-		if (aDelay <= 0 || aFreq <= 0)
++		if (!(aDelay > 0 && aFreq > 0))
+ 			return INVALID_PARAMETER;
+ 
+ 		mDelay = aDelay;
+diff --git a/src/filter/soloud_freeverbfilter.cpp b/src/filter/soloud_freeverbfilter.cpp
+index fe0ca59..4df9e23 100644
+--- a/src/filter/soloud_freeverbfilter.cpp
++++ b/src/filter/soloud_freeverbfilter.cpp
+@@ -511,7 +511,7 @@ namespace SoLoud
+ 
+ 	result FreeverbFilter::setParams(float aFreeze, float aRoomSize, float aDamp, float aWidth)
+ 	{
+-		if (aFreeze < 0 || aFreeze > 1 || aRoomSize <= 0 || aDamp < 0 || aWidth <= 0)
++		if (!(aFreeze >= 0 && aFreeze <= 1 && aRoomSize > 0 && aDamp >= 0 && aWidth > 0))
+ 			return INVALID_PARAMETER;
+ 
+ 		mMode = aFreeze;

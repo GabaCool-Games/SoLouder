@@ -97,6 +97,7 @@ impl State {
                 self.filter_parameter(step)
             }
             "filter_info" => self.filter_info(step),
+            "fft" => self.fft(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }

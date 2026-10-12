@@ -6,7 +6,9 @@
 
 pub mod compare;
 mod fade_ops;
+mod fft_ops;
 mod files;
+mod filter_kinds;
 mod filter_ops;
 mod ops;
 pub mod pattern;

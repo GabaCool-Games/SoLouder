@@ -10,18 +10,28 @@
 
 use std::fmt;
 
+mod bassboost;
 mod biquad;
 mod dc_removal;
 mod echo;
+mod fft_filter;
+mod flanger;
+mod freeverb;
 mod lofi;
 mod params;
+mod robotize;
 mod waveshaper;
 
+pub use bassboost::BassboostFilter;
 pub use biquad::{BiquadResonantFilter, BiquadType};
 pub use dc_removal::DcRemovalFilter;
 pub use echo::EchoFilter;
+pub use fft_filter::FftFilter;
+pub use flanger::FlangerFilter;
+pub use freeverb::FreeverbFilter;
 pub use lofi::LofiFilter;
 pub use params::{FilterParams, MAX_FILTER_PARAMS};
+pub use robotize::RobotizeFilter;
 pub use waveshaper::WaveShaperFilter;
 
 /// Filter slots per sound and per mixer (`FILTERS_PER_STREAM`).
@@ -141,3 +151,5 @@ pub(crate) fn delay_frames(seconds: f32, rate: f32) -> usize {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_spectral;

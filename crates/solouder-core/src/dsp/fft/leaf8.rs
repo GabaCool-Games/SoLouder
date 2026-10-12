@@ -1,0 +1,244 @@
+// Ported from SoLoud src/core/soloud_fft.cpp (zlib/libpng,
+// Copyright (c) 2013-2020 Jari Komppa), which is based on Takuya Ooura's FFT
+// package (Copyright Takuya OOURA, 1996-2001); altered for SoLouder.
+//
+// Translated statement by statement from the C++: the order of the
+// floating-point operations decides the result bits.
+#![allow(unused_assignments, clippy::too_many_lines)]
+
+use super::{WI2500, WR2500, WR5000};
+
+pub(super) fn cftf081(a: &mut [f32]) {
+    let mut wn4r: f32 = 0.0;
+    let mut x0r: f32 = 0.0;
+    let mut x0i: f32 = 0.0;
+    let mut x1r: f32 = 0.0;
+    let mut x1i: f32 = 0.0;
+    let mut x2r: f32 = 0.0;
+    let mut x2i: f32 = 0.0;
+    let mut x3r: f32 = 0.0;
+    let mut x3i: f32 = 0.0;
+    let mut y0r: f32 = 0.0;
+    let mut y0i: f32 = 0.0;
+    let mut y1r: f32 = 0.0;
+    let mut y1i: f32 = 0.0;
+    let mut y2r: f32 = 0.0;
+    let mut y2i: f32 = 0.0;
+    let mut y3r: f32 = 0.0;
+    let mut y3i: f32 = 0.0;
+    let mut y4r: f32 = 0.0;
+    let mut y4i: f32 = 0.0;
+    let mut y5r: f32 = 0.0;
+    let mut y5i: f32 = 0.0;
+    let mut y6r: f32 = 0.0;
+    let mut y6i: f32 = 0.0;
+    let mut y7r: f32 = 0.0;
+    let mut y7i: f32 = 0.0;
+    wn4r = WR5000;
+    x0r = a[0] + a[8];
+    x0i = a[1] + a[9];
+    x1r = a[0] - a[8];
+    x1i = a[1] - a[9];
+    x2r = a[4] + a[12];
+    x2i = a[5] + a[13];
+    x3r = a[4] - a[12];
+    x3i = a[5] - a[13];
+    y0r = x0r + x2r;
+    y0i = x0i + x2i;
+    y2r = x0r - x2r;
+    y2i = x0i - x2i;
+    y1r = x1r - x3i;
+    y1i = x1i + x3r;
+    y3r = x1r + x3i;
+    y3i = x1i - x3r;
+    x0r = a[2] + a[10];
+    x0i = a[3] + a[11];
+    x1r = a[2] - a[10];
+    x1i = a[3] - a[11];
+    x2r = a[6] + a[14];
+    x2i = a[7] + a[15];
+    x3r = a[6] - a[14];
+    x3i = a[7] - a[15];
+    y4r = x0r + x2r;
+    y4i = x0i + x2i;
+    y6r = x0r - x2r;
+    y6i = x0i - x2i;
+    x0r = x1r - x3i;
+    x0i = x1i + x3r;
+    x2r = x1r + x3i;
+    x2i = x1i - x3r;
+    y5r = wn4r * (x0r - x0i);
+    y5i = wn4r * (x0r + x0i);
+    y7r = wn4r * (x2r - x2i);
+    y7i = wn4r * (x2r + x2i);
+    a[8] = y1r + y5r;
+    a[9] = y1i + y5i;
+    a[10] = y1r - y5r;
+    a[11] = y1i - y5i;
+    a[12] = y3r - y7i;
+    a[13] = y3i + y7r;
+    a[14] = y3r + y7i;
+    a[15] = y3i - y7r;
+    a[0] = y0r + y4r;
+    a[1] = y0i + y4i;
+    a[2] = y0r - y4r;
+    a[3] = y0i - y4i;
+    a[4] = y2r - y6i;
+    a[5] = y2i + y6r;
+    a[6] = y2r + y6i;
+    a[7] = y2i - y6r;
+}
+
+pub(super) fn cftf082(a: &mut [f32]) {
+    let mut wn4r: f32 = 0.0;
+    let mut wk1r: f32 = 0.0;
+    let mut wk1i: f32 = 0.0;
+    let mut x0r: f32 = 0.0;
+    let mut x0i: f32 = 0.0;
+    let mut x1r: f32 = 0.0;
+    let mut x1i: f32 = 0.0;
+    let mut y0r: f32 = 0.0;
+    let mut y0i: f32 = 0.0;
+    let mut y1r: f32 = 0.0;
+    let mut y1i: f32 = 0.0;
+    let mut y2r: f32 = 0.0;
+    let mut y2i: f32 = 0.0;
+    let mut y3r: f32 = 0.0;
+    let mut y3i: f32 = 0.0;
+    let mut y4r: f32 = 0.0;
+    let mut y4i: f32 = 0.0;
+    let mut y5r: f32 = 0.0;
+    let mut y5i: f32 = 0.0;
+    let mut y6r: f32 = 0.0;
+    let mut y6i: f32 = 0.0;
+    let mut y7r: f32 = 0.0;
+    let mut y7i: f32 = 0.0;
+    wn4r = WR5000;
+    wk1r = WR2500;
+    wk1i = WI2500;
+    y0r = a[0] - a[9];
+    y0i = a[1] + a[8];
+    y1r = a[0] + a[9];
+    y1i = a[1] - a[8];
+    x0r = a[4] - a[13];
+    x0i = a[5] + a[12];
+    y2r = wn4r * (x0r - x0i);
+    y2i = wn4r * (x0i + x0r);
+    x0r = a[4] + a[13];
+    x0i = a[5] - a[12];
+    y3r = wn4r * (x0r - x0i);
+    y3i = wn4r * (x0i + x0r);
+    x0r = a[2] - a[11];
+    x0i = a[3] + a[10];
+    y4r = wk1r * x0r - wk1i * x0i;
+    y4i = wk1r * x0i + wk1i * x0r;
+    x0r = a[2] + a[11];
+    x0i = a[3] - a[10];
+    y5r = wk1i * x0r - wk1r * x0i;
+    y5i = wk1i * x0i + wk1r * x0r;
+    x0r = a[6] - a[15];
+    x0i = a[7] + a[14];
+    y6r = wk1i * x0r - wk1r * x0i;
+    y6i = wk1i * x0i + wk1r * x0r;
+    x0r = a[6] + a[15];
+    x0i = a[7] - a[14];
+    y7r = wk1r * x0r - wk1i * x0i;
+    y7i = wk1r * x0i + wk1i * x0r;
+    x0r = y0r + y2r;
+    x0i = y0i + y2i;
+    x1r = y4r + y6r;
+    x1i = y4i + y6i;
+    a[0] = x0r + x1r;
+    a[1] = x0i + x1i;
+    a[2] = x0r - x1r;
+    a[3] = x0i - x1i;
+    x0r = y0r - y2r;
+    x0i = y0i - y2i;
+    x1r = y4r - y6r;
+    x1i = y4i - y6i;
+    a[4] = x0r - x1i;
+    a[5] = x0i + x1r;
+    a[6] = x0r + x1i;
+    a[7] = x0i - x1r;
+    x0r = y1r - y3i;
+    x0i = y1i + y3r;
+    x1r = y5r - y7r;
+    x1i = y5i - y7i;
+    a[8] = x0r + x1r;
+    a[9] = x0i + x1i;
+    a[10] = x0r - x1r;
+    a[11] = x0i - x1i;
+    x0r = y1r + y3i;
+    x0i = y1i - y3r;
+    x1r = y5r + y7r;
+    x1i = y5i + y7i;
+    a[12] = x0r - x1i;
+    a[13] = x0i + x1r;
+    a[14] = x0r + x1i;
+    a[15] = x0i - x1r;
+}
+
+pub(super) fn cftf040(a: &mut [f32]) {
+    let mut x0r: f32 = 0.0;
+    let mut x0i: f32 = 0.0;
+    let mut x1r: f32 = 0.0;
+    let mut x1i: f32 = 0.0;
+    let mut x2r: f32 = 0.0;
+    let mut x2i: f32 = 0.0;
+    let mut x3r: f32 = 0.0;
+    let mut x3i: f32 = 0.0;
+    x0r = a[0] + a[4];
+    x0i = a[1] + a[5];
+    x1r = a[0] - a[4];
+    x1i = a[1] - a[5];
+    x2r = a[2] + a[6];
+    x2i = a[3] + a[7];
+    x3r = a[2] - a[6];
+    x3i = a[3] - a[7];
+    a[0] = x0r + x2r;
+    a[1] = x0i + x2i;
+    a[2] = x1r - x3i;
+    a[3] = x1i + x3r;
+    a[4] = x0r - x2r;
+    a[5] = x0i - x2i;
+    a[6] = x1r + x3i;
+    a[7] = x1i - x3r;
+}
+
+pub(super) fn cftb040(a: &mut [f32]) {
+    let mut x0r: f32 = 0.0;
+    let mut x0i: f32 = 0.0;
+    let mut x1r: f32 = 0.0;
+    let mut x1i: f32 = 0.0;
+    let mut x2r: f32 = 0.0;
+    let mut x2i: f32 = 0.0;
+    let mut x3r: f32 = 0.0;
+    let mut x3i: f32 = 0.0;
+    x0r = a[0] + a[4];
+    x0i = a[1] + a[5];
+    x1r = a[0] - a[4];
+    x1i = a[1] - a[5];
+    x2r = a[2] + a[6];
+    x2i = a[3] + a[7];
+    x3r = a[2] - a[6];
+    x3i = a[3] - a[7];
+    a[0] = x0r + x2r;
+    a[1] = x0i + x2i;
+    a[2] = x1r + x3i;
+    a[3] = x1i - x3r;
+    a[4] = x0r - x2r;
+    a[5] = x0i - x2i;
+    a[6] = x1r - x3i;
+    a[7] = x1i + x3r;
+}
+
+pub(super) fn cftx020(a: &mut [f32]) {
+    let mut x0r: f32 = 0.0;
+    let mut x0i: f32 = 0.0;
+    x0r = a[0] - a[2];
+    x0i = a[1] - a[3];
+    a[0] += a[2];
+    a[1] += a[3];
+    a[2] = x0r;
+    a[3] = x0i;
+}

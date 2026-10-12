@@ -3,12 +3,10 @@
 
 use std::sync::Arc;
 
-use solouder_core::filters::{
-    BiquadResonantFilter, BiquadType, DcRemovalFilter, EchoFilter, Filter, LofiFilter, ParamType,
-    WaveShaperFilter,
-};
+use solouder_core::filters::{Filter, ParamType};
 use solouder_core::{FilterTarget, Handle};
 
+use crate::filter_kinds;
 use crate::ops::{code, hex32};
 use crate::run::State;
 use crate::scenario::{ScenarioError, Step};
@@ -18,62 +16,13 @@ impl State {
     /// go to its `set_params`; missing ones take the defaults.
     pub(crate) fn filter(&mut self, step: &Step) -> Result<(), ScenarioError> {
         let kind = step.text("kind")?;
-        let settings: &[&str] = match kind {
-            "biquad" => &["type", "freq", "res"],
-            "lofi" => &["rate", "bits"],
-            "echo" => &["delay", "decay", "filter"],
-            "waveshaper" => &["amount"],
-            "dc_removal" => &["length"],
-            other => return Err(step.error(format!("unknown filter kind `{other}`"))),
-        };
+        let settings = filter_kinds::settings(step, kind)?;
         let mut keys = vec!["name", "kind"];
         keys.extend_from_slice(settings);
         step.check_keys(&keys)?;
         step.text("name")?;
         let configure = settings.iter().any(|key| step.get(key).is_some());
-        let (filter, result): (Arc<dyn Filter>, _) = match kind {
-            "biquad" => {
-                let filter_type = match step.get("type").unwrap_or("lowpass") {
-                    "lowpass" => BiquadType::Lowpass,
-                    "highpass" => BiquadType::Highpass,
-                    "bandpass" => BiquadType::Bandpass,
-                    other => return Err(step.error(format!("unknown biquad type `{other}`"))),
-                };
-                let (freq, res) = (step.number_or("freq", 1000.0)?, step.number_or("res", 2.0)?);
-                let mut biquad = BiquadResonantFilter::default();
-                let result = configure.then(|| biquad.set_params(filter_type, freq, res));
-                (Arc::new(biquad), result)
-            }
-            "lofi" => {
-                let (rate, bits) = (
-                    step.number_or("rate", 4000.0)?,
-                    step.number_or("bits", 3.0)?,
-                );
-                let mut lofi = LofiFilter::default();
-                let result = configure.then(|| lofi.set_params(rate, bits));
-                (Arc::new(lofi), result)
-            }
-            "echo" => {
-                let delay = step.number_or("delay", 0.3)?;
-                let decay = step.number_or("decay", 0.7)?;
-                let lowpass = step.number_or("filter", 0.0)?;
-                let mut echo = EchoFilter::default();
-                let result = configure.then(|| echo.set_params(delay, decay, lowpass));
-                (Arc::new(echo), result)
-            }
-            "waveshaper" => {
-                let amount = step.number_or("amount", 0.0)?;
-                let mut shaper = WaveShaperFilter::default();
-                let result = configure.then(|| shaper.set_params(amount));
-                (Arc::new(shaper), result)
-            }
-            _ => {
-                let length = step.number_or("length", 0.1)?;
-                let mut dc = DcRemovalFilter::default();
-                let result = configure.then(|| dc.set_params(length));
-                (Arc::new(dc), result)
-            }
-        };
+        let (filter, result) = filter_kinds::build(step, kind, configure)?;
         let name = step.text("name")?.to_owned();
         self.filters.insert(name.clone(), filter);
         let code = code(result.unwrap_or(Ok(())));

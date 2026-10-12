@@ -1,0 +1,28 @@
+# SoLoud's FFT (FFT::fft and FFT::ifft) on noise and a sine-like saw, for
+# every power-of-two size from 4 to 4096 floats: each size takes a different
+# kernel path (cftx020, cftf040/cftb040, the 16- and 32-float leaves,
+# cftfx41, cftleaf and cftrec4 with its tree).
+fft size=4 pattern=noise seed=1
+fft size=4 pattern=noise seed=1 inverse=1
+fft size=8 pattern=noise seed=2
+fft size=8 pattern=noise seed=2 inverse=1
+fft size=16 pattern=noise seed=3
+fft size=16 pattern=noise seed=3 inverse=1
+fft size=32 pattern=noise seed=4
+fft size=32 pattern=noise seed=4 inverse=1
+fft size=64 pattern=noise seed=5
+fft size=64 pattern=noise seed=5 inverse=1
+fft size=128 pattern=noise seed=6
+fft size=128 pattern=noise seed=6 inverse=1
+fft size=256 pattern=noise seed=7
+fft size=256 pattern=noise seed=7 inverse=1
+fft size=256 pattern=saw period=37 amp=0.5
+fft size=512 pattern=noise seed=8
+fft size=512 pattern=noise seed=8 inverse=1
+fft size=1024 pattern=noise seed=9
+fft size=1024 pattern=noise seed=9 inverse=1
+fft size=1024 pattern=saw period=100
+fft size=2048 pattern=noise seed=10
+fft size=2048 pattern=noise seed=10 inverse=1
+fft size=4096 pattern=noise seed=11
+fft size=4096 pattern=noise seed=11 inverse=1

@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 18:47:45 +0300
+Subject: [PATCH] FlangerFilter: advance the LFO once per frame, not once per
+ sample of every channel
+
+---
+ src/filter/soloud_flangerfilter.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/filter/soloud_flangerfilter.cpp b/src/filter/soloud_flangerfilter.cpp
+index ef8e621..ffdce4d 100644
+--- a/src/filter/soloud_flangerfilter.cpp
++++ b/src/filter/soloud_flangerfilter.cpp
+@@ -60,8 +60,11 @@ namespace SoLoud
+ 		unsigned int i, j;
+ 		int maxsamples = (int)ceil(mParam[FlangerFilter::DELAY] * aSamplerate);
+ 		double inc = mParam[FlangerFilter::FREQ] * M_PI * 2 / aSamplerate;
++		// Every channel follows the same LFO, which advances once per frame.
++		double index = mIndex;
+ 		for (i = 0; i < aChannels; i++)
+ 		{
++			mIndex = index;
+ 			int mbofs = i * mBufferLength;
+ 			int abofs = i * aBufferSize;
+ 			for (j = 0; j < aSamples; j++, abofs++)

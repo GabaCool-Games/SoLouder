@@ -20,10 +20,16 @@
 #include <vector>
 
 #include "soloud.h"
+#include "soloud_bassboostfilter.h"
 #include "soloud_biquadresonantfilter.h"
 #include "soloud_dcremovalfilter.h"
 #include "soloud_echofilter.h"
+#include "soloud_fft.h"
+#include "soloud_fftfilter.h"
+#include "soloud_flangerfilter.h"
+#include "soloud_freeverbfilter.h"
 #include "soloud_lofifilter.h"
+#include "soloud_robotizefilter.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_wav.h"
 
@@ -414,6 +420,62 @@ namespace
 					code = f->setParams(length);
 				filter = f;
 			}
+			else if (kind == "fft")
+			{
+				static const char *const keys[] = { "name", "kind" };
+				checkKeys(step, keys, 2);
+				textArg(step, "name");
+				filter = new SoLoud::FFTFilter;
+			}
+			else if (kind == "bassboost")
+			{
+				static const char *const keys[] = { "name", "kind", "boost" };
+				checkKeys(step, keys, 3);
+				textArg(step, "name");
+				float boost = floatArg(step, "boost", 2.0f);
+				SoLoud::BassboostFilter *f = new SoLoud::BassboostFilter;
+				if (step.get("boost"))
+					code = f->setParams(boost);
+				filter = f;
+			}
+			else if (kind == "robotize")
+			{
+				static const char *const keys[] = { "name", "kind", "freq", "wave" };
+				checkKeys(step, keys, 4);
+				textArg(step, "name");
+				float freq = floatArg(step, "freq", 30.0f);
+				unsigned int wave = uintArg(step, "wave", false, 0);
+				SoLoud::RobotizeFilter *f = new SoLoud::RobotizeFilter;
+				if (step.get("freq") || step.get("wave"))
+					f->setParams(freq, (int)wave);
+				filter = f;
+			}
+			else if (kind == "flanger")
+			{
+				static const char *const keys[] = { "name", "kind", "delay", "freq" };
+				checkKeys(step, keys, 4);
+				textArg(step, "name");
+				float delay = floatArg(step, "delay", 0.005f);
+				float freq = floatArg(step, "freq", 10.0f);
+				SoLoud::FlangerFilter *f = new SoLoud::FlangerFilter;
+				if (step.get("delay") || step.get("freq"))
+					code = f->setParams(delay, freq);
+				filter = f;
+			}
+			else if (kind == "freeverb")
+			{
+				static const char *const keys[] = { "name", "kind", "freeze", "room", "damp", "width" };
+				checkKeys(step, keys, 6);
+				textArg(step, "name");
+				float freeze = floatArg(step, "freeze", 0.0f);
+				float room = floatArg(step, "room", 0.5f);
+				float damp = floatArg(step, "damp", 0.5f);
+				float width = floatArg(step, "width", 1.0f);
+				SoLoud::FreeverbFilter *f = new SoLoud::FreeverbFilter;
+				if (step.get("freeze") || step.get("room") || step.get("damp") || step.get("width"))
+					code = f->setParams(freeze, room, damp, width);
+				filter = f;
+			}
 			else
 			{
 				throw ScenarioError(step.line, "unknown filter kind `" + kind + "`");
@@ -424,6 +486,25 @@ namespace
 			std::ostringstream line;
 			line << "filter " << name << " " << code;
 			logLine(line);
+		}
+
+		// `fft`: transforms `size` floats of a test signal and appends the
+		// result to the samples.
+		void fftDump(const Step &step)
+		{
+			static const char *const keys[] = { "size", "inverse", "pattern", "amp", "period", "seed" };
+			checkKeys(step, keys, 6);
+			unsigned int size = uintArg(step, "size", true, 0);
+			if (size < 4 || size > 4096 || (size & (size - 1)) != 0)
+				throw ScenarioError(step.line, "`size` must be a power of two from 4 to 4096");
+			bool inverse = flagArg(step, "inverse", false);
+			float amp = floatArg(step, "amp", 1.0f);
+			std::vector<float> buffer = renderPattern(step, 1, size, amp);
+			if (inverse)
+				SoLoud::FFT::ifft(&buffer[0], size);
+			else
+				SoLoud::FFT::fft(&buffer[0], size);
+			samples.insert(samples.end(), buffer.begin(), buffer.end());
 		}
 
 		// `filter_set`, `filter_fade`, `filter_oscillate` and `filter_query`;
@@ -1009,6 +1090,10 @@ namespace
 						<< ":" << hex32(f.getParamMin(i));
 				}
 				logLine(line);
+			}
+			else if (step.op == "fft")
+			{
+				fftDump(step);
 			}
 			else
 			{

@@ -3,6 +3,7 @@
 // nonzero exit fails only that test. Upstream references are in the test names'
 // comments and in docs/PORTING.md.
 
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
@@ -15,11 +16,15 @@
 #include <vector>
 
 #include "soloud.h"
+#include "soloud_bassboostfilter.h"
 #include "soloud_biquadresonantfilter.h"
 #include "soloud_bus.h"
 #include "soloud_dcremovalfilter.h"
 #include "soloud_echofilter.h"
+#include "soloud_flangerfilter.h"
+#include "soloud_freeverbfilter.h"
 #include "soloud_lofifilter.h"
+#include "soloud_robotizefilter.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_queue.h"
 #include "soloud_wav.h"
@@ -615,6 +620,122 @@ namespace
 		delete instance;
 	}
 
+	std::vector<float> saw(unsigned int aChannels, unsigned int aFrames, unsigned int aPeriod)
+	{
+		std::vector<float> samples(aChannels * aFrames);
+		for (unsigned int c = 0; c < aChannels; c++)
+			for (unsigned int i = 0; i < aFrames; i++)
+				samples[c * aFrames + i] = (float)(i % aPeriod) / (float)aPeriod - 0.5f;
+		return samples;
+	}
+
+	// Filters a block of `aChannels` x 512 frames four times over.
+	std::vector<float> runFilter(Filter &aFilter, std::vector<float> aBuffer, unsigned int aChannels, float aRate, double aTime)
+	{
+		FilterInstance *instance = aFilter.createInstance();
+		for (int pass = 0; pass < 4; pass++)
+			instance->filter(aBuffer.data(), 512, 512, aChannels, aRate, aTime);
+		delete instance;
+		return aBuffer;
+	}
+
+	// Patch 0039: freeverb asserted stereo (a breakpoint in MSVC release
+	// builds) and otherwise read a mono voice's right channel from the
+	// memory after it.
+	void freeverb_leaves_mono_unchanged()
+	{
+		FreeverbFilter reverb;
+		std::vector<float> buffer = saw(2, 512, 40);
+		std::vector<float> out = runFilter(reverb, buffer, 1, 44100, 0);
+		check(std::equal(buffer.begin(), buffer.begin() + 512, out.begin()), "mono audio is unchanged");
+	}
+
+	// Patch 0040: a freeverb instance applied its parameters only once one was
+	// changed, so setParams had no effect.
+	void freeverb_uses_its_settings()
+	{
+		FreeverbFilter standard;
+		FreeverbFilter small;
+		check(small.setParams(0, 0.1f, 0.9f, 0.2f) == SO_NO_ERROR, "settings accepted");
+		std::vector<float> impulse(2 * 512, 0.0f);
+		impulse[0] = impulse[512] = 1.0f;
+		check(runFilter(standard, impulse, 2, 44100, 0) != runFilter(small, impulse, 2, 44100, 0), "the settings change the output");
+	}
+
+	// Patch 0041: freeverb and robotize never updated their parameters, so
+	// fades and oscillations did nothing.
+	void freeverb_and_robotize_fade_parameters()
+	{
+		FreeverbFilter reverb;
+		RobotizeFilter robot;
+		Filter *filters[2] = { &reverb, &robot };
+		for (Filter *filter : filters)
+		{
+			FilterInstance *instance = filter->createInstance();
+			instance->fadeFilterParameter(0, 0.0f, 1.0, 0);
+			std::vector<float> buffer = saw(2, 512, 40);
+			instance->filter(buffer.data(), 512, 512, 2, 44100, 2.0);
+			check(instance->getFilterParameter(0) == 0.0f, "the wet mix faded to 0");
+			delete instance;
+		}
+	}
+
+	// Patch 0042: robotize divided by a period of 0 frames when its frequency
+	// was above the rate (a slow voice), and its phase jumped once the stream
+	// time in samples passed the int range.
+	void robotize_period_and_phase_are_safe()
+	{
+		RobotizeFilter robot;
+		std::vector<float> slow = runFilter(robot, saw(1, 512, 40), 1, 20, 0);
+		check(allFinite(slow), "a rate below the frequency gives finite output");
+		// 1e6 s at 44.1 kHz is a whole number of 1470-frame periods.
+		check(runFilter(robot, saw(1, 512, 40), 1, 44100, 1e6) == runFilter(robot, saw(1, 512, 40), 1, 44100, 0),
+			"the phase after 1e6 s matches the phase at 0");
+	}
+
+	// Patch 0043: the flanger advanced its LFO for every sample of every
+	// channel, so in stereo it ran at twice its frequency with the channels
+	// out of phase.
+	void flanger_channels_share_the_lfo()
+	{
+		FlangerFilter flanger;
+		std::vector<float> out = runFilter(flanger, saw(2, 512, 40), 2, 44100, 0);
+		check(std::equal(out.begin(), out.begin() + 512, out.begin() + 512), "identical channels stay identical");
+	}
+
+	// Patch 0044: a flanger delay of 0 left the delay line empty (a division
+	// by zero), and one beyond the int range sized it from INT_MIN.
+	void flanger_delay_extremes_are_safe()
+	{
+		FlangerFilter flanger;
+		float delays[2] = { 0.0f, 1e6f };
+		for (float delay : delays)
+		{
+			FilterInstance *instance = flanger.createInstance();
+			instance->setFilterParameter(FlangerFilter::DELAY, delay);
+			std::vector<float> buffer = saw(1, 512, 40);
+			instance->filter(buffer.data(), 512, 512, 1, 44100, 0);
+			check(allFinite(buffer), "output is finite");
+			delete instance;
+		}
+	}
+
+	// Patch 0045: as patch 0037, for bassboost, flanger and freeverb.
+	void more_filter_params_reject_nan()
+	{
+		const float nan = std::numeric_limits<float>::quiet_NaN();
+		BassboostFilter bass;
+		check(bass.setParams(nan) == INVALID_PARAMETER, "bassboost boost");
+		FlangerFilter flanger;
+		check(flanger.setParams(nan, 10) == INVALID_PARAMETER, "flanger delay");
+		check(flanger.setParams(0.005f, nan) == INVALID_PARAMETER, "flanger frequency");
+		FreeverbFilter reverb;
+		check(reverb.setParams(nan, 0.5f, 0.5f, 1) == INVALID_PARAMETER, "freeverb freeze");
+		check(reverb.setParams(0, nan, 0.5f, 1) == INVALID_PARAMETER, "freeverb room size");
+		check(reverb.setParams(0, 0.5f, nan, 1) == INVALID_PARAMETER, "freeverb damp");
+		check(reverb.setParams(0, 0.5f, 0.5f, nan) == INVALID_PARAMETER, "freeverb width");
+	}
+
 	// #345: before init, the active-voice count was 16 but the resample
 	// owner array was null, so stopping a voice dereferenced it.
 	void play_stop_without_init()
@@ -1028,6 +1149,13 @@ namespace
 		{ "dc_removal_long_length_is_safe", dc_removal_long_length_is_safe },
 		{ "filter_params_reject_nan", filter_params_reject_nan },
 		{ "biquad_single_sample_stays_in_bounds", biquad_single_sample_stays_in_bounds },
+		{ "freeverb_leaves_mono_unchanged", freeverb_leaves_mono_unchanged },
+		{ "freeverb_uses_its_settings", freeverb_uses_its_settings },
+		{ "freeverb_and_robotize_fade_parameters", freeverb_and_robotize_fade_parameters },
+		{ "robotize_period_and_phase_are_safe", robotize_period_and_phase_are_safe },
+		{ "flanger_channels_share_the_lfo", flanger_channels_share_the_lfo },
+		{ "flanger_delay_extremes_are_safe", flanger_delay_extremes_are_safe },
+		{ "more_filter_params_reject_nan", more_filter_params_reject_nan },
 		{ "play_stop_without_init", play_stop_without_init },
 		{ "play_after_failed_init", play_after_failed_init },
 		{ "wav_rejects_too_many_channels", wav_rejects_too_many_channels },

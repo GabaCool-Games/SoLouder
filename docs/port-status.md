@@ -12,9 +12,10 @@ scheduled pauses and stops, clocked play, the remaining voice controls (loop
 points, seeking, autostop, inaudible ticking, absolute pan and channel gains,
 sample rates, pause all, background play, single-instance sounds, stopping
 and counting a sound's voices), 8- and 16-bit raw loads, 16-bit output,
-voice groups, and per-voice and global filters (biquad, lofi, echo,
-waveshaper and DC removal) with live parameters, fades and oscillations are
-done (see [PORTING.md](PORTING.md#milestone-d-units) for the remaining
+voice groups, SoLoud's FFT, and per-voice and global filters (biquad,
+lofi, echo, waveshaper, DC removal, the FFT pitch filter, bassboost,
+robotize, flanger and freeverb) with live parameters, fades and oscillations
+are done (see [PORTING.md](PORTING.md#milestone-d-units) for the remaining
 units).
 Milestone C (Windows and Bevy playable slice) is done; milestone B (offline
 playback) before it. The mixer plays prepared PCM with 1
@@ -29,14 +30,14 @@ and a `Renderer` for the audio thread, joined by bounded wait-free queues
 (see [ARCHITECTURE.md](ARCHITECTURE.md#ownership-and-the-real-time-boundary)).
 `solouder-cpal` runs the renderer on the default output device and
 `bevy_solouder` plays `.wav` assets from entities. Other codecs, buses,
-the FFT-based filters and 3D audio do not exist yet.
+queues and 3D audio do not exist yet.
 
 | Crate | Slices / modules | Contents |
 |---|---|---|
 | `solouder-core` | `contracts` | `Pcm` (validated planar samples from `f32`, `u8` or `i16`), `SAMPLE_GRANULARITY`, `MAX_CHANNELS` |
-| `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping, faders (linear fades and sine oscillation) |
+| `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping, faders (linear fades and sine oscillation), `fft` (Ooura's split-radix FFT as SoLoud has it), `waveform` (`generateWaveform`) |
 | `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `SoundId`, `Handle`, `PlayOptions`, `FilterTarget`, voice table, active-voice selection, resample-buffer pool, bus mixing, voice control and queries, fades and timers, voice groups, sound and global filter slots and their parameters, `f32` and `i16` output |
-| `solouder-core` | `features/filters` | `Filter` and `FilterInstance` traits, `FilterParams` (live values with fades), `BiquadResonantFilter`, `LofiFilter`, `EchoFilter`, `WaveShaperFilter`, `DcRemovalFilter` |
+| `solouder-core` | `features/filters` | `Filter` and `FilterInstance` traits, `FilterParams` (live values with fades), `BiquadResonantFilter`, `LofiFilter`, `EchoFilter`, `WaveShaperFilter`, `DcRemovalFilter`, `FftFilter`, `BassboostFilter`, `RobotizeFilter`, `FlangerFilter`, `FreeverbFilter` |
 | `solouder-core` | `features/realtime` | `split`, `Controller`, `Renderer`, `VoiceId`, `Event`, `Status`, `RealtimeConfig`; retirement of ended voices' PCM to the game thread |
 | `solouder-decoders` | `features/decoded_audio` | `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `DecodeLimits`, `DecodeError` |
 | `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
@@ -73,6 +74,9 @@ stays `in-progress` until its remaining flags are done.
 | `filters_voice` | Every time-domain filter on sounds, chained in slot order, at the voice's rate as speed and sample rate change (recalculating the biquad), a cutoff above a slow voice's Nyquist frequency (patch 0031), lofi on eight channels (patch 0032), slots changed after play | 48,244 |
 | `filters_global` | Global filters in slot order on mono, stereo and 5.1 mixes, odd mix sizes and one-frame mixes (patch 0038), replacing and clearing slots | 26,371 |
 | `filter_params` | Settings validation and defaults, parameter descriptions, set, fade, oscillate and query on voices, groups and global filters, indices past the last slot or parameter, an echo delay longer than its line and a delay of 0 (patch 0033), the waveshaper at amount -1 (patch 0034) | 16,800 |
+| `fft` | `FFT::fft` and `FFT::ifft` on noise and saw signals for every power-of-two size from 4 to 4096 floats, which covers every kernel path | 17,656 |
+| `filters_spectral` | The FFT pitch filter and bassboost on mono, stereo and 6-channel voices and as global filters, across mix calls and blocks of any size, at a changing voice rate; wet and boost set, faded and oscillated; bassboost validation | 32,577 |
+| `filters_modulation` | Robotize with every waveform and an index without one, periods that are not at least 1 (patch 0042) and parameter fades (patch 0041); the flanger with its channels sharing the LFO (patch 0043), delays that grow its line and a delay of 0 (patch 0044); freeverb on stereo voices, a mono voice and a mono engine (left unchanged, patch 0039), with its settings applied (patch 0040), faded and frozen; settings validation (patch 0045) and parameter descriptions | 36,818 |
 | `sound_tails` | Sounds play out when mixes of 256, 441 or 480 frames end partway through their last block, with every resampler, slow and fast speeds, a resampled stereo sound and a sound of whole blocks (patch 0024) | 25,758 |
 | `sound_replace` | Reloading a sound name stops the old sound's voices and keeps other sounds playing; a failed reload keeps the old sound | 2,600 |
 | `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV (every code); extensible 5.1, 7.1, 24-in-32-bit, A-law and mu-law headers; channel masks with a high bit or none; extra and odd-sized chunks; six files both sides reject (9, 33 and 65535 channels, no frames, sample rate 0, a header cut short) | 15,562 |
@@ -84,7 +88,9 @@ count as zero, because the C++ build flushes subnormals. Every scenario has
 an identical log and identical samples on Windows x86-64; `wav_decode` has
 one subnormal float sample that the C++ build writes as zero, and
 `wav_decode_u8` declares a tolerance of 1/128 for the 8-bit conversion. A
-scenario that renders no samples fails. Run with
+scenario that renders no samples fails. The output of a Linux GCC build of
+the reference (Ubuntu 20.04) is identical to the Windows output for every
+scenario except `filters_spectral` (see "Math functions" below). Run with
 `python scripts/run_parity.py` or
 `python scripts/check_all.py --reference --parity`.
 
@@ -120,7 +126,11 @@ Rust 1.98.1, no device).
 | Filter parameter reads | `getFilterParameter` returns `INVALID_PARAMETER` (1.0) without a filter and 0 past the last parameter; handle 0 means the global filters | `Mixer::filter_parameter` returns `None` for both; `FilterTarget::Global` replaces handle 0 | 1.0 and 0 are also real parameter values |
 | Filter objects | `setFilter` keeps a pointer: changed settings reach later plays, and deleting the filter first leaves the sound with a dangling pointer | Sounds hold an `Arc<dyn Filter>` whose settings are fixed; set a new filter to change them | No dangling filters, and no locking between the game and audio threads |
 | Biquad type | `setParams` takes an `int` and accepts 0 to 3 (3 acts as lowpass) | `BiquadType` has the three real types; the live `TYPE` parameter still takes any value | A type that does not exist is not a setting |
-| Filters in real time | Not applicable | Through `Renderer`, a filtered sound's instances are created, and an echo or DC removal line allocated, on the audio thread; real-time-safe filters come with milestone D unit 7 | The offline mixer matches the reference first |
+| Filters in real time | Not applicable | Through `Renderer`, a filtered sound's instances are created, and their delay lines and FFT buffers allocated, on the audio thread; real-time-safe filters come with milestone D unit 7 | The offline mixer matches the reference first |
+| Math functions | SoLoud's sources include `math.h`, not `cmath`, so on MSVC `sin`, `cos`, `atan2` and `sqrt` of a `float` run in double precision; with GCC's libstdc++ they resolve to the `float` versions | Follows the MSVC build: the value is widened to `f64`, the function runs, and the result is rounded to `f32` | The Windows reference is the one the scenarios compare against. A Linux GCC build of the reference renders every scenario identically except `filters_spectral` (the FFT filter's `atan2`, `cos` and `sin`), which differs in the last bits |
+| Robotize waveform | `setParams` takes the waveform as an `int` | Also an `i32`, with the waveforms as `dsp::waveform` constants; indices without a waveform act as square, as in C++ | Keeps the live `WAVE` parameter and the setting in step |
+| FFT filter buffers | Sized for the channel count of the first call; a later call with more channels writes past them | Grow to the larger count | Memory safety; unreachable from the mixer, which keeps a voice's channel count |
+| Flanger line allocation | A failed `new` leaves the audio unfiltered; a line of 2^32 samples or more wraps its size | `try_reserve_exact`; on failure the audio is left unfiltered | Same outcome without the wrap |
 | Sound identity | A copied `AudioSource` keeps its ID, so stopping either copy stops both | A cloned `Sound` keeps its `SoundId` the same way; `Sound::new` gives a new one | Same behavior; cloning is how Rust shares a sound |
 | Seek result | `Soloud::seek` returns an error code, never an error for a `Wav` | `Mixer::seek` returns nothing | A `Sound` always seeks |
 | Error strings | `getErrorString` names result codes | Error enums implement `Display` | There are no result codes |
@@ -146,7 +156,7 @@ Rust 1.98.1, no device).
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0024 and 0026
-to 0038 (pan ramp leftovers, surround fold-down volumes, no-free-voice
+to 0045 (pan ramp leftovers, surround fold-down volumes, no-free-voice
 handling, raw layout validation, the #343 hang, protection and ticking not
 recomputing the active voices, sound endings dropped when a mix ends
 mid-block, the hang on a negative sample rate, seeks scaled by play speed,
@@ -154,7 +164,10 @@ loop wraps overwriting rendered frames, the rounded `M_PI` of MSVC builds,
 unstable biquads above the voice's Nyquist frequency, lofi state for two
 channels only, zero-length echo and DC removal lines, the waveshaper's 0 / 0,
 DC removal reading its freed filter, NaN filter settings, the biquad reading
-before a one-sample buffer) are listed in
+before a one-sample buffer, freeverb reading past mono audio and ignoring its
+settings, freeverb and robotize ignoring parameter fades, robotize dividing by
+a period of 0, the flanger's channels each advancing the LFO, and flanger
+delays of 0 or past its line) are listed in
 [PORTING.md](PORTING.md#reference-patch-ledger). Patch 0025 (sounds, buses
 and queues that outlive their engine or play on several engines) has no Rust
 counterpart: sounds hold no engine pointer, and voices own their samples.
@@ -164,8 +177,7 @@ counterpart: sounds hold no engine pointer, and voices own their samples.
 - Init flags other than the clipper (`LEFT_HANDED_3D`, ...), device
   reconnection, and device output outside Windows WASAPI (checked only to
   build and skip on Linux).
-- The FFT and FFT-based filters, the flanger and freeverb, buses and queues
-  (Milestone D), the real-time controller commands for the milestone D
+- Buses and queues (Milestone D), the real-time controller commands for the milestone D
   controls and filters, and 3D audio with the `INAUDIBLE` flag it sets
   (Milestone E).
 - Streaming, Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).

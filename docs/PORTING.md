@@ -381,6 +381,13 @@ unpatched reference, and each needs a matching Rust test.
 | 0036 | — (found porting milestone D) | A `DCRemovalFilter` length whose frame count does not fit an `int` converts to `INT_MIN`, so channel 1 was written at a negative offset. The window is at least one frame, like the echo's. | `dc_removal_long_length_is_safe` |
 | 0037 | — (found porting milestone D) | Every time-domain filter's `setParams` tested `x <= 0` and similar, which NaN passes, and a NaN setting filtered the voice to NaN. The checks now reject NaN. | `filter_params_reject_nan` |
 | 0038 | — (found porting milestone D) | For a one-sample buffer (a global filter in a one-frame mix) `BiquadResonantFilter` copied the sample before the buffer into it. A single sample is now left dry. | `biquad_single_sample_stays_in_bounds` |
+| 0039 | — (found porting milestone D) | `FreeverbFilterInstance` asserted on mono audio (a breakpoint even in MSVC release builds) and, without asserts, processed the next block of the buffer as the right channel. Mono audio is now left unchanged. | `freeverb_leaves_mono_unchanged` |
+| 0040 | — (found porting milestone D) | A new freeverb instance copied the filter's settings into its parameters without marking them changed, so the reverb model kept its own defaults (room size, damping and width from `setParams` were ignored) until a parameter was set. All parameters now apply at the first filter call. | `freeverb_uses_its_settings` |
+| 0041 | — (found porting milestone D) | `FreeverbFilterInstance::filter` and `RobotizeFilterInstance::filterChannel` never called `updateParams`, so `fadeFilterParameter` and `oscillateFilterParameter` did nothing on them. | `freeverb_and_robotize_fade_parameters` |
+| 0042 | — (found porting milestone D) | Robotize's period, `(int)(rate / frequency)`, is 0 for a frequency above the rate, negative for a negative frequency and `INT_MIN` for 0: `% 0` crashed, and the stream time in samples overflowed `int` after 13.5 hours. The period is at least 1 and the phase start uses `fmod` in double. | `robotize_period_and_phase_are_safe` |
+| 0043 | — (found porting milestone D) | The flanger advanced its LFO once per channel per frame, so each channel got a different sweep and a stereo flanger ran twice as fast as set. All channels now start from the same phase. | `flanger_channels_share_the_lfo` |
+| 0044 | — (found porting milestone D) | A flanger delay of 0 (by fade or set) made the line 0 samples long (`% 0` crashed), and a delay past the `int` range made its length `INT_MIN`. The line is at least one sample, and the delay is converted once and used for both the line and the sweep. | `flanger_delay_extremes_are_safe` |
+| 0045 | — (found porting milestone D) | `BassboostFilter`, `FlangerFilter` and `FreeverbFilter` `setParams` accepted NaN, as 0037 fixed for the others. | `more_filter_params_reject_nan` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the `goregrind` branch). Its README lists every fix with
@@ -388,7 +395,7 @@ credits. Commits after 0017 on `goregrind` add build scripts and that README,
 so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto `goregrind`. Patches 0018 to
-0025 were pushed on 2026-10-12 (public `master` at `9318875`); 0026 to 0038 are
+0025 were pushed on 2026-10-12 (public `master` at `9318875`); 0026 to 0045 are
 on `goregrind` but not pushed yet.
 
 GoreGrind's native libraries are built from the same branch: Windows with
@@ -546,8 +553,9 @@ scenarios, ledger rows and a commit.
    the voice's rate, global filters, live parameters with fades and
    oscillations; biquad, lofi, echo, waveshaper and DC removal. Patches 0031
    to 0038. Scenarios `filters_voice`, `filters_global`, `filter_params`.
-4. **FFT and the remaining filters:** the FFT, FFT filter, bassboost,
-   robotize, flanger and freeverb.
+4. **FFT and the remaining filters** (done): the FFT, FFT filter, bassboost,
+   robotize, flanger and freeverb. Patches 0039 to 0045. Scenarios `fft`,
+   `filters_spectral`, `filters_modulation`.
 5. **Buses:** buses as playable sources, nested routing, bus filters,
    channels and resampler, `annexSound`, active voice counts and
    visualization.

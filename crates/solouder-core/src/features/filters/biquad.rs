@@ -157,7 +157,8 @@ impl BiquadInstance {
         let requested = p[BiquadResonantFilter::FREQUENCY as usize];
         let frequency = if requested < limit { requested } else { limit };
         let omega = (2.0 * PI * f64::from(frequency) / f64::from(self.sample_rate)) as f32;
-        let (sin, cos) = (omega.sin(), omega.cos());
+        let omega = f64::from(omega);
+        let (sin, cos) = (omega.sin() as f32, omega.cos() as f32);
         let alpha = sin / (2.0 * p[BiquadResonantFilter::RESONANCE as usize]);
         let scalar = 1.0 / (1.0 + alpha);
         let b1 = -2.0 * cos * scalar;

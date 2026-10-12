@@ -1,0 +1,64 @@
+# FFT-based filters: the octave-down pitch shift (FFTFilter) and bassboost,
+# as voice and global filters. The 256-sample STFT windows every 128 samples
+# run across mix calls and voice blocks of any size, per channel, at the
+# voice's rate; wet and boost are faded and set while playing.
+init channels=2 rate=44100
+filter name=pitch kind=fft
+filter name=bass kind=bassboost
+filter name=bass5 kind=bassboost boost=5
+filter name=bad kind=bassboost boost=-1
+filter name=zero kind=bassboost boost=0
+filter_info name=pitch
+filter_info name=bass
+
+sound name=saw channels=2 frames=9000 pattern=saw period=53 amp=0.4 looping=1
+sound name=noise frames=9000 pattern=noise seed=7 amp=0.3 looping=1
+sound name=low frames=7000 pattern=saw period=300 amp=0.5 looping=1 rate=22050
+sound_filter sound=saw slot=0 filter=pitch
+sound_filter sound=noise slot=1 filter=bass5
+sound_filter sound=low slot=3 filter=bass
+play sound=saw as=a volume=0.7
+play sound=noise as=b pan=-0.3
+play sound=low as=c
+mix frames=1000
+mix frames=127
+mix frames=1
+mix frames=129
+set h=a speed=0.61
+mix frames=2048
+filter_fade h=a slot=0 param=0 to=0.25 time=0.03
+filter_set h=b slot=1 param=1 value=9
+filter_oscillate h=c slot=3 param=1 from=0 to=4 time=0.02
+mix frames=1777
+filter_query h=a slot=0 param=0
+filter_query h=b slot=1 param=1
+mix frames=1500
+stop_all
+
+# Global: on the whole stereo mix, then mono and 6-channel engines.
+sound name=both channels=2 frames=8000 pattern=saw period=41 amp=0.5 looping=1
+play sound=both as=g
+global_filter slot=0 filter=pitch
+global_filter slot=4 filter=bass
+mix frames=900
+mix frames=128
+mix frames=333
+filter_fade slot=4 param=1 to=0.5 time=0.01
+filter_set slot=0 param=0 value=0.5
+mix frames=2000
+global_filter slot=0
+mix frames=640
+
+init channels=1 rate=48000
+sound name=m frames=6000 pattern=noise seed=9 amp=0.5 looping=1
+play sound=m as=m
+global_filter slot=1 filter=pitch
+mix frames=1300
+mix frames=1111
+
+init channels=6 rate=44100
+sound name=six channels=6 frames=6000 pattern=noise seed=13 amp=0.3 looping=1
+sound_filter sound=six slot=0 filter=bass5
+sound_filter sound=six slot=1 filter=pitch
+play sound=six as=s
+mix frames=1500

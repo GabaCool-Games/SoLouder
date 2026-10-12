@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 18:47:45 +0300
+Subject: [PATCH] FlangerFilter: keep the delay line at least one frame long
+ and within the int range
+
+---
+ src/filter/soloud_flangerfilter.cpp | 11 ++++++++---
+ 1 file changed, 8 insertions(+), 3 deletions(-)
+
+diff --git a/src/filter/soloud_flangerfilter.cpp b/src/filter/soloud_flangerfilter.cpp
+index ffdce4d..a55098b 100644
+--- a/src/filter/soloud_flangerfilter.cpp
++++ b/src/filter/soloud_flangerfilter.cpp
+@@ -44,10 +44,16 @@ namespace SoLoud
+ 	{
+ 		updateParams(aTime);
+ 
+-		if (mBufferLength < mParam[FlangerFilter::DELAY] * aSamplerate)
++		int maxsamples = (int)ceil(mParam[FlangerFilter::DELAY] * aSamplerate);
++		// A delay beyond the int range converts to INT_MIN; the delay line
++		// needs a frame even for a delay of 0.
++		if (maxsamples < 0)
++			maxsamples = 0;
++		int length = maxsamples < 1 ? 1 : maxsamples;
++		if (mBufferLength < length)
+ 		{
+ 			delete[] mBuffer;
+-			mBufferLength = (int)ceil(mParam[FlangerFilter::DELAY] * aSamplerate);
++			mBufferLength = length;
+ 			mBuffer = new float[mBufferLength * aChannels];
+ 			if (mBuffer == NULL)
+ 			{
+@@ -58,7 +64,6 @@ namespace SoLoud
+ 		}
+ 
+ 		unsigned int i, j;
+-		int maxsamples = (int)ceil(mParam[FlangerFilter::DELAY] * aSamplerate);
+ 		double inc = mParam[FlangerFilter::FREQ] * M_PI * 2 / aSamplerate;
+ 		// Every channel follows the same LFO, which advances once per frame.
+ 		double index = mIndex;

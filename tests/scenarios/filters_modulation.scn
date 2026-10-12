@@ -1,0 +1,114 @@
+# Robotize, flanger and freeverb: settings and their validation, every
+# robotize waveform (and an index without one, which is square), robotize
+# periods that are not at least 1 (patch 0042), flanger channels sharing the
+# LFO (patch 0043), flanger delays that grow its line, and 0 (patch 0044),
+# freeverb on stereo and mono (left unchanged, patch 0039) with its settings
+# applied (patch 0040) and parameters faded (patch 0041).
+init channels=2 rate=44100
+filter name=robot kind=robotize
+filter name=fl kind=flanger
+filter name=verb kind=freeverb
+filter name=badfl kind=flanger delay=0
+filter name=badfl2 kind=flanger freq=-1
+filter name=badverb kind=freeverb freeze=2
+filter name=badverb2 kind=freeverb room=0
+filter name=badverb3 kind=freeverb damp=-0.5
+filter name=badverb4 kind=freeverb width=0
+filter_info name=robot
+filter_info name=fl
+filter_info name=verb
+
+sound name=saw channels=2 frames=9000 pattern=saw period=37 amp=0.4 looping=1
+filter name=r0 kind=robotize freq=40 wave=0
+filter name=r1 kind=robotize freq=55 wave=1
+filter name=r2 kind=robotize freq=70 wave=2
+filter name=r3 kind=robotize freq=25 wave=3
+filter name=r4 kind=robotize freq=90 wave=4
+filter name=r5 kind=robotize freq=33 wave=5
+filter name=r6 kind=robotize freq=47 wave=6
+filter name=r7 kind=robotize freq=61 wave=7
+filter name=r8 kind=robotize freq=82 wave=8
+filter name=r99 kind=robotize freq=20 wave=99
+sound_filter sound=saw slot=0 filter=r0
+play sound=saw as=w0 volume=0.3
+sound_filter sound=saw slot=0 filter=r1
+play sound=saw as=w1 volume=0.3
+sound_filter sound=saw slot=0 filter=r2
+play sound=saw as=w2 volume=0.3
+sound_filter sound=saw slot=0 filter=r3
+play sound=saw as=w3 volume=0.3
+sound_filter sound=saw slot=0 filter=r4
+play sound=saw as=w4 volume=0.3
+sound_filter sound=saw slot=0 filter=r5
+play sound=saw as=w5 volume=0.3
+sound_filter sound=saw slot=0 filter=r6
+play sound=saw as=w6 volume=0.3
+sound_filter sound=saw slot=0 filter=r7
+play sound=saw as=w7 volume=0.3
+sound_filter sound=saw slot=0 filter=r8
+play sound=saw as=w8 volume=0.3
+sound_filter sound=saw slot=0 filter=r99
+play sound=saw as=w9 volume=0.3
+mix frames=1000
+mix frames=777
+set h=w2 speed=0.43
+filter_fade h=w0 slot=0 param=1 to=200 time=0.02
+filter_oscillate h=w3 slot=0 param=2 from=0 to=8 time=0.01
+mix frames=1500
+filter_set h=w1 slot=0 param=1 value=100000
+filter_set h=w4 slot=0 param=1 value=0
+filter_set h=w5 slot=0 param=1 value=-3
+filter_set h=w6 slot=0 param=1 value=0.000001
+filter_set h=w7 slot=0 param=0 value=0.5
+mix frames=1200
+stop_all
+
+# Flanger on a stereo voice and globally; delays growing the line, 0, and
+# fading.
+filter name=fl2 kind=flanger delay=0.002 freq=3
+sound_filter sound=saw slot=2 filter=fl2
+play sound=saw as=f volume=0.6
+mix frames=1100
+filter_fade h=f slot=2 param=1 to=0.008 time=0.02
+filter_oscillate h=f slot=2 param=2 from=1 to=20 time=0.03
+mix frames=1900
+filter_set h=f slot=2 param=1 value=0
+mix frames=700
+filter_set h=f slot=2 param=1 value=0.003
+global_filter slot=3 filter=fl
+mix frames=1333
+stop_all
+global_filter slot=3
+
+# Freeverb: stereo voice, mono voice in a stereo mix, global; settings
+# changed, faded and frozen while playing.
+filter name=verb2 kind=freeverb freeze=0 room=0.8 damp=0.2 width=0.6
+sound name=mono frames=9000 pattern=noise seed=4 amp=0.3 looping=1
+sound_filter sound=saw slot=2 filter=verb2
+sound_filter sound=mono slot=0 filter=verb
+play sound=saw as=v volume=0.5
+play sound=mono as=vm pan=0.3
+mix frames=2000
+filter_fade h=v slot=2 param=2 to=0.3 time=0.02
+filter_set h=v slot=2 param=0 value=0.6
+mix frames=1500
+filter_set h=v slot=2 param=1 value=1
+mix frames=1000
+filter_set h=v slot=2 param=1 value=0
+filter_set h=v slot=2 param=4 value=0.1
+filter_fade h=v slot=2 param=3 to=0.9 time=0.01
+mix frames=1200
+stop_all
+global_filter slot=0 filter=verb
+play sound=saw as=gv
+mix frames=1700
+filter_set slot=0 param=0 value=0.3
+mix frames=999
+
+# Freeverb as a mono engine's global filter leaves it unchanged.
+init channels=1
+filter name=verbm kind=freeverb
+sound name=m frames=3000 pattern=saw period=29 amp=0.5
+play sound=m as=m
+global_filter slot=0 filter=verbm
+mix frames=1000

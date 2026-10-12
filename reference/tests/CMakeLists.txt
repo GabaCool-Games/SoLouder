@@ -65,6 +65,13 @@ set(REFERENCE_TESTS
   dc_removal_long_length_is_safe
   filter_params_reject_nan
   biquad_single_sample_stays_in_bounds
+  freeverb_leaves_mono_unchanged
+  freeverb_uses_its_settings
+  freeverb_and_robotize_fade_parameters
+  robotize_period_and_phase_are_safe
+  flanger_channels_share_the_lfo
+  flanger_delay_extremes_are_safe
+  more_filter_params_reject_nan
   play_stop_without_init
   play_after_failed_init
   wav_rejects_too_many_channels

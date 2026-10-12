@@ -27,8 +27,8 @@ turns missing C++ output into a failure.
 
 Each runner produces:
 
-- **Samples:** every `mix` appends its interleaved `f32` frames, and every
-  `samples` a sound's decoded data. The C++ runner writes them little-endian to
+- **Samples:** every `mix` appends its interleaved `f32` frames, every
+  `samples` a sound's decoded data, and every `fft` its transform. The C++ runner writes them little-endian to
   `<name>.f32`.
 - **Log:** one text line per step that returns a value, written to `<name>.log`.
 
@@ -66,7 +66,7 @@ exactly, and a scenario must render at least one sample.
 | `group_add` | `group`, `h` | `addVoiceToGroup`. | `group_add <group> <h> <code>` |
 | `group_destroy` | `group` | `destroyVoiceGroup`. | `group_destroy <group> <code>` |
 | `group_query` | `group` | `isVoiceGroup`, then `isVoiceGroupEmpty` (which drops stopped voices from the group). | `group_query <group> is_group=<0/1> empty=<0/1>` |
-| `filter` | `name`, `kind` (`biquad`, `lofi`, `echo`, `waveshaper`, `dc_removal`), then the kind's settings: `type` (`lowpass`, `highpass`, `bandpass`), `freq`, `res`; `rate`, `bits`; `delay`, `decay`, `filter`; `amount`; `length` | A new filter. When any setting is given, all go to its `setParams`, missing ones at the filter's defaults (lowpass, 1000, 2; 4000, 3; 0.3, 0.7, 0; 0; 0.1). Filters are kept across `init`, and replacing a name does not change sounds that use the old filter. | `filter <name> <code>` |
+| `filter` | `name`, `kind` (`biquad`, `lofi`, `echo`, `waveshaper`, `dc_removal`, `fft`, `bassboost`, `robotize`, `flanger`, `freeverb`), then the kind's settings: `type` (`lowpass`, `highpass`, `bandpass`), `freq`, `res`; `rate`, `bits`; `delay`, `decay`, `filter`; `amount`; `length`; none; `boost`; `freq`, `wave` (an unsigned integer); `delay`, `freq`; `freeze`, `room`, `damp`, `width` | A new filter. When any setting is given, all go to its `setParams`, missing ones at the filter's defaults (lowpass, 1000, 2; 4000, 3; 0.3, 0.7, 0; 0; 0.1; —; 2; 30, 0; 0.005, 10; 0, 0.5, 0.5, 1). `RobotizeFilter::setParams` returns nothing and logs 0. Filters are kept across `init`, and replacing a name does not change sounds that use the old filter. | `filter <name> <code>` |
 | `filter_info` | `name` | `getParamCount`, then `getParamName`, `getParamType`, `getParamMax` and `getParamMin` for each parameter and one past the last. | `filter_info <name> count=<n>` then ` <i>:<name or ->:<type>:<max f32 bits>:<min f32 bits>` per index |
 | `sound_filter` | `sound`, `slot`, `filter` (optional) | `AudioSource::setFilter`; without `filter` the slot is cleared. | — |
 | `global_filter` | `slot`, `filter` (optional) | `Soloud::setGlobalFilter`; without `filter` the slot is cleared. | — |
@@ -74,9 +74,10 @@ exactly, and a scenario must render at least one sample.
 | `filter_fade` | `h` (optional), `slot`, `param`, `to`, `time` | `fadeFilterParameter`. | — |
 | `filter_oscillate` | `h` (optional), `slot`, `param`, `from`, `to`, `time` | `oscillateFilterParameter`. | — |
 | `filter_query` | `h` (optional), `slot`, `param` | `getFilterParameter`: 1.0 (`INVALID_PARAMETER`) without a filter, 0 past the last parameter. | `filter_query <h or global> <slot> <param> <f32 bits>` |
+| `fft` | `size` (a power of two from 4 to 4096), `inverse` (0), `pattern`, `amp`, `period`, `seed` (as for `sound`) | Renders `size` samples of one channel of the pattern, transforms them with `FFT::fft`, or `FFT::ifft` with `inverse=1`, and appends the result to the samples. | — |
 
-Every operation except `tolerance`, `init` and `samples` needs a successful
-`init`. Unknown sound or handle names are scenario errors. `<code>` is the
+Every operation except `tolerance`, `init`, `samples` and `fft` needs a
+successful `init`. Unknown sound or handle names are scenario errors. `<code>` is the
 SoLoud error code (0 = no error, 1 = invalid parameter, 3 = file load failed,
 5 = out of memory).
 

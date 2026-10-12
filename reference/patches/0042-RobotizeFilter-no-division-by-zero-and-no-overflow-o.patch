@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 18:47:45 +0300
+Subject: [PATCH] RobotizeFilter: no division by zero, and no overflow on long
+ stream times
+
+---
+ src/filter/soloud_robotizefilter.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/filter/soloud_robotizefilter.cpp b/src/filter/soloud_robotizefilter.cpp
+index 02b708d..5a9f2d6 100644
+--- a/src/filter/soloud_robotizefilter.cpp
++++ b/src/filter/soloud_robotizefilter.cpp
+@@ -42,7 +42,13 @@ namespace SoLoud
+ 		updateParams(aTime);
+ 		unsigned int i;
+ 		int period = (int)(aSamplerate / mParam[FREQ]);
+-		int start = (int)(aTime * aSamplerate) % period;
++		// A frequency above the rate, not above 0, or so low that the period
++		// is beyond the int range (INT_MIN) has no usable period.
++		if (period < 1)
++			period = 1;
++		// The stream time in samples passes the int range after 13.5 hours
++		// at 44.1 kHz.
++		int start = (int)fmod(aTime * aSamplerate, (double)period);
+ 		for (i = 0; i < aSamples; i++)
+ 		{
+ 			float s = aBuffer[i];
