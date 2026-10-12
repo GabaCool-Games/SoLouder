@@ -145,7 +145,8 @@ fn fill_block(voice: &mut Voice, block: &mut [f32]) -> u32 {
     let mut read = voice.read(block, 0, SAMPLE_GRANULARITY);
     while looping && read < SAMPLE_GRANULARITY {
         voice.seek_to_loop_point();
-        voice.loop_count += 1;
+        // `mLoopCount` is unsigned and wraps.
+        voice.loop_count = voice.loop_count.wrapping_add(1);
         let more = voice.read(block, read as usize, SAMPLE_GRANULARITY - read);
         read += more;
         if more == 0 {

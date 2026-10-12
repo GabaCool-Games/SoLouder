@@ -1,5 +1,6 @@
 # With more voices than the active limit, protected voices and then the loudest
-# are mixed; the rest wait. Changing the limit, and invalid limits.
+# are mixed; the rest wait. Changing the limit, and invalid limits. Protecting
+# a voice takes effect at the next mix (patch 0023).
 init channels=2 buffer=512
 sound name=s frames=8000 pattern=noise seed=13 amp=0.3 looping=1
 global max_active=2
@@ -22,3 +23,10 @@ counts
 mix frames=303
 query h=quiet
 query h=mid
+global max_active=1
+set h=quiet protect=0
+mix frames=200
+counts
+set h=quiet protect=1
+mix frames=200
+counts

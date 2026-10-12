@@ -44,6 +44,7 @@ set(REFERENCE_TESTS
   wavstream_looping_not_ended
   inaudible_tick_over_active_cap
   protected_voice_stays_active
+  protecting_a_voice_makes_it_active
   zero_step_voice_no_stale_scratch
   extreme_speed_makes_progress
   generic_seek_small_scratch

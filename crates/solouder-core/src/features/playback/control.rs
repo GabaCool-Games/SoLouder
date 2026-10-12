@@ -125,8 +125,12 @@ impl Mixer {
 
     /// Protected voices are never stopped to make room for new ones and are
     /// always mixed, even past the active voice limit.
+    /// (Reference patch 0023: the active set is recomputed at the next mix.)
     pub fn set_protect_voice(&mut self, handle: Handle, protect: bool) {
-        self.with_voice(handle, |voice| voice.set_flag(flags::PROTECTED, protect));
+        if let Some(voice) = self.voices.get_mut(handle) {
+            voice.set_flag(flags::PROTECTED, protect);
+            self.voices.dirty = true;
+        }
     }
 
     /// Delays the start of a voice by `frames` output frames.

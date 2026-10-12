@@ -196,6 +196,26 @@ namespace
 		check(maxAbsChannel(out, 0) > 0.01f, "protected voice is audible on the left");
 	}
 
+	// Patch 0023: setProtectVoice did not mark the active set dirty, so a newly
+	// protected voice stayed silent until something else recomputed it.
+	void protecting_a_voice_makes_it_active()
+	{
+		Wav dc;
+		check(loadWav(dc, makeConstantWav(1, 4410, 0.25f)) == SO_NO_ERROR, "wav loads");
+		dc.setLooping(true);
+
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		check(soloud.setMaxActiveVoiceCount(1) == SO_NO_ERROR, "set active cap");
+		handle quiet = soloud.play(dc, 0.2f, -1.0f); // hard left, quietest voice
+		soloud.play(dc, 1.0f, 1.0f);                  // hard right, active
+		std::vector<float> out = render(soloud, 1024);
+		check(maxAbsChannel(out, 0) < 0.01f, "only the loud voice is mixed at first");
+		soloud.setProtectVoice(quiet, true);
+		out = render(soloud, 1024);
+		check(maxAbsChannel(out, 0) > 0.01f, "the protected voice is mixed in the next render");
+	}
+
 	// A voice whose fixed-point step rounds to zero skipped resampling but was
 	// still panned, mixing the previous voice's scratch data into the output.
 	void zero_step_voice_no_stale_scratch()
@@ -482,6 +502,7 @@ namespace
 		{ "wavstream_looping_not_ended", wavstream_looping_not_ended },
 		{ "inaudible_tick_over_active_cap", inaudible_tick_over_active_cap },
 		{ "protected_voice_stays_active", protected_voice_stays_active },
+		{ "protecting_a_voice_makes_it_active", protecting_a_voice_makes_it_active },
 		{ "zero_step_voice_no_stale_scratch", zero_step_voice_no_stale_scratch },
 		{ "extreme_speed_makes_progress", extreme_speed_makes_progress },
 		{ "generic_seek_small_scratch", generic_seek_small_scratch },

@@ -109,9 +109,9 @@ Rust 1.98.1, no device).
 | Lost device | Backend-specific | `Output::state` reports `Disconnected` or `Failed` and plays nothing; there is no automatic reconnection yet | Reopening is an application decision for now |
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which joins the callback; the renderer is handed back and freed afterwards | Teardown order is enforced by ownership |
 
-Known reference defects fixed on both sides by patches 0018 to 0022 (pan ramp
+Known reference defects fixed on both sides by patches 0018 to 0023 (pan ramp
 leftovers, surround fold-down volumes, no-free-voice handling, raw layout
-validation, the #343 hang) are listed in
+validation, the #343 hang, protection not recomputing the active voices) are listed in
 [PORTING.md](PORTING.md#reference-patch-ledger).
 
 ## Not yet covered
