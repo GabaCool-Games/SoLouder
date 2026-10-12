@@ -1,0 +1,82 @@
+# Filter settings and live parameters: setParams validation and defaults,
+# parameter descriptions, set/fade/oscillate/query on voices, voice groups
+# and global filters (fades run on the engine's stream time), indices past
+# the last slot or parameter, an echo delay longer than its line, a delay of
+# 0 (patch 0033) and the waveshaper's minimum amount (patch 0034).
+init channels=2
+filter name=bq kind=biquad
+filter name=bad1 kind=biquad freq=-5
+filter name=bad2 kind=lofi bits=0
+filter name=bad3 kind=echo filter=1
+filter name=bad4 kind=waveshaper amount=1.5
+filter name=bad5 kind=dc_removal length=0
+filter name=lofi kind=lofi
+filter name=echo kind=echo delay=0.005 decay=0.5
+filter name=shape kind=waveshaper amount=-1
+filter name=dc kind=dc_removal
+filter_info name=bq
+filter_info name=lofi
+filter_info name=echo
+filter_info name=shape
+filter_info name=dc
+filter_info name=bad3
+
+sound name=saw frames=20000 pattern=saw period=40 amp=0.7 looping=1
+sound_filter sound=saw slot=0 filter=bq
+sound_filter sound=saw slot=1 filter=echo
+sound_filter sound=saw slot=2 filter=shape
+play sound=saw as=a
+play sound=saw as=b pan=0.5
+group as=g
+group_add group=g h=a
+group_add group=g h=b
+filter_query h=a slot=0 param=2
+filter_query h=a slot=0 param=4
+filter_query h=a slot=3 param=0
+filter_query h=a slot=8 param=0
+filter_set h=a slot=0 param=2 value=3000
+filter_set h=g slot=0 param=3 value=6
+filter_set h=a slot=0 param=9 value=1
+filter_query h=a slot=0 param=2
+filter_query h=b slot=0 param=2
+filter_query h=g slot=0 param=3
+mix frames=1000
+filter_fade h=g slot=0 param=2 to=200 time=0.05
+filter_oscillate h=b slot=2 param=0 from=0.2 to=0.9 time=0.013
+filter_fade h=a slot=0 param=1 to=1 time=0.02
+filter_fade h=a slot=1 param=1 to=0.004 time=0
+filter_oscillate h=a slot=1 param=1 from=0.1 to=0.1 time=0.1
+mix frames=1200
+filter_query h=a slot=0 param=2
+filter_query h=b slot=2 param=0
+filter_query h=a slot=0 param=1
+mix frames=1700
+filter_query h=a slot=0 param=2
+filter_query h=g slot=0 param=2
+
+# Echo delay beyond the delay line (limited to it), then 0 (one frame).
+filter_set h=a slot=1 param=1 value=0.05
+mix frames=600
+filter_set h=b slot=1 param=1 value=0
+mix frames=600
+filter_fade h=g slot=1 param=1 to=0.002 time=0.01
+mix frames=800
+
+# Global filters through handle 0, and a filter set while a fade runs.
+global_filter slot=4 filter=lofi
+filter_query slot=4 param=1
+filter_query slot=3 param=0
+filter_set slot=4 param=2 value=5
+filter_fade slot=4 param=1 to=2000 time=0.04
+mix frames=900
+filter_query slot=4 param=1
+filter_set slot=4 param=1 value=9000
+filter_oscillate slot=4 param=0 from=0 to=1 time=0.007
+mix frames=1100
+filter_query slot=4 param=1
+filter_query slot=4 param=0
+stop h=a
+filter_query h=a slot=0 param=2
+filter_set h=a slot=0 param=2 value=100
+filter_query h=g slot=0 param=2
+mix frames=500

@@ -1,0 +1,64 @@
+# Per-voice filters: every time-domain filter on a sound, chained in slot
+# order, at the voice's own rate (which moves with its speed and sample rate,
+# recalculating the biquad), a cutoff above that rate's Nyquist frequency
+# (patch 0031), lofi on all eight channels (patch 0032), instances created at
+# play with the filter's settings then, and slots changed after play.
+init channels=2 rate=44100
+filter name=lp kind=biquad type=lowpass freq=800 res=3
+filter name=hp kind=biquad type=highpass freq=2000 res=0.7
+filter name=bp kind=biquad type=bandpass freq=1200 res=5
+filter name=crush kind=lofi rate=6000 bits=4
+filter name=echo kind=echo delay=0.004 decay=0.6 filter=0.3
+filter name=shape kind=waveshaper amount=0.7
+filter name=dc kind=dc_removal length=0.002
+sound name=saw channels=2 frames=9000 pattern=saw period=37 amp=0.4 looping=1
+sound name=noise frames=9000 pattern=noise seed=5 amp=0.3 looping=1
+sound name=offset frames=4000 pattern=saw period=500 amp=0.5 rate=22050
+
+sound_filter sound=saw slot=0 filter=lp
+sound_filter sound=saw slot=5 filter=shape
+sound_filter sound=noise slot=2 filter=hp
+sound_filter sound=noise slot=3 filter=echo
+sound_filter sound=offset slot=7 filter=dc
+play sound=saw as=a volume=0.6
+play sound=noise as=b pan=0.4
+play sound=offset as=c volume=0.8
+mix frames=1024
+mix frames=777
+set h=a speed=0.37
+set h=b rate=8000
+mix frames=2048
+set h=a speed=2.3
+fade h=b param=speed to=0.2 time=0.03
+mix frames=1500
+mix frames=1301
+
+# A cutoff above the Nyquist frequency of a slow voice.
+sound name=tone frames=8000 pattern=saw period=9 amp=0.5 looping=1
+filter name=high kind=biquad type=bandpass freq=6000 res=4
+sound_filter sound=tone slot=1 filter=high
+play sound=tone as=t
+set h=t speed=0.15
+mix frames=2048
+set h=t speed=1
+mix frames=1024
+stop_all
+
+# Lofi on an eight-channel sound in 7.1 output; the bandpass is chained after
+# it in a later slot.
+init channels=8
+filter name=crush8 kind=lofi rate=3000 bits=3
+filter name=bp8 kind=biquad type=bandpass freq=900 res=2
+sound name=wide channels=8 frames=6000 pattern=noise seed=11 amp=0.4
+sound_filter sound=wide slot=0 filter=crush8
+sound_filter sound=wide slot=4 filter=bp8
+play sound=wide as=w
+mix frames=1500
+
+# A slot changed after play affects only later voices; clearing a slot.
+sound_filter sound=wide slot=0
+play sound=wide as=w2 volume=0.5
+mix frames=1200
+sound_filter sound=wide slot=9 filter=bp8
+play sound=wide as=w3 volume=0.5
+mix frames=900

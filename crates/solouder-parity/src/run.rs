@@ -2,7 +2,9 @@
 //! does with the SoLoud C++ API.
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
+use solouder_core::filters::Filter;
 use solouder_core::{Clipper, Handle, Mixer, MixerConfig, Sound};
 
 use crate::scenario::{Scenario, ScenarioError, Step};
@@ -35,6 +37,7 @@ pub fn run(scenario: &Scenario) -> Result<Rendered, ScenarioError> {
         sounds: HashMap::new(),
         played: HashMap::new(),
         handles: HashMap::new(),
+        filters: HashMap::new(),
         rendered: Rendered {
             samples: Vec::new(),
             log: Vec::new(),
@@ -56,6 +59,8 @@ pub(crate) struct State {
     pub played: HashMap<String, Vec<Handle>>,
     /// Handles by scenario name; cleared by `init`.
     pub handles: HashMap<String, Handle>,
+    /// Filters by scenario name; kept across `init`.
+    pub filters: HashMap<String, Arc<dyn Filter>>,
     pub rendered: Rendered,
 }
 
@@ -85,6 +90,13 @@ impl State {
             "group" => self.group(step),
             "group_add" | "group_destroy" | "group_query" => self.group_op(step),
             "version" => self.version(step),
+            "filter" => self.filter(step),
+            "sound_filter" => self.sound_filter(step),
+            "global_filter" => self.global_filter(step),
+            "filter_set" | "filter_fade" | "filter_oscillate" | "filter_query" => {
+                self.filter_parameter(step)
+            }
+            "filter_info" => self.filter_info(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }

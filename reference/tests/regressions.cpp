@@ -8,13 +8,19 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <limits>
 #include <new>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include "soloud.h"
+#include "soloud_biquadresonantfilter.h"
 #include "soloud_bus.h"
+#include "soloud_dcremovalfilter.h"
+#include "soloud_echofilter.h"
+#include "soloud_lofifilter.h"
+#include "soloud_waveshaperfilter.h"
 #include "soloud_queue.h"
 #include "soloud_wav.h"
 #include "soloud_wavstream.h"
@@ -431,6 +437,184 @@ namespace
 		check(maxAbsChannel(out, 0) < 1e-15f, "the left side is silent");
 	}
 
+	bool allFinite(const std::vector<float> &aSamples)
+	{
+		for (float v : aSamples)
+			if (!std::isfinite(v))
+				return false;
+		return true;
+	}
+
+	// Patch 0031: filters run at the voice's rate, which falls with its speed.
+	// A biquad above that rate's Nyquist frequency had poles outside the unit
+	// circle and its output grew to infinity and NaN.
+	void biquad_above_voice_nyquist_stays_finite()
+	{
+		const int types[3] = { BiquadResonantFilter::LOWPASS, BiquadResonantFilter::HIGHPASS, BiquadResonantFilter::BANDPASS };
+		for (int type : types)
+		{
+			BiquadResonantFilter biquad;
+			biquad.setParams(type, 5000, 2);
+			FilterInstance *instance = biquad.createInstance();
+			unsigned int x = 1;
+			float peak = 0;
+			for (int block = 0; block < 8; block++)
+			{
+				std::vector<float> buffer(512);
+				for (float &v : buffer)
+				{
+					x ^= x << 13;
+					x ^= x >> 17;
+					x ^= x << 5;
+					v = (float)(x >> 8) / 8388608.0f - 1.0f;
+				}
+				// A voice at a fifth of 44.1 kHz filters at 8820 Hz.
+				instance->filter(buffer.data(), 512, 512, 1, 8820, 0);
+				for (float v : buffer)
+					if (!(std::fabs(v) <= peak))
+						peak = std::isfinite(v) ? std::fabs(v) : INFINITY;
+			}
+			delete instance;
+			check(peak < 10.0f, "biquad output stays bounded");
+		}
+	}
+
+	// Patch 0032: the lofi filter kept state for 2 channels but filtered up
+	// to 8, writing past the instance for channels 2 to 7.
+	void lofi_filters_eight_channels()
+	{
+		LofiFilter lofi;
+		lofi.setParams(8000, 4);
+		std::vector<float> buffer(8 * 512);
+		for (unsigned int c = 0; c < 8; c++)
+			for (unsigned int i = 0; i < 512; i++)
+				buffer[c * 512 + i] = (float)(i % 50) / 50.0f - 0.5f;
+		// Without the patch channels 2 to 7 use whatever follows the
+		// instance; fill it so that stale state shows.
+		std::vector<unsigned char> memory(sizeof(LofiFilterInstance) + 64 * sizeof(float));
+		memset(memory.data(), 0x4f, memory.size());
+		LofiFilterInstance *instance = new (memory.data()) LofiFilterInstance(&lofi);
+		for (int pass = 0; pass < 4; pass++)
+			instance->filter(buffer.data(), 512, 512, 8, 44100, 0);
+		instance->~LofiFilterInstance();
+		bool same = true;
+		for (unsigned int c = 1; c < 8; c++)
+			for (unsigned int i = 0; i < 512; i++)
+				same = same && buffer[c * 512 + i] == buffer[i];
+		check(same, "every channel with the same input gives the same output");
+	}
+
+	// Patch 0033: an echo delay set to 0 through setFilterParameter (or faded
+	// there) made the delay line 0 frames long and divided by zero.
+	void echo_with_zero_delay_survives()
+	{
+		EchoFilter echo;
+		echo.setParams(0.01f, 0.5f);
+		FilterInstance *fresh = echo.createInstance();
+		fresh->setFilterParameter(EchoFilter::DELAY, 0);
+		std::vector<float> buffer(2 * 512, 0.25f);
+		fresh->filter(buffer.data(), 512, 512, 2, 44100, 0);
+		check(allFinite(buffer), "a zero delay from the start gives finite output");
+		delete fresh;
+		FilterInstance *running = echo.createInstance();
+		running->filter(buffer.data(), 512, 512, 2, 44100, 0);
+		running->setFilterParameter(EchoFilter::DELAY, 0);
+		running->filter(buffer.data(), 512, 512, 2, 44100, 0);
+		check(allFinite(buffer), "a delay set to 0 while running gives finite output");
+		delete running;
+	}
+
+	// Patch 0034: the waveshaper's documented minimum amount of -1 computed
+	// 0 / 0 for samples of magnitude 1.
+	void waveshaper_minimum_amount_is_finite()
+	{
+		WaveShaperFilter shaper;
+		check(shaper.setParams(-1) == SO_NO_ERROR, "amount -1 is accepted");
+		FilterInstance *instance = shaper.createInstance();
+		std::vector<float> buffer(512);
+		for (unsigned int i = 0; i < 512; i++)
+			buffer[i] = (float)i / 256.0f - 1.0f;
+		instance->filter(buffer.data(), 512, 512, 1, 44100, 0);
+		check(allFinite(buffer), "output is finite");
+		delete instance;
+	}
+
+	// Patch 0035: the DC removal instance read its length from its parent
+	// filter at the first mix, so a filter destroyed after play was read
+	// after it was freed.
+	void dc_removal_outlives_its_filter()
+	{
+		Wav dc;
+		check(loadWav(dc, makeConstantWav(1, 4410, 0.25f)) == SO_NO_ERROR, "wav loads");
+		void *memory = std::malloc(sizeof(DCRemovalFilter));
+		DCRemovalFilter *filter = new (memory) DCRemovalFilter;
+		filter->setParams(0.01f);
+		dc.setFilter(0, filter);
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		soloud.play(dc);
+		dc.setFilter(0, 0);
+		filter->~DCRemovalFilter();
+		std::memset(memory, 0xdd, sizeof(DCRemovalFilter));
+		std::vector<float> out = render(soloud, 1024);
+		std::free(memory);
+
+		DCRemovalFilter alive;
+		alive.setParams(0.01f);
+		dc.setFilter(0, &alive);
+		Soloud other;
+		check(initNull(other), "null driver init");
+		other.play(dc);
+		std::vector<float> expected = render(other, 1024);
+		check(out == expected, "the output matches a filter that is still alive");
+	}
+
+	// Patch 0036: a DC removal length too long for an int made the window
+	// INT_MIN frames long, and channel 1 was written at a negative offset.
+	void dc_removal_long_length_is_safe()
+	{
+		DCRemovalFilter dc;
+		check(dc.setParams(1e6f) == SO_NO_ERROR, "a long length is accepted");
+		FilterInstance *instance = dc.createInstance();
+		std::vector<float> buffer(2 * 512, 0.25f);
+		instance->filter(buffer.data(), 512, 512, 2, 44100, 0);
+		check(allFinite(buffer), "output is finite");
+		delete instance;
+	}
+
+	// Patch 0037: every filter's setParams accepted NaN, which then filtered
+	// the whole voice to NaN.
+	void filter_params_reject_nan()
+	{
+		const float nan = std::numeric_limits<float>::quiet_NaN();
+		BiquadResonantFilter biquad;
+		check(biquad.setParams(0, nan, 2) == INVALID_PARAMETER, "biquad frequency");
+		check(biquad.setParams(0, 1000, nan) == INVALID_PARAMETER, "biquad resonance");
+		LofiFilter lofi;
+		check(lofi.setParams(nan, 4) == INVALID_PARAMETER, "lofi rate");
+		check(lofi.setParams(8000, nan) == INVALID_PARAMETER, "lofi bit depth");
+		EchoFilter echo;
+		check(echo.setParams(nan) == INVALID_PARAMETER, "echo delay");
+		check(echo.setParams(0.1f, nan) == INVALID_PARAMETER, "echo decay");
+		check(echo.setParams(0.1f, 0.5f, nan) == INVALID_PARAMETER, "echo filter");
+		WaveShaperFilter shaper;
+		check(shaper.setParams(nan) == INVALID_PARAMETER, "waveshaper amount");
+		DCRemovalFilter dc;
+		check(dc.setParams(nan) == INVALID_PARAMETER, "dc removal length");
+	}
+
+	// Patch 0038: for a one-sample buffer (a global filter in a one-frame
+	// mix) the biquad copied the sample before the buffer into it.
+	void biquad_single_sample_stays_in_bounds()
+	{
+		BiquadResonantFilter biquad;
+		FilterInstance *instance = biquad.createInstance();
+		float memory[2] = { 123.0f, 0.5f };
+		instance->filter(memory + 1, 1, 1, 1, 44100, 0);
+		check(memory[1] == 0.5f, "the sample is left dry");
+		delete instance;
+	}
+
 	// #345: before init, the active-voice count was 16 but the resample
 	// owner array was null, so stopping a voice dereferenced it.
 	void play_stop_without_init()
@@ -836,6 +1020,14 @@ namespace
 		{ "seek_ignores_play_speed", seek_ignores_play_speed },
 		{ "loop_point_keeps_earlier_frames", loop_point_keeps_earlier_frames },
 		{ "hard_pan_is_silent_on_the_far_side", hard_pan_is_silent_on_the_far_side },
+		{ "biquad_above_voice_nyquist_stays_finite", biquad_above_voice_nyquist_stays_finite },
+		{ "lofi_filters_eight_channels", lofi_filters_eight_channels },
+		{ "echo_with_zero_delay_survives", echo_with_zero_delay_survives },
+		{ "waveshaper_minimum_amount_is_finite", waveshaper_minimum_amount_is_finite },
+		{ "dc_removal_outlives_its_filter", dc_removal_outlives_its_filter },
+		{ "dc_removal_long_length_is_safe", dc_removal_long_length_is_safe },
+		{ "filter_params_reject_nan", filter_params_reject_nan },
+		{ "biquad_single_sample_stays_in_bounds", biquad_single_sample_stays_in_bounds },
 		{ "play_stop_without_init", play_stop_without_init },
 		{ "play_after_failed_init", play_after_failed_init },
 		{ "wav_rejects_too_many_channels", wav_rejects_too_many_channels },

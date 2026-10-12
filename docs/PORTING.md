@@ -373,6 +373,14 @@ unpatched reference, and each needs a matching Rust test.
 | 0028 | — (found porting milestone B) | `AudioSourceInstance::seek` turned seconds into frames at `mSamplerate`, which includes the relative play speed, while `mStreamPosition` counts seconds of source: at speed 2, `Soloud::seek` and every loop wrap to a loop point went twice as far. It now uses `mBaseSamplerate`, as `WavStreamInstance::seek` does for Ogg. | `seek_ignores_play_speed` |
 | 0029 | — (found porting milestone B) | The loop wrap seeks with `mScratch` as its discard buffer, but `mScratch` then holds the frames of the voice resampled earlier in the same mix call. Any loop point above 0 replaced those frames (the rest of the previous block, up to 511 frames) with discarded source audio. The wrap now has a scratch of its own. | `loop_point_keeps_earlier_frames` |
 | 0030 | — (found porting milestone B) | `soloud.h` defines `M_PI` as `3.14159265359` when `<math.h>` has none (MSVC), but glibc's is exact, so every use (the pan law, 3D, filters, generators) differed between Windows and Linux; a hard-panned voice leaked about 1e-12 into the other side on Windows. The fallback now has full precision. | `hard_pan_is_silent_on_the_far_side` |
+| 0031 | — (GoreGrind) | Voice filters run at the voice's own rate, which falls with its play speed. `BiquadResonantFilter` at or above that rate's Nyquist frequency put its poles outside the unit circle, and its output grew to infinity and NaN, which then poisoned the whole mix. The frequency is limited to 0.49 times the rate (NaN included) when the coefficients are computed; the parameter keeps its value. | `biquad_above_voice_nyquist_stays_finite` |
+| 0032 | — (found porting milestone D) | `LofiFilterInstance` kept state for 2 channels but filtered up to 8, so channels 2 to 7 read and wrote past the instance. State now covers `MAX_CHANNELS`. | `lofi_filters_eight_channels` |
+| 0033 | — (found porting milestone D) | An `EchoFilter` delay set or faded to 0 (or below one frame) made the delay line 0 frames long: `% 0` crashed with a division by zero. The line is at least one frame. | `echo_with_zero_delay_survives` |
+| 0034 | — (found porting milestone D) | `WaveShaperFilter` accepts amounts down to -1, where the curve's denominator `1 + k|x|` is 0 at `|x| = 1` (0 / 0 gives NaN) and negative beyond `-1 / k` for other negative amounts. Past the pole the output is 0. | `waveshaper_minimum_amount_is_finite` |
+| 0035 | — (found porting milestone D) | `DCRemovalFilterInstance` read its length from the parent filter at the first mix, after `play` returned, so a filter destroyed after play was read after being freed. The length is copied when the instance is created, like every other filter's settings. | `dc_removal_outlives_its_filter` |
+| 0036 | — (found porting milestone D) | A `DCRemovalFilter` length whose frame count does not fit an `int` converts to `INT_MIN`, so channel 1 was written at a negative offset. The window is at least one frame, like the echo's. | `dc_removal_long_length_is_safe` |
+| 0037 | — (found porting milestone D) | Every time-domain filter's `setParams` tested `x <= 0` and similar, which NaN passes, and a NaN setting filtered the voice to NaN. The checks now reject NaN. | `filter_params_reject_nan` |
+| 0038 | — (found porting milestone D) | For a one-sample buffer (a global filter in a one-frame mix) `BiquadResonantFilter` copied the sample before the buffer into it. A single sample is now left dry. | `biquad_single_sample_stays_in_bounds` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the `goregrind` branch). Its README lists every fix with
@@ -380,7 +388,7 @@ credits. Commits after 0017 on `goregrind` add build scripts and that README,
 so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto `goregrind`. Patches 0018 to
-0025 were pushed on 2026-10-12 (public `master` at `9318875`); 0026 to 0030 are
+0025 were pushed on 2026-10-12 (public `master` at `9318875`); 0026 to 0038 are
 on `goregrind` but not pushed yet.
 
 GoreGrind's native libraries are built from the same branch: Windows with
@@ -534,9 +542,10 @@ scenarios, ledger rows and a commit.
    then voice groups, which apply every voice control. Patches 0026 to 0030.
    Scenarios `voice_controls`, `channel_gains`, `sound_instances`,
    `voice_groups`.
-3. **Filter framework and time-domain filters:** per-voice filters at the
-   voice's rate, global filters, live parameters with fades and
-   oscillations; biquad, lofi, echo, waveshaper and DC removal.
+3. **Filter framework and time-domain filters** (done): per-voice filters at
+   the voice's rate, global filters, live parameters with fades and
+   oscillations; biquad, lofi, echo, waveshaper and DC removal. Patches 0031
+   to 0038. Scenarios `filters_voice`, `filters_global`, `filter_params`.
 4. **FFT and the remaining filters:** the FFT, FFT filter, bassboost,
    robotize, flanger and freeverb.
 5. **Buses:** buses as playable sources, nested routing, bus filters,
@@ -577,8 +586,9 @@ belong to the milestone that introduces the affected behavior:
   unit test `dropping_the_callback_returns_the_renderer`. Device tests skip
   without hardware unless `SOLOUDER_REQUIRE_DEVICE=1`.
 - **D:** protected-voice ranking (patch 0007), bus default volume and nested
-  gain (#381, #395, #280), queue fixes (#291), filter stability at the voice
-  processing rate. The voice-group defects (#228, a deadlock in
+  gain (#381, #395, #280), queue fixes (#291). Filter stability at the voice
+  processing rate is done (patch 0031, `filters_voice`,
+  `biquad_above_the_voice_nyquist_frequency_stays_bounded`). The voice-group defects (#228, a deadlock in
   `trimVoiceGroup_internal`; #322, its allocation size) cannot occur in Rust:
   groups are `Vec`s on the mixer's single owner (`voice_groups`).
 - **E:** non-Ogg seek/loop (patch 0002), looping streams not ending (patch

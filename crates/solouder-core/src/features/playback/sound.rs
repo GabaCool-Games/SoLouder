@@ -2,9 +2,11 @@
 // src/audiosource/wav/soloud_wav.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use crate::contracts::Pcm;
+use crate::features::filters::{FILTERS_PER_STREAM, Filter};
 
 /// Identifies a [`Sound`] and its clones, so their voices can be stopped or
 /// counted together (`mAudioSourceID`). Unique within the process.
@@ -36,7 +38,11 @@ pub struct Sound {
     single_instance: bool,
     inaudible_tick: bool,
     inaudible_kill: bool,
+    /// Shared with clones until one of them changes a filter.
+    filters: Option<Arc<FilterSlots>>,
 }
+
+type FilterSlots = [Option<Arc<dyn Filter>>; FILTERS_PER_STREAM];
 
 impl Sound {
     /// A sound at volume 1 that does not loop, with a new [`SoundId`].
@@ -51,6 +57,7 @@ impl Sound {
             single_instance: false,
             inaudible_tick: false,
             inaudible_kill: false,
+            filters: None,
         }
     }
 
@@ -140,6 +147,22 @@ impl Sound {
     pub fn set_inaudible_behavior(&mut self, tick: bool, kill: bool) {
         self.inaudible_tick = tick;
         self.inaudible_kill = kill;
+    }
+
+    /// The filter in `slot`, if any.
+    pub fn filter(&self, slot: u32) -> Option<&Arc<dyn Filter>> {
+        self.filters.as_ref()?.get(slot as usize)?.as_ref()
+    }
+
+    /// Sets or clears the filter in `slot`, 0 to 7, for voices started after
+    /// this call (`AudioSource::setFilter`); other slots are ignored. Each
+    /// voice gets its own instance with the filter's settings, and runs its
+    /// filters in slot order on the sound's audio at the voice's rate.
+    pub fn set_filter(&mut self, slot: u32, filter: Option<Arc<dyn Filter>>) {
+        let slot = slot as usize;
+        if slot < FILTERS_PER_STREAM {
+            Arc::make_mut(self.filters.get_or_insert_default())[slot] = filter;
+        }
     }
 }
 

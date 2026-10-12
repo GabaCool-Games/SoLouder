@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 18:10:56 +0300
+Subject: [PATCH] DCRemovalFilter: copy the length when the instance is created
+
+---
+ include/soloud_dcremovalfilter.h      | 2 +-
+ src/filter/soloud_dcremovalfilter.cpp | 4 ++--
+ 2 files changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/include/soloud_dcremovalfilter.h b/include/soloud_dcremovalfilter.h
+index 77e044c..dbbea30 100644
+--- a/include/soloud_dcremovalfilter.h
++++ b/include/soloud_dcremovalfilter.h
+@@ -36,7 +36,7 @@ namespace SoLoud
+ 		float *mBuffer;
+ 		float *mTotals;
+ 		int mBufferLength;
+-		DCRemovalFilter *mParent;
++		float mLength;
+ 		int mOffset;
+ 
+ 	public:
+diff --git a/src/filter/soloud_dcremovalfilter.cpp b/src/filter/soloud_dcremovalfilter.cpp
+index 147d3d5..0ce6253 100644
+--- a/src/filter/soloud_dcremovalfilter.cpp
++++ b/src/filter/soloud_dcremovalfilter.cpp
+@@ -29,7 +29,7 @@ namespace SoLoud
+ {
+ 	DCRemovalFilterInstance::DCRemovalFilterInstance(DCRemovalFilter *aParent)
+ 	{
+-		mParent = aParent;
++		mLength = aParent->mLength;
+ 		mBuffer = 0;
+ 		mBufferLength = 0;
+ 		mTotals = 0;
+@@ -44,7 +44,7 @@ namespace SoLoud
+ 
+ 		if (mBuffer == 0)
+ 		{
+-			mBufferLength = (int)ceil(mParent->mLength * aSamplerate);
++			mBufferLength = (int)ceil(mLength * aSamplerate);
+ 			mBuffer = new float[mBufferLength * aChannels];
+ 			mTotals = new float[aChannels];
+ 			unsigned int i;

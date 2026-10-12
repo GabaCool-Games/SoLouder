@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 18:16:26 +0300
+Subject: [PATCH] DCRemovalFilter: keep the averaging window at least one frame
+ long
+
+---
+ src/filter/soloud_dcremovalfilter.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/filter/soloud_dcremovalfilter.cpp b/src/filter/soloud_dcremovalfilter.cpp
+index 0ce6253..4487e5b 100644
+--- a/src/filter/soloud_dcremovalfilter.cpp
++++ b/src/filter/soloud_dcremovalfilter.cpp
+@@ -45,6 +45,9 @@ namespace SoLoud
+ 		if (mBuffer == 0)
+ 		{
+ 			mBufferLength = (int)ceil(mLength * aSamplerate);
++			// A length beyond the int range converts to INT_MIN.
++			if (mBufferLength < 1)
++				mBufferLength = 1;
+ 			mBuffer = new float[mBufferLength * aChannels];
+ 			mTotals = new float[aChannels];
+ 			unsigned int i;

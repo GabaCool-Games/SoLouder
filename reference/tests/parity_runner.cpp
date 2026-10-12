@@ -20,6 +20,11 @@
 #include <vector>
 
 #include "soloud.h"
+#include "soloud_biquadresonantfilter.h"
+#include "soloud_dcremovalfilter.h"
+#include "soloud_echofilter.h"
+#include "soloud_lofifilter.h"
+#include "soloud_waveshaperfilter.h"
 #include "soloud_wav.h"
 
 namespace
@@ -255,6 +260,10 @@ namespace
 		bool initialized;
 		std::map<std::string, SoLoud::Wav *> sounds;
 		std::map<std::string, SoLoud::handle> handles;
+		// Filters by name. Sounds keep pointers to their filters, so every
+		// filter created lives until the runner ends; not cleared by init.
+		std::map<std::string, SoLoud::Filter *> filters;
+		std::vector<SoLoud::Filter *> ownedFilters;
 		std::vector<float> samples;
 		std::vector<std::string> log;
 		// tests/fixtures/, which `file=` paths are relative to.
@@ -266,6 +275,8 @@ namespace
 		{
 			clearSounds();
 			delete soloud;
+			for (size_t i = 0; i < ownedFilters.size(); i++)
+				delete ownedFilters[i];
 		}
 
 		// A Wav stops its voices in the engine when destroyed, so sounds go
@@ -310,6 +321,157 @@ namespace
 			if (it == sounds.end())
 				throw ScenarioError(step.line, "no sound named `" + name + "`");
 			return *it->second;
+		}
+
+		// The filter named by `key`, or null when the key is absent.
+		SoLoud::Filter *filterArg(const Step &step, const char *key)
+		{
+			if (!step.get(key))
+				return 0;
+			const std::string &name = textArg(step, key);
+			std::map<std::string, SoLoud::Filter *>::iterator it = filters.find(name);
+			if (it == filters.end())
+				throw ScenarioError(step.line, "no filter named `" + name + "`");
+			return it->second;
+		}
+
+		int biquadType(const Step &step)
+		{
+			const std::string *raw = step.get("type");
+			if (!raw || *raw == "lowpass")
+				return SoLoud::BiquadResonantFilter::LOWPASS;
+			if (*raw == "highpass")
+				return SoLoud::BiquadResonantFilter::HIGHPASS;
+			if (*raw == "bandpass")
+				return SoLoud::BiquadResonantFilter::BANDPASS;
+			throw ScenarioError(step.line, "unknown biquad type `" + *raw + "`");
+		}
+
+		// `filter`: a new filter of `kind`. When any of the kind's settings is
+		// given, they go to its setParams; missing ones take the defaults.
+		void createFilter(const Step &step)
+		{
+			const std::string &kind = textArg(step, "kind");
+			SoLoud::Filter *filter = 0;
+			SoLoud::result code = SoLoud::SO_NO_ERROR;
+			if (kind == "biquad")
+			{
+				static const char *const keys[] = { "name", "kind", "type", "freq", "res" };
+				checkKeys(step, keys, 5);
+				textArg(step, "name");
+				int type = biquadType(step);
+				float freq = floatArg(step, "freq", 1000.0f);
+				float res = floatArg(step, "res", 2.0f);
+				SoLoud::BiquadResonantFilter *f = new SoLoud::BiquadResonantFilter;
+				if (step.get("type") || step.get("freq") || step.get("res"))
+					code = f->setParams(type, freq, res);
+				filter = f;
+			}
+			else if (kind == "lofi")
+			{
+				static const char *const keys[] = { "name", "kind", "rate", "bits" };
+				checkKeys(step, keys, 4);
+				textArg(step, "name");
+				float rate = floatArg(step, "rate", 4000.0f);
+				float bits = floatArg(step, "bits", 3.0f);
+				SoLoud::LofiFilter *f = new SoLoud::LofiFilter;
+				if (step.get("rate") || step.get("bits"))
+					code = f->setParams(rate, bits);
+				filter = f;
+			}
+			else if (kind == "echo")
+			{
+				static const char *const keys[] = { "name", "kind", "delay", "decay", "filter" };
+				checkKeys(step, keys, 5);
+				textArg(step, "name");
+				float delay = floatArg(step, "delay", 0.3f);
+				float decay = floatArg(step, "decay", 0.7f);
+				float lowpass = floatArg(step, "filter", 0.0f);
+				SoLoud::EchoFilter *f = new SoLoud::EchoFilter;
+				if (step.get("delay") || step.get("decay") || step.get("filter"))
+					code = f->setParams(delay, decay, lowpass);
+				filter = f;
+			}
+			else if (kind == "waveshaper")
+			{
+				static const char *const keys[] = { "name", "kind", "amount" };
+				checkKeys(step, keys, 3);
+				textArg(step, "name");
+				float amount = floatArg(step, "amount", 0.0f);
+				SoLoud::WaveShaperFilter *f = new SoLoud::WaveShaperFilter;
+				if (step.get("amount"))
+					code = f->setParams(amount);
+				filter = f;
+			}
+			else if (kind == "dc_removal")
+			{
+				static const char *const keys[] = { "name", "kind", "length" };
+				checkKeys(step, keys, 3);
+				textArg(step, "name");
+				float length = floatArg(step, "length", 0.1f);
+				SoLoud::DCRemovalFilter *f = new SoLoud::DCRemovalFilter;
+				if (step.get("length"))
+					code = f->setParams(length);
+				filter = f;
+			}
+			else
+			{
+				throw ScenarioError(step.line, "unknown filter kind `" + kind + "`");
+			}
+			const std::string &name = textArg(step, "name");
+			ownedFilters.push_back(filter);
+			filters[name] = filter;
+			std::ostringstream line;
+			line << "filter " << name << " " << code;
+			logLine(line);
+		}
+
+		// `filter_set`, `filter_fade`, `filter_oscillate` and `filter_query`;
+		// without `h` they address the global filters (handle 0).
+		void filterParameter(const Step &step)
+		{
+			static const char *const setKeys[] = { "h", "slot", "param", "value" };
+			static const char *const fadeKeys[] = { "h", "slot", "param", "to", "time" };
+			static const char *const oscillateKeys[] = { "h", "slot", "param", "from", "to", "time" };
+			static const char *const queryKeys[] = { "h", "slot", "param" };
+			if (step.op == "filter_set")
+				checkKeys(step, setKeys, 4);
+			else if (step.op == "filter_fade")
+				checkKeys(step, fadeKeys, 5);
+			else if (step.op == "filter_oscillate")
+				checkKeys(step, oscillateKeys, 6);
+			else
+				checkKeys(step, queryKeys, 3);
+			SoLoud::handle h = step.get("h") ? handleArg(step) : 0;
+			unsigned int slot = uintArg(step, "slot", true, 0);
+			unsigned int param = uintArg(step, "param", true, 0);
+			SoLoud::Soloud &s = engine(step);
+			if (step.op == "filter_set")
+			{
+				textArg(step, "value");
+				s.setFilterParameter(h, slot, param, floatArg(step, "value", 0.0f));
+			}
+			else if (step.op == "filter_fade")
+			{
+				textArg(step, "to");
+				textArg(step, "time");
+				s.fadeFilterParameter(h, slot, param, floatArg(step, "to", 0.0f), timeArg(step, "time", 0));
+			}
+			else if (step.op == "filter_oscillate")
+			{
+				textArg(step, "from");
+				textArg(step, "to");
+				textArg(step, "time");
+				s.oscillateFilterParameter(h, slot, param, floatArg(step, "from", 0.0f), floatArg(step, "to", 0.0f),
+					timeArg(step, "time", 0));
+			}
+			else
+			{
+				std::ostringstream line;
+				line << "filter_query " << (step.get("h") ? textArg(step, "h") : std::string("global")) << " " << slot << " "
+					<< param << " " << hex32(s.getFilterParameter(h, slot, param));
+				logLine(line);
+			}
 		}
 
 		void logLine(const std::ostringstream &line)
@@ -805,6 +967,47 @@ namespace
 				SoLoud::Soloud &s = engine(step);
 				std::ostringstream line;
 				line << "counts voices=" << s.getVoiceCount() << " active=" << s.getActiveVoiceCount();
+				logLine(line);
+			}
+			else if (step.op == "filter")
+			{
+				createFilter(step);
+			}
+			else if (step.op == "sound_filter")
+			{
+				static const char *const keys[] = { "sound", "slot", "filter" };
+				checkKeys(step, keys, 3);
+				SoLoud::Wav &wav = soundArg(step, "sound");
+				unsigned int slot = uintArg(step, "slot", true, 0);
+				wav.setFilter(slot, filterArg(step, "filter"));
+			}
+			else if (step.op == "global_filter")
+			{
+				static const char *const keys[] = { "slot", "filter" };
+				checkKeys(step, keys, 2);
+				unsigned int slot = uintArg(step, "slot", true, 0);
+				SoLoud::Filter *filter = filterArg(step, "filter");
+				engine(step).setGlobalFilter(slot, filter);
+			}
+			else if (step.op == "filter_set" || step.op == "filter_fade" || step.op == "filter_oscillate" || step.op == "filter_query")
+			{
+				filterParameter(step);
+			}
+			else if (step.op == "filter_info")
+			{
+				static const char *const keys[] = { "name" };
+				checkKeys(step, keys, 1);
+				textArg(step, "name");
+				SoLoud::Filter &f = *filterArg(step, "name");
+				int count = f.getParamCount();
+				std::ostringstream line;
+				line << "filter_info " << textArg(step, "name") << " count=" << count;
+				for (int i = 0; i <= count; i++)
+				{
+					const char *name = f.getParamName(i);
+					line << " " << i << ":" << (name ? name : "-") << ":" << f.getParamType(i) << ":" << hex32(f.getParamMax(i))
+						<< ":" << hex32(f.getParamMin(i));
+				}
 				logLine(line);
 			}
 			else

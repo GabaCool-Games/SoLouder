@@ -1,0 +1,24 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 18:21:05 +0300
+Subject: [PATCH] BiquadResonantFilter: no read before the buffer for a single
+ sample
+
+---
+ src/filter/soloud_biquadresonantfilter.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/filter/soloud_biquadresonantfilter.cpp b/src/filter/soloud_biquadresonantfilter.cpp
+index 456d46c..03824a9 100644
+--- a/src/filter/soloud_biquadresonantfilter.cpp
++++ b/src/filter/soloud_biquadresonantfilter.cpp
+@@ -145,7 +145,8 @@ namespace SoLoud
+ 			s.mX2 = x;
+ 		}
+ 		// If we skipped a sample earlier, patch it by just copying the previous.
+-		if (osamples != aSamples)
++		// A single sample has no previous one and is left dry.
++		if (osamples != aSamples && c > 0)
+ 			aBuffer[c] = aBuffer[c - 1];
+ 	}
+ 

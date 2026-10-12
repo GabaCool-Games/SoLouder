@@ -9,6 +9,7 @@ use crate::contracts::MAX_CHANNELS;
 use crate::dsp::Resampler;
 use crate::dsp::clip::clip;
 use crate::dsp::fader::{Fader, FaderState};
+use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
 
 /// The SoLouder mixer: plays [`Sound`](super::Sound)s and renders interleaved
 /// `f32` output.
@@ -35,6 +36,8 @@ pub struct Mixer {
     pub(super) global_fader: Fader,
     /// Time of the first clocked play since the last mix (`mLastClockedTime`).
     pub(super) last_clocked_time: f64,
+    /// Run on the whole mix before clipping (`mFilterInstance`).
+    pub(super) global_filters: [Option<Box<dyn FilterInstance>>; FILTERS_PER_STREAM],
 }
 
 impl Mixer {
@@ -56,6 +59,7 @@ impl Mixer {
             stream_time: 0.0,
             global_fader: Fader::default(),
             last_clocked_time: 0.0,
+            global_filters: Default::default(),
         })
     }
 
@@ -135,8 +139,20 @@ impl Mixer {
             channels,
             sample_rate,
             resampler: self.resampler,
+            time: self.stream_time,
         };
         mix_bus(voices, &mut self.output_scratch, &mut self.scratch, layout);
+        for filter in self.global_filters.iter_mut().flatten() {
+            let time = self.stream_time;
+            filter.filter(
+                &mut self.output_scratch,
+                frames,
+                stride,
+                channels,
+                sample_rate,
+                time,
+            );
+        }
         clip(
             self.config.clipper,
             &self.output_scratch,

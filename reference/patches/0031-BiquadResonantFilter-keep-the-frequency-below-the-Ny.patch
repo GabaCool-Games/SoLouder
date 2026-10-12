@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 18:10:56 +0300
+Subject: [PATCH] BiquadResonantFilter: keep the frequency below the Nyquist
+ frequency
+
+---
+ src/filter/soloud_biquadresonantfilter.cpp | 8 +++++++-
+ 1 file changed, 7 insertions(+), 1 deletion(-)
+
+diff --git a/src/filter/soloud_biquadresonantfilter.cpp b/src/filter/soloud_biquadresonantfilter.cpp
+index d49eedb..e65449c 100644
+--- a/src/filter/soloud_biquadresonantfilter.cpp
++++ b/src/filter/soloud_biquadresonantfilter.cpp
+@@ -38,7 +38,13 @@ namespace SoLoud
+ 	{
+ 		mDirty = 0;
+ 
+-		float omega = (float)((2.0f * M_PI * mParam[FREQUENCY]) / mSamplerate);
++		// The filter runs at the rate of what it filters, which for a voice
++		// falls with its speed. At or above that rate's Nyquist frequency the
++		// poles leave the unit circle and the output grows without bound.
++		float frequency = mParam[FREQUENCY];
++		if (!(frequency < mSamplerate * 0.49f))
++			frequency = mSamplerate * 0.49f;
++		float omega = (float)((2.0f * M_PI * frequency) / mSamplerate);
+ 		float sin_omega = (float)sin(omega);
+ 		float cos_omega = (float)cos(omega);
+ 		float alpha = sin_omega / (2.0f * mParam[RESONANCE]);

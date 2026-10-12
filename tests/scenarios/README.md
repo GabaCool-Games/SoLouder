@@ -66,6 +66,14 @@ exactly, and a scenario must render at least one sample.
 | `group_add` | `group`, `h` | `addVoiceToGroup`. | `group_add <group> <h> <code>` |
 | `group_destroy` | `group` | `destroyVoiceGroup`. | `group_destroy <group> <code>` |
 | `group_query` | `group` | `isVoiceGroup`, then `isVoiceGroupEmpty` (which drops stopped voices from the group). | `group_query <group> is_group=<0/1> empty=<0/1>` |
+| `filter` | `name`, `kind` (`biquad`, `lofi`, `echo`, `waveshaper`, `dc_removal`), then the kind's settings: `type` (`lowpass`, `highpass`, `bandpass`), `freq`, `res`; `rate`, `bits`; `delay`, `decay`, `filter`; `amount`; `length` | A new filter. When any setting is given, all go to its `setParams`, missing ones at the filter's defaults (lowpass, 1000, 2; 4000, 3; 0.3, 0.7, 0; 0; 0.1). Filters are kept across `init`, and replacing a name does not change sounds that use the old filter. | `filter <name> <code>` |
+| `filter_info` | `name` | `getParamCount`, then `getParamName`, `getParamType`, `getParamMax` and `getParamMin` for each parameter and one past the last. | `filter_info <name> count=<n>` then ` <i>:<name or ->:<type>:<max f32 bits>:<min f32 bits>` per index |
+| `sound_filter` | `sound`, `slot`, `filter` (optional) | `AudioSource::setFilter`; without `filter` the slot is cleared. | — |
+| `global_filter` | `slot`, `filter` (optional) | `Soloud::setGlobalFilter`; without `filter` the slot is cleared. | — |
+| `filter_set` | `h` (optional), `slot`, `param`, `value` | `setFilterParameter`; without `h` on the global filter (handle 0). | — |
+| `filter_fade` | `h` (optional), `slot`, `param`, `to`, `time` | `fadeFilterParameter`. | — |
+| `filter_oscillate` | `h` (optional), `slot`, `param`, `from`, `to`, `time` | `oscillateFilterParameter`. | — |
+| `filter_query` | `h` (optional), `slot`, `param` | `getFilterParameter`: 1.0 (`INVALID_PARAMETER`) without a filter, 0 past the last parameter. | `filter_query <h or global> <slot> <param> <f32 bits>` |
 
 Every operation except `tolerance`, `init` and `samples` needs a successful
 `init`. Unknown sound or handle names are scenario errors. `<code>` is the

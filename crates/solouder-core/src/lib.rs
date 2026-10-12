@@ -6,8 +6,9 @@
 //! Bevy integration live in separate crates.
 //!
 //! Status: milestone D in progress. Prepared PCM sounds play, stop, pause,
-//! seek and loop with volume, pan, speed, fades and resampling, alone or in
-//! voice groups, mixed into 1 to 8 channels, either offline through
+//! seek and loop with volume, pan, speed, fades, resampling and
+//! [`filters`], alone or in voice groups, mixed into 1 to 8 channels, either
+//! offline through
 //! [`Mixer`] or from an audio callback through the [`realtime`]
 //! controller/renderer pair.
 
@@ -17,8 +18,10 @@ pub mod features;
 
 pub use contracts::{MAX_CHANNELS, Pcm, PcmError, SAMPLE_GRANULARITY};
 pub use dsp::{Clipper, Resampler};
+pub use features::filters;
 pub use features::playback::{
-    ConfigError, ControlError, Handle, Mixer, MixerConfig, PlayOptions, Sound, SoundId, VOICE_COUNT,
+    ConfigError, ControlError, FilterTarget, Handle, Mixer, MixerConfig, PlayOptions, Sound,
+    SoundId, VOICE_COUNT,
 };
 
 /// The SoLoud release whose behavior this crate reproduces

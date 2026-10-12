@@ -22,6 +22,8 @@ pub(crate) struct Layout {
     pub channels: usize,
     pub sample_rate: f32,
     pub resampler: Resampler,
+    /// The mixer's stream time, which drives filter parameter fades.
+    pub time: f64,
 }
 
 /// Mixes every active, unpaused, audible voice into the accumulator `out`, using
@@ -115,6 +117,10 @@ fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus:
             }
             // The new block starts a block later: move the position back.
             voice.src_offset = voice.src_offset.saturating_sub(BLOCK_FIXED);
+            let rate = voice.sample_rate;
+            for filter in voice.filters.iter_mut().flatten() {
+                filter.filter(block, BLOCK, BLOCK, channels, rate, bus.time);
+            }
         } else {
             voice.leftover_samples = 0;
         }

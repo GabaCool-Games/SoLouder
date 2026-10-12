@@ -5,7 +5,7 @@ Soloud::countAudioSource,engine,Soloud_countAudioSource,playback,B,ported,sound_
 Soloud::createVoiceGroup,engine,Soloud_createVoiceGroup,routing,D,ported,voice_groups,
 Soloud::deinit,engine,Soloud_deinit,output_lifecycle,C,ported,,Dropping or closing solouder_cpal::Output stops the stream before the mixer is freed on the closing thread. device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
 Soloud::destroyVoiceGroup,engine,Soloud_destroyVoiceGroup,routing,D,ported,voice_groups,
-Soloud::fadeFilterParameter,engine,Soloud_fadeFilterParameter,filters,D,todo,,
+Soloud::fadeFilterParameter,engine,Soloud_fadeFilterParameter,filters,D,ported,filter_params,Mixer::fade_filter_parameter; on the mixer stream time.
 Soloud::fadeGlobalVolume,engine,Soloud_fadeGlobalVolume,playback,D,ported,fades,
 Soloud::fadePan,engine,Soloud_fadePan,playback,D,ported,fades,"As in SoLoud, setPan does not cancel a pan fade (setPanAbsolute does, in D2)."
 Soloud::fadeRelativePlaySpeed,engine,Soloud_fadeRelativePlaySpeed,playback,D,ported,fades,
@@ -20,7 +20,7 @@ Soloud::getBackendId,engine,Soloud_getBackendId,output_lifecycle,C,ported,,Outpu
 Soloud::getBackendSamplerate,engine,Soloud_getBackendSamplerate,output_lifecycle,C,ported,,OutputInfo::sample_rate. device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
 Soloud::getBackendString,engine,Soloud_getBackendString,output_lifecycle,C,ported,,"OutputInfo::backend, the CPAL host name (WASAPI, ALSA, ...). device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device."
 Soloud::getErrorString,engine,Soloud_getErrorString,playback,B,excluded,,"Errors are Rust enums (ControlError, PcmError, ConfigError, DecodeError) that implement Display; there are no result codes to name."
-Soloud::getFilterParameter,engine,Soloud_getFilterParameter,filters,D,todo,,
+Soloud::getFilterParameter,engine,Soloud_getFilterParameter,filters,D,ported,filter_params filters_global,"Mixer::filter_parameter(FilterTarget, slot, param) -> Option<f32>; FilterTarget::Global is handle 0. None where SoLoud returns INVALID_PARAMETER (no filter) or 0 (past the last parameter)."
 Soloud::getGlobalVolume,engine,Soloud_getGlobalVolume,playback,B,ported,fades,
 Soloud::getInfo,engine,Soloud_getInfo,playback,B,ported,voice_controls,"Mixer::info: 0 for every voice, as for a Wav. Ay and TedSid answer when they are ported."
 Soloud::getLoopCount,engine,Soloud_getLoopCount,playback,B,ported,pause_stop active_voices looping speed_and_resamplers,
@@ -49,7 +49,7 @@ Soloud::isVoiceGroupEmpty,engine,Soloud_isVoiceGroupEmpty,routing,D,ported,voice
 Soloud::lifecycle,engine,Soloud_create Soloud_destroy,playback,B,ported,init_validation,"Mixer::new creates and initializes in one step and dropping it destroys it, so there is no engine before init."
 Soloud::mix,engine,Soloud_mix,playback,B,ported,silence_block_sizes play_basic volume_pan_ramps looping pause_stop speed_and_resamplers channel_layouts clipping_and_global active_voices delay_samples sound_tails,Bit-identical to the SSE reference path. Calls longer than the scratch buffer are rendered in passes instead of overflowing.
 Soloud::mixSigned16,engine,Soloud_mixSigned16,playback,B,ported,channel_gains,Mixer::mix_interleaved_i16; values past 16 bits wrap as in the C++ build.
-Soloud::oscillateFilterParameter,engine,Soloud_oscillateFilterParameter,filters,D,todo,,
+Soloud::oscillateFilterParameter,engine,Soloud_oscillateFilterParameter,filters,D,ported,filter_params,Mixer::oscillate_filter_parameter; on the mixer stream time.
 Soloud::oscillateGlobalVolume,engine,Soloud_oscillateGlobalVolume,playback,D,ported,fades,
 Soloud::oscillatePan,engine,Soloud_oscillatePan,playback,D,ported,fades,
 Soloud::oscillateRelativePlaySpeed,engine,Soloud_oscillateRelativePlaySpeed,playback,D,ported,fades,
@@ -77,8 +77,8 @@ Soloud::set3dSourceVelocity,engine,Soloud_set3dSourceVelocity,spatial,E,todo,,
 Soloud::setAutoStop,engine,Soloud_setAutoStop,playback,B,ported,voice_controls,
 Soloud::setChannelVolume,engine,Soloud_setChannelVolume,playback,B,ported,channel_gains,
 Soloud::setDelaySamples,engine,Soloud_setDelaySamples,playback,B,ported,delay_samples,
-Soloud::setFilterParameter,engine,Soloud_setFilterParameter,filters,D,todo,,
-Soloud::setGlobalFilter,engine,Soloud_setGlobalFilter,filters,D,todo,,
+Soloud::setFilterParameter,engine,Soloud_setFilterParameter,filters,D,ported,filter_params filters_global,Mixer::set_filter_parameter; group-aware.
+Soloud::setGlobalFilter,engine,Soloud_setGlobalFilter,filters,D,ported,filters_global filter_params,"Mixer::set_global_filter(slot, Option<&dyn Filter>); runs on the mix before clipping."
 Soloud::setGlobalVolume,engine,Soloud_setGlobalVolume,playback,B,ported,clipping_and_global,Global volume fader pending (D).
 Soloud::setInaudibleBehavior,engine,Soloud_setInaudibleBehavior,playback,B,ported,sound_instances,Ticking voices rank first for active slots; the active set is recomputed at the next mix (patch 0026). INAUDIBLE itself comes with 3D (E).
 Soloud::setLooping,engine,Soloud_setLooping,playback,B,ported,looping,Loop point 0 only; nonzero loop points are tracked in PORTING.md.
@@ -109,7 +109,7 @@ AudioSource::set3dDopplerFactor,source-common,Ay_set3dDopplerFactor Bus_set3dDop
 AudioSource::set3dListenerRelative,source-common,Ay_set3dListenerRelative Bus_set3dListenerRelative Monotone_set3dListenerRelative Noise_set3dListenerRelative Openmpt_set3dListenerRelative Queue_set3dListenerRelative Sfxr_set3dListenerRelative Speech_set3dListenerRelative TedSid_set3dListenerRelative Vic_set3dListenerRelative Vizsn_set3dListenerRelative WavStream_set3dListenerRelative Wav_set3dListenerRelative,spatial,E,todo,,
 AudioSource::set3dMinMaxDistance,source-common,Ay_set3dMinMaxDistance Bus_set3dMinMaxDistance Monotone_set3dMinMaxDistance Noise_set3dMinMaxDistance Openmpt_set3dMinMaxDistance Queue_set3dMinMaxDistance Sfxr_set3dMinMaxDistance Speech_set3dMinMaxDistance TedSid_set3dMinMaxDistance Vic_set3dMinMaxDistance Vizsn_set3dMinMaxDistance WavStream_set3dMinMaxDistance Wav_set3dMinMaxDistance,spatial,E,todo,,
 AudioSource::setAutoStop,source-common,Ay_setAutoStop Bus_setAutoStop Monotone_setAutoStop Noise_setAutoStop Openmpt_setAutoStop Queue_setAutoStop Sfxr_setAutoStop Speech_setAutoStop TedSid_setAutoStop Vic_setAutoStop Vizsn_setAutoStop WavStream_setAutoStop Wav_setAutoStop,playback,B,ported,voice_controls sound_instances,Sound::set_auto_stop (Wav only).
-AudioSource::setFilter,source-common,Ay_setFilter Bus_setFilter Monotone_setFilter Noise_setFilter Openmpt_setFilter Queue_setFilter Sfxr_setFilter Speech_setFilter TedSid_setFilter Vic_setFilter Vizsn_setFilter WavStream_setFilter Wav_setFilter,filters,D,todo,,
+AudioSource::setFilter,source-common,Ay_setFilter Bus_setFilter Monotone_setFilter Noise_setFilter Openmpt_setFilter Queue_setFilter Sfxr_setFilter Speech_setFilter TedSid_setFilter Vic_setFilter Vizsn_setFilter WavStream_setFilter Wav_setFilter,filters,D,in-progress,filters_voice filter_params,"Sound::set_filter(slot, Option<Arc<dyn Filter>>) (Wav only; buses and queues in D5 and D6). Filters are shared and immutable once set: change settings by setting a new filter."
 AudioSource::setInaudibleBehavior,source-common,Ay_setInaudibleBehavior Bus_setInaudibleBehavior Monotone_setInaudibleBehavior Noise_setInaudibleBehavior Openmpt_setInaudibleBehavior Queue_setInaudibleBehavior Sfxr_setInaudibleBehavior Speech_setInaudibleBehavior TedSid_setInaudibleBehavior Vic_setInaudibleBehavior Vizsn_setInaudibleBehavior WavStream_setInaudibleBehavior Wav_setInaudibleBehavior,playback,B,ported,sound_instances,Sound::set_inaudible_behavior (Wav only).
 AudioSource::setLooping,source-common,Ay_setLooping Bus_setLooping Monotone_setLooping Noise_setLooping Openmpt_setLooping Queue_setLooping Sfxr_setLooping Speech_setLooping TedSid_setLooping Vic_setLooping Vizsn_setLooping WavStream_setLooping Wav_setLooping,playback,B,in-progress,looping,Sound (Wav) only.
 AudioSource::setLoopPoint,source-common,Ay_setLoopPoint Bus_setLoopPoint Monotone_setLoopPoint Noise_setLoopPoint Openmpt_setLoopPoint Queue_setLoopPoint Sfxr_setLoopPoint Speech_setLoopPoint TedSid_setLoopPoint Vic_setLoopPoint Vizsn_setLoopPoint WavStream_setLoopPoint Wav_setLoopPoint,playback,B,ported,voice_controls sound_instances,Sound::set_loop_point (Wav only).
@@ -183,27 +183,27 @@ WavStream::loadFile,source,WavStream_loadFile,streaming,E,todo,,
 WavStream::loadFileToMem,source,WavStream_loadFileToMem,streaming,E,todo,,
 WavStream::loadMem,source,WavStream_loadMem WavStream_loadMemEx,streaming,E,todo,,
 WavStream::loadToMem,source,WavStream_loadToMem,streaming,E,todo,,
-Filter::getParamCount,filter-common,BassboostFilter_getParamCount BiquadResonantFilter_getParamCount DCRemovalFilter_getParamCount EchoFilter_getParamCount FFTFilter_getParamCount FlangerFilter_getParamCount FreeverbFilter_getParamCount LofiFilter_getParamCount RobotizeFilter_getParamCount WaveShaperFilter_getParamCount,filters,D,todo,,
-Filter::getParamMax,filter-common,BassboostFilter_getParamMax BiquadResonantFilter_getParamMax DCRemovalFilter_getParamMax EchoFilter_getParamMax FFTFilter_getParamMax FlangerFilter_getParamMax FreeverbFilter_getParamMax LofiFilter_getParamMax RobotizeFilter_getParamMax WaveShaperFilter_getParamMax,filters,D,todo,,
-Filter::getParamMin,filter-common,BassboostFilter_getParamMin BiquadResonantFilter_getParamMin DCRemovalFilter_getParamMin EchoFilter_getParamMin FFTFilter_getParamMin FlangerFilter_getParamMin FreeverbFilter_getParamMin LofiFilter_getParamMin RobotizeFilter_getParamMin WaveShaperFilter_getParamMin,filters,D,todo,,
-Filter::getParamName,filter-common,BassboostFilter_getParamName BiquadResonantFilter_getParamName DCRemovalFilter_getParamName EchoFilter_getParamName FFTFilter_getParamName FlangerFilter_getParamName FreeverbFilter_getParamName LofiFilter_getParamName RobotizeFilter_getParamName WaveShaperFilter_getParamName,filters,D,todo,,
-Filter::getParamType,filter-common,BassboostFilter_getParamType BiquadResonantFilter_getParamType DCRemovalFilter_getParamType EchoFilter_getParamType FFTFilter_getParamType FlangerFilter_getParamType FreeverbFilter_getParamType LofiFilter_getParamType RobotizeFilter_getParamType WaveShaperFilter_getParamType,filters,D,todo,,
+Filter::getParamCount,filter-common,BassboostFilter_getParamCount BiquadResonantFilter_getParamCount DCRemovalFilter_getParamCount EchoFilter_getParamCount FFTFilter_getParamCount FlangerFilter_getParamCount FreeverbFilter_getParamCount LofiFilter_getParamCount RobotizeFilter_getParamCount WaveShaperFilter_getParamCount,filters,D,in-progress,filter_params,"Biquad, DC removal, echo, lofi and waveshaper; the FFT-based and other filters come in D4."
+Filter::getParamMax,filter-common,BassboostFilter_getParamMax BiquadResonantFilter_getParamMax DCRemovalFilter_getParamMax EchoFilter_getParamMax FFTFilter_getParamMax FlangerFilter_getParamMax FreeverbFilter_getParamMax LofiFilter_getParamMax RobotizeFilter_getParamMax WaveShaperFilter_getParamMax,filters,D,in-progress,filter_params,"Biquad, DC removal, echo, lofi and waveshaper; the FFT-based and other filters come in D4."
+Filter::getParamMin,filter-common,BassboostFilter_getParamMin BiquadResonantFilter_getParamMin DCRemovalFilter_getParamMin EchoFilter_getParamMin FFTFilter_getParamMin FlangerFilter_getParamMin FreeverbFilter_getParamMin LofiFilter_getParamMin RobotizeFilter_getParamMin WaveShaperFilter_getParamMin,filters,D,in-progress,filter_params,"Biquad, DC removal, echo, lofi and waveshaper; the FFT-based and other filters come in D4."
+Filter::getParamName,filter-common,BassboostFilter_getParamName BiquadResonantFilter_getParamName DCRemovalFilter_getParamName EchoFilter_getParamName FFTFilter_getParamName FlangerFilter_getParamName FreeverbFilter_getParamName LofiFilter_getParamName RobotizeFilter_getParamName WaveShaperFilter_getParamName,filters,D,in-progress,filter_params,"Biquad, DC removal, echo, lofi and waveshaper; the FFT-based and other filters come in D4."
+Filter::getParamType,filter-common,BassboostFilter_getParamType BiquadResonantFilter_getParamType DCRemovalFilter_getParamType EchoFilter_getParamType FFTFilter_getParamType FlangerFilter_getParamType FreeverbFilter_getParamType LofiFilter_getParamType RobotizeFilter_getParamType WaveShaperFilter_getParamType,filters,D,in-progress,filter_params,"Biquad, DC removal, echo, lofi and waveshaper; the FFT-based and other filters come in D4."
 BassboostFilter::lifecycle,filter,BassboostFilter_create BassboostFilter_destroy,filters,D,todo,,
 BassboostFilter::setParams,filter,BassboostFilter_setParams,filters,D,todo,,
-BiquadResonantFilter::lifecycle,filter,BiquadResonantFilter_create BiquadResonantFilter_destroy,filters,D,todo,,
-BiquadResonantFilter::setParams,filter,BiquadResonantFilter_setParams,filters,D,todo,,
-DCRemovalFilter::lifecycle,filter,DCRemovalFilter_create DCRemovalFilter_destroy,filters,D,todo,,
-DCRemovalFilter::setParams,filter,DCRemovalFilter_setParams DCRemovalFilter_setParamsEx,filters,D,todo,,
-EchoFilter::lifecycle,filter,EchoFilter_create EchoFilter_destroy,filters,D,todo,,
-EchoFilter::setParams,filter,EchoFilter_setParams EchoFilter_setParamsEx,filters,D,todo,,
+BiquadResonantFilter::lifecycle,filter,BiquadResonantFilter_create BiquadResonantFilter_destroy,filters,D,ported,filters_voice filters_global,Default plus Arc; instances are created per voice and per global slot.
+BiquadResonantFilter::setParams,filter,BiquadResonantFilter_setParams,filters,D,ported,filter_params,"BiquadResonantFilter::set_params; the type is a BiquadType, so type 3 (accepted, acts as lowpass) is not representable. Rejects NaN (patch 0037)."
+DCRemovalFilter::lifecycle,filter,DCRemovalFilter_create DCRemovalFilter_destroy,filters,D,ported,filters_voice filters_global,Default plus Arc; instances are created per voice and per global slot.
+DCRemovalFilter::setParams,filter,DCRemovalFilter_setParams DCRemovalFilter_setParamsEx,filters,D,ported,filter_params,DcRemovalFilter::set_params. Rejects NaN (patch 0037).
+EchoFilter::lifecycle,filter,EchoFilter_create EchoFilter_destroy,filters,D,ported,filters_voice filters_global,Default plus Arc; instances are created per voice and per global slot.
+EchoFilter::setParams,filter,EchoFilter_setParams EchoFilter_setParamsEx,filters,D,ported,filter_params,"EchoFilter::set_params(delay, decay, filter); the C defaults are EchoFilter::default values. Rejects NaN (patch 0037)."
 FFTFilter::lifecycle,filter,FFTFilter_create FFTFilter_destroy,filters,D,todo,,
 FlangerFilter::lifecycle,filter,FlangerFilter_create FlangerFilter_destroy,filters,D,todo,,
 FlangerFilter::setParams,filter,FlangerFilter_setParams,filters,D,todo,,
 FreeverbFilter::lifecycle,filter,FreeverbFilter_create FreeverbFilter_destroy,filters,D,todo,,
 FreeverbFilter::setParams,filter,FreeverbFilter_setParams,filters,D,todo,,
-LofiFilter::lifecycle,filter,LofiFilter_create LofiFilter_destroy,filters,D,todo,,
-LofiFilter::setParams,filter,LofiFilter_setParams,filters,D,todo,,
+LofiFilter::lifecycle,filter,LofiFilter_create LofiFilter_destroy,filters,D,ported,filters_voice filters_global,Default plus Arc; instances are created per voice and per global slot.
+LofiFilter::setParams,filter,LofiFilter_setParams,filters,D,ported,filter_params,LofiFilter::set_params. Rejects NaN (patch 0037).
 RobotizeFilter::lifecycle,filter,RobotizeFilter_create RobotizeFilter_destroy,filters,D,todo,,
 RobotizeFilter::setParams,filter,RobotizeFilter_setParams,filters,D,todo,,
-WaveShaperFilter::lifecycle,filter,WaveShaperFilter_create WaveShaperFilter_destroy,filters,D,todo,,
-WaveShaperFilter::setParams,filter,WaveShaperFilter_setParams,filters,D,todo,,
+WaveShaperFilter::lifecycle,filter,WaveShaperFilter_create WaveShaperFilter_destroy,filters,D,ported,filters_voice filters_global,Default plus Arc; instances are created per voice and per global slot.
+WaveShaperFilter::setParams,filter,WaveShaperFilter_setParams,filters,D,ported,filter_params,WaveShaperFilter::set_params. Rejects NaN (patch 0037).

@@ -57,6 +57,14 @@ set(REFERENCE_TESTS
   seek_ignores_play_speed
   loop_point_keeps_earlier_frames
   hard_pan_is_silent_on_the_far_side
+  biquad_above_voice_nyquist_stays_finite
+  lofi_filters_eight_channels
+  echo_with_zero_delay_survives
+  waveshaper_minimum_amount_is_finite
+  dc_removal_outlives_its_filter
+  dc_removal_long_length_is_safe
+  filter_params_reject_nan
+  biquad_single_sample_stays_in_bounds
   play_stop_without_init
   play_after_failed_init
   wav_rejects_too_many_channels

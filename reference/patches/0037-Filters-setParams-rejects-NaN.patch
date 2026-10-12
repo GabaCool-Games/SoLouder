@@ -1,0 +1,78 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 18:21:05 +0300
+Subject: [PATCH] Filters: setParams rejects NaN
+
+---
+ src/filter/soloud_biquadresonantfilter.cpp | 2 +-
+ src/filter/soloud_dcremovalfilter.cpp      | 2 +-
+ src/filter/soloud_echofilter.cpp           | 2 +-
+ src/filter/soloud_lofifilter.cpp           | 2 +-
+ src/filter/soloud_waveshaperfilter.cpp     | 2 +-
+ 5 files changed, 5 insertions(+), 5 deletions(-)
+
+diff --git a/src/filter/soloud_biquadresonantfilter.cpp b/src/filter/soloud_biquadresonantfilter.cpp
+index e65449c..456d46c 100644
+--- a/src/filter/soloud_biquadresonantfilter.cpp
++++ b/src/filter/soloud_biquadresonantfilter.cpp
+@@ -161,7 +161,7 @@ namespace SoLoud
+ 
+ 	result BiquadResonantFilter::setParams(int aType, float aFrequency, float aResonance)
+ 	{
+-		if (aType < 0 || aType > 3 || aFrequency <= 0 || aResonance <= 0)
++		if (aType < 0 || aType > 3 || !(aFrequency > 0) || !(aResonance > 0))
+ 			return INVALID_PARAMETER;
+ 
+ 		mFilterType = aType;
+diff --git a/src/filter/soloud_dcremovalfilter.cpp b/src/filter/soloud_dcremovalfilter.cpp
+index 4487e5b..5d07ca2 100644
+--- a/src/filter/soloud_dcremovalfilter.cpp
++++ b/src/filter/soloud_dcremovalfilter.cpp
+@@ -97,7 +97,7 @@ namespace SoLoud
+ 
+ 	result DCRemovalFilter::setParams(float aLength)
+ 	{
+-		if (aLength <= 0)
++		if (!(aLength > 0))
+ 			return INVALID_PARAMETER;
+ 
+         mLength = aLength;
+diff --git a/src/filter/soloud_echofilter.cpp b/src/filter/soloud_echofilter.cpp
+index a44411b..bf50fba 100644
+--- a/src/filter/soloud_echofilter.cpp
++++ b/src/filter/soloud_echofilter.cpp
+@@ -98,7 +98,7 @@ namespace SoLoud
+ 
+ 	result EchoFilter::setParams(float aDelay, float aDecay, float aFilter)
+ 	{
+-		if (aDelay <= 0 || aDecay <= 0 || aFilter < 0 || aFilter >= 1.0f)
++		if (!(aDelay > 0) || !(aDecay > 0) || !(aFilter >= 0 && aFilter < 1.0f))
+ 			return INVALID_PARAMETER;
+ 
+ 		mDecay = aDecay;
+diff --git a/src/filter/soloud_lofifilter.cpp b/src/filter/soloud_lofifilter.cpp
+index 9587268..428f14b 100644
+--- a/src/filter/soloud_lofifilter.cpp
++++ b/src/filter/soloud_lofifilter.cpp
+@@ -77,7 +77,7 @@ namespace SoLoud
+ 
+ 	result LofiFilter::setParams(float aSampleRate, float aBitdepth)
+ 	{
+-		if (aSampleRate <= 0 || aBitdepth <= 0)
++		if (!(aSampleRate > 0) || !(aBitdepth > 0))
+ 			return INVALID_PARAMETER;
+ 
+ 		mSampleRate = aSampleRate;
+diff --git a/src/filter/soloud_waveshaperfilter.cpp b/src/filter/soloud_waveshaperfilter.cpp
+index 3fa70b6..f3599bc 100644
+--- a/src/filter/soloud_waveshaperfilter.cpp
++++ b/src/filter/soloud_waveshaperfilter.cpp
+@@ -65,7 +65,7 @@ namespace SoLoud
+ 
+ 	result WaveShaperFilter::setParams(float aAmount)
+ 	{
+-		if (aAmount < -1 || aAmount > 1)
++		if (!(aAmount >= -1 && aAmount <= 1))
+ 			return INVALID_PARAMETER;
+ 		mAmount = aAmount;
+ 		return 0;

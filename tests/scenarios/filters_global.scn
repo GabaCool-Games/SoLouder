@@ -1,0 +1,49 @@
+# Global filters: run on the whole mix before clipping, in slot order, at the
+# engine rate over each mix call's frames (odd counts copy the biquad's last
+# sample; a one-frame mix leaves it dry, patch 0038), replaced (a fresh
+# instance with fresh state) and cleared.
+init channels=2 rate=48000
+filter name=lp kind=biquad type=lowpass freq=1500 res=1.5
+filter name=echo kind=echo delay=0.01 decay=0.5
+filter name=shape kind=waveshaper amount=-0.4
+filter name=dc kind=dc_removal length=0.005
+filter name=crush kind=lofi rate=11025 bits=6
+sound name=saw channels=2 frames=12000 pattern=saw period=61 amp=0.5 looping=1
+sound name=noise frames=12000 pattern=noise seed=3 amp=0.4 looping=1
+play sound=saw as=a
+play sound=noise as=b pan=-0.5 volume=0.7
+global_filter slot=2 filter=echo
+global_filter slot=0 filter=lp
+mix frames=1000
+mix frames=333
+mix frames=1
+mix frames=2
+mix frames=1
+mix frames=1501
+global_filter slot=0 filter=shape
+global_filter slot=7 filter=dc
+mix frames=777
+global_filter slot=2
+global_filter slot=5 filter=crush
+mix frames=1024
+global_filter slot=8 filter=lp
+global_filter slot=0
+mix frames=999
+global_filter slot=7
+global_filter slot=5
+mix frames=512
+
+# Mono and 5.1 engines.
+init channels=1 rate=22050
+filter name=lp2 kind=biquad type=highpass freq=3000 res=0.8
+sound name=s frames=5000 pattern=saw period=13 amp=0.6
+play sound=s as=s1
+global_filter slot=1 filter=lp2
+global_filter slot=3 filter=echo
+mix frames=1777
+init channels=6 rate=44100
+sound name=s channels=2 frames=5000 pattern=noise seed=9 amp=0.6
+play sound=s as=s1
+global_filter slot=0 filter=dc
+global_filter slot=1 filter=crush
+mix frames=2049

@@ -7,6 +7,7 @@ use std::f64::consts::PI;
 use super::sound::{Sound, SoundId};
 use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
 use crate::dsp::fader::Fader;
+use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
 
 const MAX: usize = MAX_CHANNELS as usize;
 const BLOCK: usize = SAMPLE_GRANULARITY as usize;
@@ -72,6 +73,7 @@ pub(crate) struct Voice {
     pub delay_samples: u32,
     pub resample: Option<ResampleBlocks>,
     pub faders: VoiceFaders,
+    pub filters: [Option<Box<dyn FilterInstance>>; FILTERS_PER_STREAM],
 }
 
 /// A voice's fades and timers, run on its stream time.
@@ -128,6 +130,11 @@ impl Voice {
             delay_samples: 0,
             resample: None,
             faders: VoiceFaders::default(),
+            filters: std::array::from_fn(|slot| {
+                sound
+                    .filter(slot as u32)
+                    .map(|filter| filter.create_instance())
+            }),
         }
     }
 
