@@ -1,0 +1,29 @@
+# Volume and pan changes ramp in over the next mix call, including calls whose
+# length is not a multiple of 4 frames (the leftover frames after the SSE
+# quads, reference patch 0018). Also the sound's default volume and an explicit
+# play volume of 0.
+init channels=2 buffer=512
+sound name=m frames=8000 pattern=noise seed=3 amp=0.8
+sound name=st channels=2 frames=8000 pattern=saw period=50 amp=0.7 volume=0.6
+play sound=m as=a volume=0.5 pan=-0.5
+play sound=st as=b
+play sound=st as=c volume=0 pan=0.3
+mix frames=37
+set h=a volume=1 pan=0.75
+set h=c volume=0.9
+mix frames=6
+set h=a volume=0.2 pan=-1
+set h=b pan=1
+mix frames=513
+set h=a pan=1
+set h=b volume=0.1 pan=-0.25
+mix frames=4
+mix frames=3
+mix frames=1
+mix frames=0
+set h=c volume=0.4
+mix frames=0
+mix frames=9
+query h=a
+query h=b
+query h=c

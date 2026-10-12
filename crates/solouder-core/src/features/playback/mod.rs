@@ -1,7 +1,16 @@
-//! Playback: mixer configuration and rendering of interleaved output.
+//! Playback: sounds, voices and their controls, and rendering of the mix.
 
 mod config;
+mod control;
+mod handle;
+mod mix_bus;
 mod mixer;
+mod sound;
+mod voice;
+mod voices;
 
-pub use config::{ConfigError, MAX_CHANNELS, MixerConfig, SAMPLE_GRANULARITY};
+pub use config::{ConfigError, MixerConfig};
+pub use control::{ControlError, PlayOptions};
+pub use handle::{Handle, VOICE_COUNT};
 pub use mixer::Mixer;
+pub use sound::Sound;

@@ -1,0 +1,19 @@
+# A looping sound wraps to its start inside a block, possibly several times per
+# block, and counts its loops; turning looping off lets it end, and turning it
+# on in a voice that has not ended keeps it going.
+init channels=2 buffer=1024
+sound name=short frames=300 pattern=saw period=37 amp=0.5 looping=1
+sound name=long channels=2 frames=1000 pattern=noise seed=11 amp=0.3
+play sound=short as=a pan=-0.4
+play sound=long as=b pan=0.4
+set h=b looping=1
+mix frames=777
+query h=a
+mix frames=2048
+query h=a
+query h=b
+set h=a looping=0
+mix frames=700
+query h=a
+query h=b
+counts

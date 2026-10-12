@@ -1,0 +1,43 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 13:40:02 +0300
+Subject: [PATCH] mixBus_internal: treat a step of a whole block or more as
+ stopped
+
+The resampler loop fits floor((512 << 20) / step_fixed) output frames
+into each 512-frame source block. With a step of 512 or more (for
+example a relative play speed of 600 at equal rates) that is zero, so
+the loop loaded block after block without advancing and mix never
+returned (#343). The old guard only caught steps above 4096, and the
+inaudible-tick branch had none. Use the stopped-voice path (step 0)
+for steps of SAMPLE_GRANULARITY or more, and for NaN, in both branches.
+---
+ src/core/soloud.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 5d1d38f..80c6779 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1628,8 +1628,10 @@ namespace SoLoud
+ 				!(voice->mFlags & AudioSourceInstance::INAUDIBLE))
+ 			{
+ 				float step = voice->mSamplerate / aSamplerate;
+-				// avoid step overflow
+-				if (step > (1 << (32 - FIXPOINT_FRAC_BITS)))
++				// A step of a whole block or more never fits an output frame in
++				// a block, so the loop below would not advance. Treat it, and
++				// NaN, like a stopped voice.
++				if (!(step < SAMPLE_GRANULARITY))
+ 					step = 0;
+ 				unsigned int step_fixed = (int)floor(step * FIXPOINT_FRAC_MUL);
+ 				unsigned int outofs = 0;
+@@ -1826,6 +1828,8 @@ namespace SoLoud
+ 			{
+ 				// Inaudible but needs ticking. Do minimal work (keep counters up to date and ask audiosource for data)
+ 				float step = voice->mSamplerate / aSamplerate;
++				if (!(step < SAMPLE_GRANULARITY))
++					step = 0;
+ 				int step_fixed = (int)floor(step * FIXPOINT_FRAC_MUL);
+ 				unsigned int outofs = 0;
+ 

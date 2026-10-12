@@ -1,0 +1,30 @@
+# Paused voices keep their place and stream time; stop and stop_all free voices,
+# stale handles stop working, and new voices reuse the freed slots with new
+# play indices.
+init channels=2 buffer=512
+sound name=s frames=6000 pattern=noise seed=5 amp=0.5
+sound name=t channels=2 frames=6000 pattern=saw period=90 amp=0.5
+play sound=s as=a paused=1
+play sound=t as=b pan=0.2
+mix frames=300
+query h=a
+set h=a pause=0
+set h=b pause=1
+mix frames=301
+query h=a
+query h=b
+set h=a volume=0.3
+set h=b volume=0.3 pause=0
+mix frames=299
+stop h=a
+query h=a
+set h=a volume=1
+play sound=s as=c pan=-1
+mix frames=200
+counts
+stop_all
+counts
+query h=b
+play sound=t as=d
+query h=d
+mix frames=100

@@ -5,9 +5,15 @@
 //! behavioral parity with the C++ reference is tested. Device output and the
 //! Bevy integration live in separate crates.
 //!
-//! Status: milestone A. The mixer validates its configuration and renders
-//! silence; audio sources arrive in milestone B.
+//! Status: milestone B. Prepared PCM sounds play, stop, pause and loop with
+//! volume, pan, speed and resampling, mixed offline into 1 to 8 channels.
 
+pub mod contracts;
+pub mod dsp;
 pub mod features;
 
-pub use features::playback::{ConfigError, MAX_CHANNELS, Mixer, MixerConfig, SAMPLE_GRANULARITY};
+pub use contracts::{MAX_CHANNELS, Pcm, PcmError, SAMPLE_GRANULARITY};
+pub use dsp::{Clipper, Resampler};
+pub use features::playback::{
+    ConfigError, ControlError, Handle, Mixer, MixerConfig, PlayOptions, Sound, VOICE_COUNT,
+};

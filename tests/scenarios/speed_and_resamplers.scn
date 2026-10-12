@@ -1,0 +1,31 @@
+# Relative play speed and source sample rates drive the fixed-point resampler:
+# slow, fast and fractional steps with each resampler, across block boundaries
+# and partial mix calls. A speed of 0 is rejected; a step of 512 source frames
+# or more per output frame renders silence instead of hanging (patch 0022).
+init channels=2 buffer=512
+sound name=n frames=20000 pattern=noise seed=9 amp=0.5
+sound name=lo channels=2 rate=22050 frames=8000 pattern=saw period=40 amp=0.5
+sound name=hi rate=48000 frames=8000 pattern=noise seed=21 amp=0.5
+play sound=n as=a pan=-0.6
+play sound=lo as=b
+play sound=hi as=c pan=0.6
+set h=a speed=0.5
+set h=b speed=1.37
+mix frames=1000
+set h=a speed=2.9
+set h=c speed=0
+mix frames=777
+global resampler=point
+mix frames=513
+global resampler=catmullrom
+set h=b speed=0.25
+mix frames=1027
+query h=a
+query h=b
+query h=c
+set h=a speed=600
+mix frames=600
+query h=a
+global resampler=linear
+set h=a speed=1
+mix frames=64

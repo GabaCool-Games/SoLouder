@@ -1,0 +1,18 @@
+# Prepared PCM on a stereo output at the default volume and pan: a mono and a
+# stereo sound mixed together, one ending in the middle of a mix call, and the
+# handles, voice state and voice counts along the way.
+init channels=2 buffer=512
+sound name=mono frames=1500 pattern=saw period=64 amp=0.6
+sound name=stereo channels=2 frames=900 pattern=noise seed=7 amp=0.4
+play sound=mono as=a
+play sound=stereo as=b
+query h=a
+counts
+mix frames=1000
+query h=b
+mix frames=1000
+query h=a
+query h=b
+counts
+mix frames=600
+counts

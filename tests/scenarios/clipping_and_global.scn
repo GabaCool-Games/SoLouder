@@ -1,0 +1,18 @@
+# The final mix: voices summing past full scale through the round-off and hard
+# clippers, global volume, and the post-clip scale.
+init channels=2 buffer=512 clip=roundoff
+sound name=loud frames=4000 pattern=saw period=100 amp=1
+play sound=loud as=a volume=1.5
+play sound=loud as=b volume=1.2 pan=0.3
+mix frames=400
+global volume=0.5
+mix frames=401
+global clip_scale=1
+mix frames=402
+init channels=2 buffer=512 clip=hard
+sound name=loud frames=4000 pattern=saw period=100 amp=1
+play sound=loud as=a volume=1.5
+play sound=loud as=b volume=1.2 pan=-0.3
+mix frames=400
+global volume=0.7 clip_scale=0.8
+mix frames=403

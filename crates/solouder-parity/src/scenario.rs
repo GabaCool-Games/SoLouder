@@ -92,6 +92,38 @@ impl Step {
             .map_err(|_| self.error(format!("invalid value `{raw}` for `{key}`")))
     }
 
+    /// Parses `key` as a decimal number (`-?digits[.digits]`, the only form
+    /// both runners accept), or returns `default` when it is absent.
+    pub fn number_or(&self, key: &str, default: f32) -> Result<f32, ScenarioError> {
+        let Some(raw) = self.get(key) else {
+            return Ok(default);
+        };
+        let digits = raw.strip_prefix('-').unwrap_or(raw);
+        let (whole, fraction) = digits.split_once('.').unwrap_or((digits, "0"));
+        let all_digits = |s: &str| !s.is_empty() && s.bytes().all(|b| b.is_ascii_digit());
+        if !(all_digits(whole) && all_digits(fraction)) {
+            return Err(self.error(format!("invalid number `{raw}` for `{key}`")));
+        }
+        raw.parse()
+            .map_err(|_| self.error(format!("invalid number `{raw}` for `{key}`")))
+    }
+
+    /// Parses `key` as `0` or `1`, or returns `default` when it is absent.
+    pub fn flag_or(&self, key: &str, default: bool) -> Result<bool, ScenarioError> {
+        match self.get(key) {
+            None => Ok(default),
+            Some("0") => Ok(false),
+            Some("1") => Ok(true),
+            Some(raw) => Err(self.error(format!("invalid flag `{raw}` for `{key}` (0 or 1)"))),
+        }
+    }
+
+    /// The required argument `key` as text.
+    pub fn text(&self, key: &str) -> Result<&str, ScenarioError> {
+        self.get(key)
+            .ok_or_else(|| self.error(format!("`{}` needs `{key}=`", self.op)))
+    }
+
     /// An error located at this step.
     pub fn error(&self, message: impl Into<String>) -> ScenarioError {
         ScenarioError::new(self.line, message)
@@ -166,5 +198,20 @@ mod tests {
         assert!(step.check_keys(&["frames"]).is_err());
         assert!(step.value::<u32>("frames").is_err());
         assert_eq!(step.value_or::<u32>("missing", 7), Ok(7));
+    }
+
+    #[test]
+    fn numbers_and_flags_use_the_shared_grammar() {
+        let scenario = parse("x", "set a=-0.25 b=3 c=1e3 d=.5 e=inf f=1 g=2").unwrap();
+        let step = &scenario.steps[0];
+        assert_eq!(step.number_or("a", 0.0), Ok(-0.25));
+        assert_eq!(step.number_or("b", 0.0), Ok(3.0));
+        assert_eq!(step.number_or("z", 9.0), Ok(9.0));
+        for key in ["c", "d", "e"] {
+            assert!(step.number_or(key, 0.0).is_err(), "{key}");
+        }
+        assert_eq!(step.flag_or("f", false), Ok(true));
+        assert!(step.flag_or("g", false).is_err());
+        assert!(step.text("missing").is_err());
     }
 }

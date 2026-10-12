@@ -3,12 +3,8 @@
 
 use std::fmt;
 
-/// Frames a source renders per block, and the smallest accepted buffer size
-/// (`SAMPLE_GRANULARITY` in SoLoud).
-pub const SAMPLE_GRANULARITY: u32 = 512;
-
-/// Most output channels the mixer supports (7.1 surround).
-pub const MAX_CHANNELS: u32 = 8;
+use crate::contracts::SAMPLE_GRANULARITY;
+use crate::dsp::Clipper;
 
 /// Output format of a [`Mixer`](super::Mixer).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -19,6 +15,8 @@ pub struct MixerConfig {
     pub buffer_size: u32,
     /// Interleaved output channels: 1, 2, 4, 6 or 8.
     pub channels: u32,
+    /// How the final mix is limited to `[-1, 1]`.
+    pub clipper: Clipper,
 }
 
 impl Default for MixerConfig {
@@ -28,6 +26,7 @@ impl Default for MixerConfig {
             sample_rate: 44_100,
             buffer_size: 2048,
             channels: 2,
+            clipper: Clipper::Roundoff,
         }
     }
 }

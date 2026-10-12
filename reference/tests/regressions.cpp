@@ -216,6 +216,23 @@ namespace
 		check(maxAbsChannel(out, 1) < 1e-6f, "silent near-stopped voice adds nothing on the right");
 	}
 
+	// #343: with a step of 512 source frames or more per output frame, no
+	// output frame fits in a 512-frame block, so the resampling loop loaded
+	// block after block without ever advancing and mix never returned.
+	void extreme_speed_makes_progress()
+	{
+		Wav wav;
+		check(loadWav(wav, makeConstantWav(1, 4410, 0.5f)) == SO_NO_ERROR, "wav loads");
+		wav.setLooping(true);
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle h = soloud.play(wav);
+		check(soloud.setRelativePlaySpeed(h, 600.0f) == SO_NO_ERROR, "set speed 600");
+		std::vector<float> out = render(soloud, 1024);
+		std::printf("  mix returned, peak %g\n", maxAbsChannel(out, 0));
+		check(soloud.isValidVoiceHandle(h), "voice is still playing");
+	}
+
 	// #392: generic seek looped forever when the scratch held less than one frame.
 	void generic_seek_small_scratch()
 	{
@@ -327,6 +344,133 @@ namespace
 		check(std::fabs(expected - actual) < 1e-6f, "reused slot gets the same 3D volume");
 	}
 
+	// Planar raw samples, every channel set to aValue.
+	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
+	{
+		std::vector<float> data(aChannels * aFrames, aValue);
+		return aWav.loadRawWave(data.data(), (unsigned int)data.size(), (float)kRate, aChannels, true, false);
+	}
+
+	// The SSE 1->2 and 2->2 pan paths scaled the per-sample volume step by 4
+	// for the quad loop and then reused it, from the starting volume, for the
+	// frames left over when a mix call is not a multiple of 4 frames long.
+	void pan_ramp_leftover_frames()
+	{
+		const float target = (float)std::cos(M_PI / 4);
+		for (unsigned int channels = 1; channels <= 2; channels++)
+		{
+			Wav wav;
+			check(loadConstantRaw(wav, channels, 4096, 1.0f) == SO_NO_ERROR, "raw wave loads");
+			Soloud soloud;
+			check(initNull(soloud), "null driver init");
+			soloud.setPostClipScaler(1.0f);
+			handle h = soloud.play(wav, 0.0f);
+			soloud.setVolume(h, 1.0f);
+			float out[6 * 2];
+			soloud.mix(out, 6);
+			// Linear resampling delays the source by one frame, so frame 0 is
+			// silent; frame j then carries the ramp value target * (j + 1) / 6.
+			for (unsigned int j = 1; j < 6; j++)
+			{
+				float expected = target * (float)(j + 1) / 6.0f;
+				std::printf("  %u->2 frame %u: %g (expected %g)\n", channels, j, out[j * 2], expected);
+				check(std::fabs(out[j * 2] - expected) < 1e-5f, "left channel follows the volume ramp");
+				check(std::fabs(out[j * 2 + 1] - expected) < 1e-5f, "right channel follows the volume ramp");
+			}
+		}
+	}
+
+	// 6->4 and 8->4 added the center and LFE channels without the voice's
+	// volume, so a silent voice was still audible.
+	void surround_to_quad_center_follows_volume()
+	{
+		for (unsigned int channels = 6; channels <= 8; channels += 2)
+		{
+			Wav wav;
+			check(loadConstantRaw(wav, channels, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+			Soloud soloud;
+			check(initNull(soloud, 4), "null driver init");
+			soloud.play(wav, 0.0f);
+			std::vector<float> out = render(soloud, 1024, 4);
+			for (unsigned int c = 0; c < 4; c++)
+			{
+				std::printf("  %u->4 channel %u peak %g\n", channels, c, maxAbsChannel(out, c, 4));
+				check(maxAbsChannel(out, c, 4) == 0.0f, "a voice at volume 0 is silent");
+			}
+		}
+	}
+
+	// 4->8 scaled the rear pair by the side speakers' volumes.
+	void quad_to_7_1_rear_uses_rear_volume()
+	{
+		Wav wav;
+		check(loadConstantRaw(wav, 4, 4096, 0.25f) == SO_NO_ERROR, "raw wave loads");
+		Soloud soloud;
+		check(initNull(soloud, 8), "null driver init");
+		soloud.setPostClipScaler(1.0f);
+		soloud.play3d(wav, 0.0f, 0.0f, 10.0f);
+		soloud.update3dAudio();
+		std::vector<float> out = render(soloud, 2048, 8);
+		const float *last = &out[out.size() - 8];
+		std::printf("  side %g %g, rear %g %g\n", last[4], last[5], last[6], last[7]);
+		// The side speakers sit at z = 0 and the rear ones at z = -1, so a
+		// source on the z axis reaches them with different gains.
+		check(std::fabs(last[6] - last[4]) > 0.01f, "left rear differs from left side");
+		check(std::fabs(last[7] - last[5]) > 0.01f, "right rear differs from right side");
+	}
+
+	// When every voice was protected, findFreeVoice_internal stopped voice -1
+	// and play returned UNKNOWN_ERROR as if it were a handle.
+	void play_without_free_voice()
+	{
+		Wav wav;
+		check(loadConstantRaw(wav, 1, 4096, 0.0f) == SO_NO_ERROR, "raw wave loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		for (int i = 0; i < VOICE_COUNT; i++)
+			soloud.setProtectVoice(soloud.play(wav), true);
+		handle h = soloud.play(wav);
+		std::printf("  handle with no free voice: %u\n", h);
+		check(h == 0, "play returns the invalid handle 0");
+		check(soloud.getVoiceCount() == VOICE_COUNT, "no protected voice was stopped");
+	}
+
+	// Handles whose slot bits are 0 or past VOICE_COUNT indexed mVoice out of
+	// bounds.
+	void handle_slot_out_of_range()
+	{
+		Wav wav;
+		check(loadConstantRaw(wav, 1, 4096, 0.0f) == SO_NO_ERROR, "raw wave loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		soloud.play(wav);
+		const handle bad[] = { 1u << 12, (1u << 12) | 0xfff, (1u << 12) | (VOICE_COUNT + 1) };
+		for (handle h : bad)
+		{
+			check(!soloud.isValidVoiceHandle(h), "out-of-range slot is not a valid handle");
+			check(soloud.getVolume(h) == 0.0f, "getter on an out-of-range slot returns the default");
+			soloud.stop(h);
+		}
+		check(soloud.getVoiceCount() == 1, "the playing voice is untouched");
+	}
+
+	// loadRawWave* accepted more than MAX_CHANNELS channels (overflowing the
+	// resample buffers) and data shorter than one frame (zero frames).
+	void raw_wave_rejects_bad_layout()
+	{
+		std::vector<float> f(64, 0.0f);
+		std::vector<short> s(64, 0);
+		std::vector<unsigned char> b(64, 128);
+		Wav wav;
+		check(wav.loadRawWave(f.data(), 18, (float)kRate, MAX_CHANNELS + 1, true, false) == INVALID_PARAMETER, "float: 9 channels rejected");
+		check(wav.loadRawWave(f.data(), 1, (float)kRate, 2, true, false) == INVALID_PARAMETER, "float: less than a frame rejected");
+		check(wav.loadRawWave16(s.data(), 18, (float)kRate, MAX_CHANNELS + 1) == INVALID_PARAMETER, "16-bit: 9 channels rejected");
+		check(wav.loadRawWave16(s.data(), 1, (float)kRate, 2) == INVALID_PARAMETER, "16-bit: less than a frame rejected");
+		check(wav.loadRawWave8(b.data(), 18, (float)kRate, MAX_CHANNELS + 1) == INVALID_PARAMETER, "8-bit: 9 channels rejected");
+		check(wav.loadRawWave8(b.data(), 1, (float)kRate, 2) == INVALID_PARAMETER, "8-bit: less than a frame rejected");
+		check(wav.loadRawWave(f.data(), 16, (float)kRate, MAX_CHANNELS, true, false) == SO_NO_ERROR, "float: 8 channels accepted");
+	}
+
 	struct TestCase
 	{
 		const char *mName;
@@ -339,6 +483,7 @@ namespace
 		{ "inaudible_tick_over_active_cap", inaudible_tick_over_active_cap },
 		{ "protected_voice_stays_active", protected_voice_stays_active },
 		{ "zero_step_voice_no_stale_scratch", zero_step_voice_no_stale_scratch },
+		{ "extreme_speed_makes_progress", extreme_speed_makes_progress },
 		{ "generic_seek_small_scratch", generic_seek_small_scratch },
 		{ "play_stop_without_init", play_stop_without_init },
 		{ "play_after_failed_init", play_after_failed_init },
@@ -346,6 +491,12 @@ namespace
 		{ "wavstream_rejects_too_many_channels", wavstream_rejects_too_many_channels },
 		{ "active_voice_cap_above_255", active_voice_cap_above_255 },
 		{ "play3d_reused_slot_flags", play3d_reused_slot_flags },
+		{ "pan_ramp_leftover_frames", pan_ramp_leftover_frames },
+		{ "surround_to_quad_center_follows_volume", surround_to_quad_center_follows_volume },
+		{ "quad_to_7_1_rear_uses_rear_volume", quad_to_7_1_rear_uses_rear_volume },
+		{ "play_without_free_voice", play_without_free_voice },
+		{ "handle_slot_out_of_range", handle_slot_out_of_range },
+		{ "raw_wave_rejects_bad_layout", raw_wave_rejects_bad_layout },
 	};
 }
 

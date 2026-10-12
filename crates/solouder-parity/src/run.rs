@@ -1,7 +1,9 @@
 //! Executes a scenario against `solouder-core`, mirroring what the C++ runner
 //! does with the SoLoud C++ API.
 
-use solouder_core::{Mixer, MixerConfig};
+use std::collections::HashMap;
+
+use solouder_core::{Clipper, Handle, Mixer, MixerConfig, Sound};
 
 use crate::scenario::{Scenario, ScenarioError, Step};
 
@@ -10,9 +12,9 @@ use crate::scenario::{Scenario, ScenarioError, Step};
 pub const MAX_MIX_FRAMES: u32 = 4096;
 
 /// SoLoud's `SO_NO_ERROR`.
-const SO_NO_ERROR: i32 = 0;
+pub(crate) const SO_NO_ERROR: i32 = 0;
 /// SoLoud's `INVALID_PARAMETER`.
-const INVALID_PARAMETER: i32 = 1;
+pub(crate) const INVALID_PARAMETER: i32 = 1;
 
 /// What a scenario produced.
 #[derive(Clone, Debug, PartialEq)]
@@ -29,6 +31,8 @@ pub struct Rendered {
 pub fn run(scenario: &Scenario) -> Result<Rendered, ScenarioError> {
     let mut state = State {
         mixer: None,
+        sounds: HashMap::new(),
+        handles: HashMap::new(),
         rendered: Rendered {
             samples: Vec::new(),
             log: Vec::new(),
@@ -41,9 +45,13 @@ pub fn run(scenario: &Scenario) -> Result<Rendered, ScenarioError> {
     Ok(state.rendered)
 }
 
-struct State {
-    mixer: Option<Mixer>,
-    rendered: Rendered,
+pub(crate) struct State {
+    pub mixer: Option<Mixer>,
+    /// Sounds by scenario name; cleared by `init`.
+    pub sounds: HashMap<String, Sound>,
+    /// Handles by scenario name; cleared by `init`.
+    pub handles: HashMap<String, Handle>,
+    pub rendered: Rendered,
 }
 
 impl State {
@@ -52,8 +60,27 @@ impl State {
             "tolerance" => self.tolerance(step),
             "init" => self.init(step),
             "mix" => self.mix(step),
+            "sound" => self.sound(step),
+            "play" => self.play(step),
+            "stop" => self.stop(step),
+            "stop_all" => self.stop_all(step),
+            "set" => self.set(step),
+            "global" => self.global(step),
+            "query" => self.query(step),
+            "counts" => self.counts(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
+    }
+
+    pub fn log(&mut self, line: String) {
+        self.rendered.log.push(line);
+    }
+
+    /// The mixer, which every operation except `tolerance` and `init` needs.
+    pub fn mixer(&mut self, step: &Step) -> Result<&mut Mixer, ScenarioError> {
+        self.mixer
+            .as_mut()
+            .ok_or_else(|| step.error(format!("`{}` needs a successful init first", step.op)))
     }
 
     fn tolerance(&mut self, step: &Step) -> Result<(), ScenarioError> {
@@ -67,15 +94,23 @@ impl State {
     }
 
     fn init(&mut self, step: &Step) -> Result<(), ScenarioError> {
-        step.check_keys(&["channels", "rate", "buffer"])?;
+        step.check_keys(&["channels", "rate", "buffer", "clip"])?;
         let defaults = MixerConfig::default();
         // 0 means "automatic" in SoLoud's C API, as in `Soloud::init`.
         let auto = |value: u32, default: u32| if value == 0 { default } else { value };
+        let clipper = match step.get("clip").unwrap_or("roundoff") {
+            "roundoff" => Clipper::Roundoff,
+            "hard" => Clipper::Hard,
+            other => return Err(step.error(format!("unknown clip `{other}`"))),
+        };
         let config = MixerConfig {
             channels: step.value_or("channels", defaults.channels)?,
             sample_rate: auto(step.value_or("rate", 0)?, defaults.sample_rate),
             buffer_size: auto(step.value_or("buffer", 0)?, defaults.buffer_size),
+            clipper,
         };
+        self.sounds.clear();
+        self.handles.clear();
         self.mixer = None;
         let code = match Mixer::new(config) {
             Ok(mixer) => {
@@ -84,7 +119,7 @@ impl State {
             }
             Err(_) => INVALID_PARAMETER,
         };
-        self.rendered.log.push(format!("init {code}"));
+        self.log(format!("init {code}"));
         Ok(())
     }
 
@@ -109,37 +144,5 @@ impl State {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::scenario::parse;
-
-    fn run_text(text: &str) -> Result<Rendered, ScenarioError> {
-        run(&parse("test", text).unwrap())
-    }
-
-    #[test]
-    fn logs_init_results_and_mixes_requested_frames() {
-        let rendered = run_text("init channels=3\ninit channels=6\nmix frames=5").unwrap();
-        assert_eq!(rendered.log, ["init 1", "init 0"]);
-        assert_eq!(rendered.samples, vec![0.0; 30]);
-    }
-
-    #[test]
-    fn failed_init_drops_the_previous_engine() {
-        let error = run_text("init\ninit buffer=100\nmix frames=1").unwrap_err();
-        assert_eq!(error.line, 3);
-    }
-
-    #[test]
-    fn rejects_unknown_operations_and_oversized_mixes() {
-        assert!(run_text("play sound=x").is_err());
-        assert!(run_text("init\nmix frames=4097").is_err());
-        assert!(run_text("init volume=1").is_err());
-    }
-
-    #[test]
-    fn tolerance_sets_the_comparison_limit() {
-        assert_eq!(run_text("tolerance abs=0.5").unwrap().tolerance, 0.5);
-        assert!(run_text("tolerance abs=-1").is_err());
-    }
-}
+#[path = "run_tests.rs"]
+mod tests;

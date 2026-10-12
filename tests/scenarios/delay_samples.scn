@@ -1,0 +1,11 @@
+# A voice delayed by a number of output frames starts silent and then plays,
+# with the delay spanning mix calls.
+init channels=2 buffer=512
+sound name=s frames=4000 pattern=saw period=25 amp=0.5
+play sound=s as=a pan=-0.5
+play sound=s as=b pan=0.5
+set h=a delay=100
+set h=b delay=700
+mix frames=333
+mix frames=500
+query h=b

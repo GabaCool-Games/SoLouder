@@ -7,12 +7,16 @@ SoLouder ports the SoLoud audio engine to **native Rust**, with an idiomatic
 keeps SoLoud's mixing behavior without requiring the C++ library in the normal
 Rust build, and adds the fixes and extensions developed for GoreGrind.
 
-**Current status:** milestone A. This repository contains the patched C++
-reference tooling (pinned upstream commit, patch series, fetch script, C++
-regression tests), the parity ledger, and a Cargo workspace with the scenario
-harness: `tests/scenarios/*.scn` run through a C++ null-driver runner and
-through `solouder-core`, and `python scripts/run_parity.py` compares them.
-The core renders only silence so far; there is no Bevy plugin yet.
+**Current status:** milestone B, except loading WAV files. This repository
+contains the patched C++ reference tooling (pinned upstream commit, patch
+series, fetch script, C++ regression tests), the parity ledger, and a Cargo
+workspace with the scenario harness: `tests/scenarios/*.scn` run through a C++
+null-driver runner and through `solouder-core`, and
+`python scripts/run_parity.py` compares them. The core plays prepared PCM
+(play, stop, pause, loop, volume, pan, speed, three resamplers, 1 to 8
+channels, clipping) and matches the reference bit for bit in every scenario.
+There is no device output or Bevy plugin yet; see
+[port-status.md](port-status.md).
 
 [ARCHITECTURE.md](ARCHITECTURE.md) owns the target workspace, Vertical Slice
 Architecture (VSA), ownership, real-time boundaries, and Bevy contracts. This
@@ -330,11 +334,19 @@ unpatched reference, and each needs a matching Rust test.
 | 0015 | — | Build only: `SOLOUD_BACKEND_MINIAUDIO` CMake option (GoreGrind's Linux library uses MiniAudio, which loads ALSA/PulseAudio/JACK at run time). | — |
 | 0016 | — (GoreGrind) | The MiniAudio backend kept one global `ma_device`: a second engine re-initialized the device the first was playing on, and deiniting any engine stopped all of them. The device is now per engine in `mBackendData`, as in 0001. | — (device only; checked with two engines on a PulseAudio null sink) |
 | 0017 | — | Build only: the static MSVC runtime (from 0003) is opt-in through `SOLOUD_MSVC_STATIC_RUNTIME`, so static-library users keep upstream's `/MD`. | — |
+| 0018 | — (found porting milestone B) | The SSE 1→2 and 2→2 paths in `panAndExpand` multiplied the per-frame gain step by 4 for the four-frame loop and reused it, restarting from the initial gain, for the frames left over when a mix call is not a multiple of 4 frames. A volume or pan change then overshot at the end of the call (4/3 of the target in a 6-frame call). | `pan_ramp_leftover_frames` |
+| 0019 | — (found porting milestone B) | `panAndExpand` 6→4 and 8→4 added the center/LFE fold-down to the front pair without the speaker gain, so a voice at volume 0 was audible; 4→8 scaled the rear pair by the side speakers' gains (different under 3D). | `surround_to_quad_center_follows_volume`, `quad_to_7_1_rear_uses_rear_volume` |
+| 0020 | — (found porting milestone B) | With every voice protected, `findFreeVoice_internal` called `stopVoice_internal(-1)` and `play` returned `UNKNOWN_ERROR` (7) as a handle, which decodes as voice slot 6. Now no voice is stopped and `play` returns 0. Handles whose slot field is 0 or above `VOICE_COUNT` indexed `mVoice`/`m3dData` out of bounds and are now invalid. | `play_without_free_voice`, `handle_slot_out_of_range` (the second passes by luck without the patch) |
+| 0021 | — (found porting milestone B) | `Wav::loadRawWave`, `loadRawWave8` and `loadRawWave16` accepted more than `MAX_CHANNELS` channels (overflowing the resample blocks), data shorter than one frame, and a NaN sample rate. | `raw_wave_rejects_bad_layout` |
+| 0022 | #343 | With a step of 512 source frames or more per output frame (for example speed 600 at equal rates), no output frame fits in a block, so the resampling loop loaded block after block forever and `mix` never returned. The old guard only caught steps above 4096, and the inaudible-tick branch had none. Such steps (and NaN) now take the stopped-voice path (step 0) in both branches. | `extreme_speed_makes_progress` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the `goregrind` branch). Its README lists every fix with
-credits. Commits after 0017 add build scripts and that README; they are not
-reference patches, so export with `--ref` set to the last code commit.
+credits. Commits after 0017 on `goregrind` add build scripts and that README,
+so reference fixes are made on the `solouder-reference` branch (0017 plus code
+fixes only, in a worktree next to the fork), exported with
+`--ref solouder-reference`, and cherry-picked onto `goregrind`. Patches 0018 to
+0022 are on `goregrind` locally but not yet pushed to the public fork.
 
 GoreGrind's native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
@@ -351,8 +363,9 @@ fixes are welcome as new patches.
 |---|---|---|---|
 | #314 (reported) | `Soloud::mixBus_internal` block read | Fixed 512-frame source reads with a non-integer rate ratio reportedly accumulate drift (about 0.1 s over 3 minutes for 44.1 → 48 kHz). | **High priority.** Exact fractional playhead; long-duration drift test against an analytic position. Reproduce in the reference before changing it. |
 | #396 (reported), #156 | `WavStreamInstance::seek` fallback | Non-Ogg streams seek by rewind + decode-and-discard, which is O(seek distance). Upstream reports seeking a stream handle silently kills it. | Per-codec seek with defined accuracy; test seek while playing and while paused. PR #336 is a native-seek reference. |
-| #343 (reported) | `Soloud::mixBus_internal` resampling loop | Reported infinite loop when `writesamples` stays 0. Not reproducible from the current code: each iteration either writes frames or loads the next block. The adjacent zero-step defect is fixed by patch 0008. | Every resampling iteration makes progress or exits; test extreme speed and Doppler values. |
-| — (found 2026-10-12) | `Soloud::mix`, `Soloud::mixSigned16` | No bound on the frame count: a request for more frames than the scratch buffer holds (at least 4096, or the buffer size rounded up to 16) writes past `mScratch`. Parity scenarios stay at or below 4096 frames. | `Mixer::mix_interleaved` accepts any length (chunking once sources exist); test a request far above the buffer size. |
+| — (found 2026-10-12) | `Soloud::mix`, `Soloud::mixSigned16` | No bound on the frame count: a request for more frames than the scratch buffer holds (at least 4096, or the buffer size rounded up to 16) writes past `mScratch`. Parity scenarios stay at or below 4096 frames. | Done: `Mixer::mix_interleaved` renders long requests in passes of at most the scratch size (`mix_without_sources_is_silent`, `split_mixes_match_one_mix`). |
+| — (found porting milestone B) | `AudioSourceInstance::seek` called from `mixBus_internal` on loop wrap | The generic seek discards frames into `Soloud::mScratch`, which `mixBus_internal` is using at that moment as the voice's resample output (`aScratch`). With a nonzero loop point, every loop wrap overwrites frames the voice already rendered in that mix call. The discard count is also `mSamplerate * seconds`, where `mSamplerate` includes the play speed, so at speed 2 a seek lands twice as far into the source. | Milestone B supports loop point 0 only (no discard, no scratch use). Seeks must not share mixer scratch and must count source frames at the base rate; test a looping voice with a nonzero loop point at speeds 1 and 2. Fix the reference before porting loop points. |
+| — (found porting milestone B) | `soloud.h` | `M_PI` falls back to `3.14159265359` when the platform does not define it (MSVC without `_USE_MATH_DEFINES`), so pan gains can differ in the last bit between Windows and Linux builds of the reference. | Rust uses `std::f64::consts::PI`; scenario tolerance covers the difference (every scenario currently matches bit for bit on Windows). |
 | #307, #241 | `Soloud::deinit`, `Soloud::~Soloud` | `SOLOUD_ASSERT(!mInsideAudioThreadMutex)` in `deinit` can fire at shutdown; ordering of `stopAll` versus backend teardown. | `Drop` is safe in every state; test repeated init/teardown. See the GoreGrind shutdown lesson below. |
 
 Also reported upstream and worth a test once the feature is ported: #274
@@ -464,7 +477,7 @@ The ledger's `milestone` column assigns every C API behavior to one of these.
 | Milestone | Required result |
 |---|---|
 | A — Foundation and reference harness | Patched reference and C++ regression tests (done); parity ledger (done); Cargo workspace with pinned Rust/Bevy versions (done); `scripts/check_all.py` and a CI workflow, verified locally on Windows and in a Linux container but not yet run on a CI host (done); scenario format with a C++ null-driver runner and a Rust runner (done, first scenarios: init validation and silence) |
-| B — Offline playback | Prepared PCM/decoded WAV, planar stereo mixer, IDs, play/stop/pause/loop, volume/pan, linear resampling, clipping/parity |
+| B — Offline playback | Prepared PCM (done; decoding WAV files pending), planar mixer for 1 to 8 channels (done), handles (done), play/stop/pause/loop with loop point 0 (done), volume/pan (done), point/linear/Catmull-Rom resampling (done), clipping and global volume (done); 9 playback parity scenarios, bit-identical on Windows |
 | C — Windows and Bevy playable slice | CPAL negotiation, bounded control/status, asset loading, playback/despawn example, no-device/allocation tests |
 | D — Routing and DSP parity | Nested buses, queues/groups, virtualization/protection, scheduling, remaining resamplers, voice/bus/global filters |
 | E — Spatial and streaming parity | Listener/emitter systems, attenuation/Doppler/delay, workers, seek/loop regressions, WAV/FLAC/Ogg Vorbis/MP3 |
@@ -479,10 +492,15 @@ stages.
 Regression tests for [tracked defects](#reference-patches-and-upstream-tracking)
 belong to the milestone that introduces the affected behavior:
 
-- **B:** declared channel stride with partial reads (patch 0004), frame counts
-  not divisible by 4 (#183, #251), zero-step and resampler progress (patch
-  0008, #343, #97), mix-buffer assignment when inaudible-tick voices fill the
-  active cap (patch 0006), active caps above 255 (patch 0011).
+- **B:** partial block reads across mix calls (`split_mixes_match_one_mix`;
+  the streamed-source stride of patch 0004 belongs to E), frame counts not
+  divisible by 4 (#183, #251, patch 0018: `volume_pan_ramps`,
+  `leftover_frames_continue_the_volume_ramp`), zero-step and resampler
+  progress (patches 0008 and 0022, #343, #97:
+  `extreme_speed_renders_silence_instead_of_hanging`), active caps above 255
+  (patch 0011: `more_than_255_voices_can_be_active`), voice stealing and
+  all-protected tables (patch 0020). Done. Inaudible-tick voices (patch 0006)
+  move to D with inaudible behavior.
 - **C:** init failure, repeated init/teardown, and callback-before-state
   shutdown order (patch 0010, #307, GoreGrind teardown lessons).
 - **D:** protected-voice ranking (patch 0007), bus default volume and nested

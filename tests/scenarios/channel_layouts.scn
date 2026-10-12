@@ -1,0 +1,71 @@
+# Every supported source layout (1, 2, 4, 6, 8 channels) on every output layout,
+# with a pan and a volume change so each speaker's ramp is exercised. Covers the
+# surround fold-downs fixed by reference patch 0019.
+init channels=1 buffer=512
+sound name=s1 channels=1 frames=3000 pattern=noise seed=1 amp=0.3
+sound name=s2 channels=2 frames=3000 pattern=noise seed=2 amp=0.3
+sound name=s4 channels=4 frames=3000 pattern=noise seed=4 amp=0.3
+sound name=s6 channels=6 frames=3000 pattern=saw period=33 amp=0.3
+sound name=s8 channels=8 frames=3000 pattern=saw period=45 amp=0.3
+play sound=s1 as=a pan=0.5
+play sound=s2 as=b
+play sound=s4 as=c
+play sound=s6 as=d volume=0.5
+play sound=s8 as=e volume=0.5
+mix frames=250
+set h=e volume=0
+mix frames=257
+init channels=2 buffer=512
+sound name=s4 channels=4 frames=3000 pattern=noise seed=4 amp=0.3
+sound name=s6 channels=6 frames=3000 pattern=saw period=33 amp=0.3
+sound name=s8 channels=8 frames=3000 pattern=saw period=45 amp=0.3
+play sound=s4 as=c pan=-0.5
+play sound=s6 as=d
+play sound=s8 as=e
+mix frames=250
+set h=c pan=0.5
+set h=d volume=0
+mix frames=257
+init channels=4 buffer=512
+sound name=s1 channels=1 frames=3000 pattern=noise seed=1 amp=0.3
+sound name=s2 channels=2 frames=3000 pattern=noise seed=2 amp=0.3
+sound name=s4 channels=4 frames=3000 pattern=noise seed=4 amp=0.3
+sound name=s6 channels=6 frames=3000 pattern=saw period=33 amp=0.3
+sound name=s8 channels=8 frames=3000 pattern=saw period=45 amp=0.3
+play sound=s1 as=a pan=0.5
+play sound=s2 as=b pan=-0.3
+play sound=s4 as=c
+play sound=s6 as=d volume=0.4 pan=0.8
+play sound=s8 as=e volume=0.4
+mix frames=250
+set h=d volume=0
+set h=e pan=-1
+mix frames=257
+init channels=6 buffer=512
+sound name=s1 channels=1 frames=3000 pattern=noise seed=1 amp=0.3
+sound name=s2 channels=2 frames=3000 pattern=noise seed=2 amp=0.3
+sound name=s4 channels=4 frames=3000 pattern=noise seed=4 amp=0.3
+sound name=s6 channels=6 frames=3000 pattern=saw period=33 amp=0.3
+sound name=s8 channels=8 frames=3000 pattern=saw period=45 amp=0.3
+play sound=s1 as=a pan=0.5
+play sound=s2 as=b
+play sound=s4 as=c pan=0.2
+play sound=s6 as=d volume=0.4
+play sound=s8 as=e volume=0.4 pan=-0.7
+mix frames=250
+set h=c volume=0.1
+mix frames=257
+init channels=8 buffer=512
+sound name=s1 channels=1 frames=3000 pattern=noise seed=1 amp=0.3
+sound name=s2 channels=2 frames=3000 pattern=noise seed=2 amp=0.3
+sound name=s4 channels=4 frames=3000 pattern=noise seed=4 amp=0.3
+sound name=s6 channels=6 frames=3000 pattern=saw period=33 amp=0.3
+sound name=s8 channels=8 frames=3000 pattern=saw period=45 amp=0.3
+play sound=s1 as=a pan=0.5
+play sound=s2 as=b
+play sound=s4 as=c pan=-0.2
+play sound=s6 as=d volume=0.4
+play sound=s8 as=e volume=0.4 pan=0.9
+mix frames=250
+set h=c pan=1
+mix frames=257

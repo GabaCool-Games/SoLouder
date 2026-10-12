@@ -1,0 +1,24 @@
+# With more voices than the active limit, protected voices and then the loudest
+# are mixed; the rest wait. Changing the limit, and invalid limits.
+init channels=2 buffer=512
+sound name=s frames=8000 pattern=noise seed=13 amp=0.3 looping=1
+global max_active=2
+play sound=s as=quiet volume=0.1 pan=-1
+play sound=s as=mid volume=0.5
+play sound=s as=loud volume=0.9 pan=1
+play sound=s as=soft volume=0.2
+counts
+mix frames=300
+set h=quiet protect=1
+set h=soft volume=0.95
+mix frames=301
+counts
+set h=loud volume=0.05
+mix frames=302
+global max_active=0
+global max_active=1024
+global max_active=3
+counts
+mix frames=303
+query h=quiet
+query h=mid

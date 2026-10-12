@@ -164,10 +164,10 @@ reference/
   soloud/                       # git-ignored checkout (scripts/fetch_reference.py)
 ```
 
-Existing today: `solouder-core` (only `features/playback/`), `solouder-parity`,
-`tests/scenarios/` and `docs/port-status.md`. Versions are pinned in
-`rust-toolchain.toml` (Rust 1.98.1) and the root `Cargo.toml` (Bevy 0.20,
-CPAL 0.18, Symphonia 0.6).
+Existing today: `solouder-core` (`contracts/`, `dsp/` and
+`features/playback/`), `solouder-parity`, `tests/scenarios/` and
+`docs/port-status.md`. Versions are pinned in `rust-toolchain.toml` (Rust
+1.98.1) and the root `Cargo.toml` (Bevy 0.20, CPAL 0.18, Symphonia 0.6).
 
 This illustrates feature ownership, not a requirement to create empty modules
 up front. Introduce a slice when it has an implemented use case. File names

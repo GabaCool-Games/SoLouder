@@ -1,0 +1,45 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 13:37:36 +0300
+Subject: [PATCH] Wav::loadRawWave*: reject layouts the mixer cannot play
+
+The raw loaders accepted any channel count, but the mixer copies each
+voice into resample buffers of MAX_CHANNELS channels, so 9 or more
+channels overflowed them. Data shorter than one frame gave a zero
+sample count, and a NaN sample rate passed the `<= 0` check. Reject
+all three with INVALID_PARAMETER, like the file loaders do.
+---
+ src/audiosource/wav/soloud_wav.cpp | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/src/audiosource/wav/soloud_wav.cpp b/src/audiosource/wav/soloud_wav.cpp
+index 56ddab0..03e403a 100755
+--- a/src/audiosource/wav/soloud_wav.cpp
++++ b/src/audiosource/wav/soloud_wav.cpp
+@@ -394,7 +394,7 @@ namespace SoLoud
+ 
+ 	result Wav::loadRawWave8(unsigned char *aMem, unsigned int aLength, float aSamplerate, unsigned int aChannels)
+ 	{
+-		if (aMem == 0 || aLength == 0 || aSamplerate <= 0 || aChannels < 1)
++		if (aMem == 0 || !(aSamplerate > 0) || aChannels < 1 || aChannels > MAX_CHANNELS || aLength < aChannels)
+ 			return INVALID_PARAMETER;
+ 		stop();
+ 		delete[] mData;
+@@ -410,7 +410,7 @@ namespace SoLoud
+ 
+ 	result Wav::loadRawWave16(short *aMem, unsigned int aLength, float aSamplerate, unsigned int aChannels)
+ 	{
+-		if (aMem == 0 || aLength == 0 || aSamplerate <= 0 || aChannels < 1)
++		if (aMem == 0 || !(aSamplerate > 0) || aChannels < 1 || aChannels > MAX_CHANNELS || aLength < aChannels)
+ 			return INVALID_PARAMETER;
+ 		stop();
+ 		delete[] mData;
+@@ -426,7 +426,7 @@ namespace SoLoud
+ 
+ 	result Wav::loadRawWave(float *aMem, unsigned int aLength, float aSamplerate, unsigned int aChannels, bool aCopy, bool aTakeOwndership)
+ 	{
+-		if (aMem == 0 || aLength == 0 || aSamplerate <= 0 || aChannels < 1)
++		if (aMem == 0 || !(aSamplerate > 0) || aChannels < 1 || aChannels > MAX_CHANNELS || aLength < aChannels)
+ 			return INVALID_PARAMETER;
+ 		stop();
+ 		delete[] mData;

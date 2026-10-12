@@ -45,6 +45,7 @@ set(REFERENCE_TESTS
   inaudible_tick_over_active_cap
   protected_voice_stays_active
   zero_step_voice_no_stale_scratch
+  extreme_speed_makes_progress
   generic_seek_small_scratch
   play_stop_without_init
   play_after_failed_init
@@ -52,6 +53,12 @@ set(REFERENCE_TESTS
   wavstream_rejects_too_many_channels
   active_voice_cap_above_255
   play3d_reused_slot_flags
+  pan_ramp_leftover_frames
+  surround_to_quad_center_follows_volume
+  quad_to_7_1_rear_uses_rear_volume
+  play_without_free_voice
+  handle_slot_out_of_range
+  raw_wave_rejects_bad_layout
 )
 
 enable_testing()

@@ -1,0 +1,80 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 13:37:21 +0300
+Subject: [PATCH] Voice handles: return 0 when no voice is free; bound the slot
+ field
+
+When every voice was protected, findFreeVoice_internal called
+stopVoice_internal(-1) and play then returned UNKNOWN_ERROR (7) as the
+handle, which decodes as voice slot 6. Return -1 without stopping
+anything, and have play return 0, the invalid handle.
+
+A handle's low 12 bits hold slot + 1, so 0 and values above
+VOICE_COUNT indexed mVoice and m3dData out of bounds in
+getVoiceFromHandle_internal and the 3D voice loops. Treat those
+handles as invalid.
+---
+ include/soloud_internal.h         | 4 ++--
+ src/core/soloud_core_basicops.cpp | 2 +-
+ src/core/soloud_core_getters.cpp  | 6 ++++++
+ 3 files changed, 9 insertions(+), 3 deletions(-)
+
+diff --git a/include/soloud_internal.h b/include/soloud_internal.h
+index c0589ab..de51adb 100644
+--- a/include/soloud_internal.h
++++ b/include/soloud_internal.h
+@@ -116,7 +116,7 @@ namespace SoLoud
+ 				while (*h_) \
+ 						{ \
+ 			int ch = (*h_ & 0xfff) - 1; \
+-			if (ch != -1 && m3dData[ch].mHandle == *h_)  \
++			if (ch >= 0 && ch < VOICE_COUNT && m3dData[ch].mHandle == *h_)  \
+ 						{
+ 
+ #define FOR_ALL_VOICES_POST_3D \
+@@ -150,7 +150,7 @@ namespace SoLoud
+ 				while (*h_) \
+ 						{ \
+ 			int ch = (*h_ & 0xfff) - 1; \
+-			if (ch != -1 && mSoloud->m3dData[ch].mHandle == *h_)  \
++			if (ch >= 0 && ch < VOICE_COUNT && mSoloud->m3dData[ch].mHandle == *h_)  \
+ 						{
+ 
+ #define FOR_ALL_VOICES_POST_3D_EXT \
+diff --git a/src/core/soloud_core_basicops.cpp b/src/core/soloud_core_basicops.cpp
+index 626c483..fe873ce 100644
+--- a/src/core/soloud_core_basicops.cpp
++++ b/src/core/soloud_core_basicops.cpp
+@@ -48,7 +48,7 @@ namespace SoLoud
+ 		{
+ 			unlockAudioMutex_internal();
+ 			delete instance;
+-			return UNKNOWN_ERROR;
++			return 0; // the invalid handle; UNKNOWN_ERROR would decode as voice 6
+ 		}
+ 		if (!aSound.mAudioSourceID)
+ 		{
+diff --git a/src/core/soloud_core_getters.cpp b/src/core/soloud_core_getters.cpp
+index 2fca9a6..9818b66 100644
+--- a/src/core/soloud_core_getters.cpp
++++ b/src/core/soloud_core_getters.cpp
+@@ -68,6 +68,9 @@ namespace SoLoud
+ 
+ 		int ch = (aVoiceHandle & 0xfff) - 1;
+ 		unsigned int idx = aVoiceHandle >> 12;
++		// The slot field holds 0..4095; only 1..VOICE_COUNT name a voice.
++		if (ch < 0 || ch >= VOICE_COUNT)
++			return -1;
+ 		if (mVoice[ch] &&
+ 			(mVoice[ch]->mPlayIndex & 0xfffff) == idx)
+ 		{
+@@ -333,6 +336,9 @@ namespace SoLoud
+ 				lowest_play_index = i;
+ 			}
+ 		}
++		// Every voice is protected: there is nothing to steal.
++		if (lowest_play_index == -1)
++			return -1;
+ 		stopVoice_internal(lowest_play_index);
+ 		return lowest_play_index;
+ 	}
