@@ -125,7 +125,9 @@ Known reference defects fixed on both sides by patches 0018 to 0024 (pan ramp
 leftovers, surround fold-down volumes, no-free-voice handling, raw layout
 validation, the #343 hang, protection not recomputing the active voices,
 sound endings dropped when a mix ends mid-block) are listed in
-[PORTING.md](PORTING.md#reference-patch-ledger).
+[PORTING.md](PORTING.md#reference-patch-ledger). Patch 0025 (sounds, buses
+and queues that outlive their engine or play on several engines) has no Rust
+counterpart: sounds hold no engine pointer, and voices own their samples.
 
 ## Not yet covered
 

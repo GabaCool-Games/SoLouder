@@ -367,6 +367,7 @@ unpatched reference, and each needs a matching Rust test.
 | 0022 | #343 | With a step of 512 source frames or more per output frame (for example speed 600 at equal rates), no output frame fits in a block, so the resampling loop loaded block after block forever and `mix` never returned. The old guard only caught steps above 4096, and the inaudible-tick branch had none. Such steps (and NaN) now take the stopped-voice path (step 0) in both branches. | `extreme_speed_makes_progress` |
 | 0023 | — (found in the milestone C review) | `setProtectVoice` changed the flag without marking the active voice set dirty, so a newly protected voice stayed unmixed (and an unprotected one kept its place) until an unrelated play, stop, pause or volume change recomputed the set. | `protecting_a_voice_makes_it_active` |
 | 0024 | — (related to #76) | A non-looping voice was stopped at the end of the mix call in which its source reported the end, which happens once the last block is read, not played. When the call ended partway through that block (any device buffer not a multiple of 512 frames, such as WASAPI's, or any resampling) the rest was dropped with a click: up to one source block, 600 frames of a 1000-frame sound at speed 0.73 in 256-frame calls. A voice now records the real samples in its newest block and stops once the position has passed them by the resamplers' two-frame history; a voice that cannot advance still stops when its source ends. | `sound_tail_survives_unaligned_mix_calls` |
+| 0025 | — (found testing GoreGrind's libraries) | `AudioSource::mSoloud` kept pointing at the last engine a sound was played on. Stopping or destroying the sound after that engine was destroyed used freed memory (it hung on the freed mutex); a sound played on two engines was stopped only on one, so destroying it left the other voice reading freed samples; sound IDs were counted per engine, so stopping one sound could stop another first played on a different engine. Engines are now in a process-wide list: `AudioSource::stop` stops the sound on every live engine, `~Soloud` leaves the list first, and IDs are process-wide. `BusInstance` keeps its own engine, and bus and queue instances clear their parent's pointer and handle when destroyed, so `Bus` and `Queue` calls after their engine is gone do nothing; playing one again on any engine moves it. An engine's audio mutex lives as long as the engine and `postinit_internal` holds it, since another thread may stop a sound on an engine being initialized. `SINGLE_INSTANCE` stops only on the engine playing the sound. Still open upstream: a sound destroyed while queued in a `Queue`, and `DuckFilter`'s engine pointer. | `source_outlives_its_engine`, `source_stops_on_every_engine`, `source_ids_unique_across_engines`, `bus_outlives_its_engine`, `queue_outlives_its_engine`, `bus_moved_to_another_engine`, `sources_and_engines_on_two_threads` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the `goregrind` branch). Its README lists every fix with
@@ -463,9 +464,9 @@ The game uses the patched DLL through C# bindings
   on several per-listener engines made teardown order matter. Rust: filter
   definitions are immutable; every voice/bus owns its instance state.
 - **Back-pointers outlive engines.** `AudioSource::mSoloud` is not cleared when
-  an engine is destroyed, and `~AudioSource` stops voices only on the last
-  engine that played it. The game must "abandon" sources rather than destroy
-  them at exit. Rust: no source-to-engine pointers; voices hold `Arc` PCM.
+  an engine is destroyed, and `~AudioSource` stopped voices only on the last
+  engine that played it. The game "abandons" sources rather than destroying
+  them at exit; patch 0025 makes destroying them safe. Rust: no source-to-engine pointers; voices hold `Arc` PCM.
 - **One engine per listener** (two for co-op) exposed process-global backend
   state (patch 0001). Rust: device state is per engine.
 - **Filters can produce NaN.** Source filters run at the voice's rate before

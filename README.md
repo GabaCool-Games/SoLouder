@@ -17,7 +17,7 @@ Bevy entities. Buses, filters, 3D audio, streaming and the other codecs are
 not ported yet; [docs/port-status.md](docs/port-status.md) has the details.
 
 - **A patched C++ reference.** Upstream SoLoud, pinned in
-  `reference/upstream.json`, plus 24 patches in `reference/patches/`. They fix
+  `reference/upstream.json`, plus 25 patches in `reference/patches/`. They fix
   upstream crashes, hangs, and memory-safety bugs that were never merged
   upstream, including the WavStream seek heap corruption
   ([#405](https://github.com/jarikomppa/soloud/issues/405)). Every behavioral

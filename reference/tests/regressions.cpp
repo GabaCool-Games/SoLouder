@@ -6,11 +6,16 @@
 #include <cmath>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <cstring>
+#include <new>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "soloud.h"
+#include "soloud_bus.h"
+#include "soloud_queue.h"
 #include "soloud_wav.h"
 #include "soloud_wavstream.h"
 
@@ -546,6 +551,165 @@ namespace
 		check(wav.loadRawWave(f.data(), 16, (float)kRate, MAX_CHANNELS, true, false) == SO_NO_ERROR, "float: 8 channels accepted");
 	}
 
+	// An engine whose memory is poisoned once it is destroyed, the way a debug
+	// heap marks freed memory, so a later read through a stale pointer fails
+	// instead of finding the old values.
+	struct PoisonedEngine
+	{
+		void *mMemory;
+		Soloud *mEngine;
+
+		PoisonedEngine() : mMemory(std::malloc(sizeof(Soloud))), mEngine(new (mMemory) Soloud) {}
+
+		void destroy()
+		{
+			mEngine->~Soloud();
+			std::memset(mMemory, 0xdd, sizeof(Soloud));
+		}
+
+		~PoisonedEngine() { std::free(mMemory); }
+	};
+
+	// AudioSource::mSoloud kept pointing at a destroyed engine, so stopping or
+	// destroying a sound afterwards used freed memory (it hung on the freed
+	// mutex).
+	void source_outlives_its_engine()
+	{
+		Wav *wav = new Wav;
+		check(loadConstantRaw(*wav, 1, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		PoisonedEngine dead;
+		check(initNull(*dead.mEngine), "null driver init");
+		dead.mEngine->play(*wav);
+		dead.destroy();
+		wav->stop();
+		delete wav;
+	}
+
+	// A sound played on two engines was stopped only on the engine it was last
+	// played on, so destroying it left the other voice reading freed samples.
+	void source_stops_on_every_engine()
+	{
+		Wav *wav = new Wav;
+		check(loadConstantRaw(*wav, 1, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		Soloud a, b;
+		check(initNull(a) && initNull(b), "null driver init");
+		a.play(*wav);
+		b.play(*wav);
+		wav->stop();
+		check(a.getVoiceCount() == 0, "stop() stops the voice on the first engine");
+		check(b.getVoiceCount() == 0, "stop() stops the voice on the second engine");
+		a.play(*wav);
+		b.play(*wav);
+		delete wav;
+		check(a.getVoiceCount() == 0, "destroying the sound stops it on the first engine");
+		check(b.getVoiceCount() == 0, "destroying the sound stops it on the second engine");
+		render(a, 1024);
+		render(b, 1024);
+	}
+
+	// Sound IDs were counted per engine, so sounds first played on different
+	// engines could share an ID, and stopping one stopped the other.
+	void source_ids_unique_across_engines()
+	{
+		Wav x, y;
+		check(loadConstantRaw(x, 1, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		check(loadConstantRaw(y, 1, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		Soloud a, b;
+		check(initNull(a) && initNull(b), "null driver init");
+		a.play(x);
+		b.play(y);
+		b.play(x);
+		check(b.countAudioSource(y) == 1, "the second sound counts only its own voice");
+		x.stop();
+		check(b.countAudioSource(y) == 1, "stopping the first sound leaves the second playing");
+		check(a.getVoiceCount() == 0 && b.getVoiceCount() == 1, "only the first sound's voices stopped");
+	}
+
+	// Bus kept its instance pointer after the instance was destroyed, so a bus
+	// used after its engine was destroyed read freed memory.
+	void bus_outlives_its_engine()
+	{
+		Wav wav;
+		check(loadConstantRaw(wav, 1, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		Bus *bus = new Bus;
+		PoisonedEngine dead;
+		check(initNull(*dead.mEngine), "null driver init");
+		dead.mEngine->play(*bus);
+		check(bus->play(wav) != 0, "the bus plays a sound");
+		dead.destroy();
+		check(bus->play(wav) == 0, "a bus whose engine is gone does not play");
+		check(bus->getActiveVoiceCount() == 0, "a bus whose engine is gone has no voices");
+		bus->annexSound(1);
+		bus->setFilter(0, 0);
+		bus->getWave();
+		bus->calcFFT();
+		check(bus->getApproximateVolume(0) == 0.0f, "a bus whose engine is gone is silent");
+		delete bus;
+	}
+
+	// Queue had the same stale instance and engine pointers as Bus.
+	void queue_outlives_its_engine()
+	{
+		Wav wav;
+		check(loadConstantRaw(wav, 1, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		Queue *queue = new Queue;
+		queue->setParamsFromAudioSource(wav);
+		PoisonedEngine dead;
+		check(initNull(*dead.mEngine), "null driver init");
+		dead.mEngine->play(*queue);
+		check(queue->play(wav) == SO_NO_ERROR, "the queue accepts a sound");
+		dead.destroy();
+		check(queue->play(wav) != SO_NO_ERROR, "a queue whose engine is gone accepts nothing");
+		check(queue->getQueueCount() == 1, "the unplayed sound is still counted");
+		check(!queue->isCurrentlyPlaying(wav), "a queue whose engine is gone plays nothing");
+		delete queue;
+	}
+
+	// Playing a bus on a second engine left its old instance on the first, and
+	// destroying that instance stopped the bus's voices on the second engine.
+	void bus_moved_to_another_engine()
+	{
+		Wav wav;
+		check(loadConstantRaw(wav, 1, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		Bus bus;
+		Soloud *a = new Soloud;
+		Soloud b;
+		check(initNull(*a) && initNull(b), "null driver init");
+		a->play(bus);
+		b.play(bus);
+		check(a->getVoiceCount() == 0, "the bus left the first engine");
+		check(bus.play(wav) != 0, "the bus plays on the second engine");
+		delete a;
+		check(b.getVoiceCount() == 2, "destroying the first engine leaves the second engine's voices");
+	}
+
+	// Sounds destroyed on one thread stop on every engine while another thread
+	// creates, initializes and destroys engines.
+	void sources_and_engines_on_two_threads()
+	{
+		Soloud shared;
+		check(initNull(shared), "null driver init");
+		std::thread engines([] {
+			Wav wav;
+			loadConstantRaw(wav, 1, 4096, 0.5f);
+			for (int i = 0; i < 500; i++)
+			{
+				Soloud engine;
+				initNull(engine);
+				engine.play(wav);
+			}
+		});
+		for (int i = 0; i < 2000; i++)
+		{
+			Wav *wav = new Wav;
+			loadConstantRaw(*wav, 1, 64, 0.5f);
+			shared.play(*wav);
+			delete wav;
+		}
+		engines.join();
+		check(shared.getVoiceCount() == 0, "every destroyed sound was stopped");
+	}
+
 	struct TestCase
 	{
 		const char *mName;
@@ -574,6 +738,13 @@ namespace
 		{ "play_without_free_voice", play_without_free_voice },
 		{ "handle_slot_out_of_range", handle_slot_out_of_range },
 		{ "raw_wave_rejects_bad_layout", raw_wave_rejects_bad_layout },
+		{ "source_outlives_its_engine", source_outlives_its_engine },
+		{ "source_stops_on_every_engine", source_stops_on_every_engine },
+		{ "source_ids_unique_across_engines", source_ids_unique_across_engines },
+		{ "bus_outlives_its_engine", bus_outlives_its_engine },
+		{ "queue_outlives_its_engine", queue_outlives_its_engine },
+		{ "bus_moved_to_another_engine", bus_moved_to_another_engine },
+		{ "sources_and_engines_on_two_threads", sources_and_engines_on_two_threads },
 	};
 }
 

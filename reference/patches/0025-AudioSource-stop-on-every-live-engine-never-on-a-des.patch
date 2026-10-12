@@ -1,0 +1,446 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 16:45:07 +0300
+Subject: [PATCH] AudioSource: stop on every live engine, never on a destroyed
+ one
+
+AudioSource::mSoloud kept pointing at the last engine a sound was played
+on. Destroying or stopping the sound after that engine was destroyed used
+freed memory (it hung or crashed on the freed mutex), and a sound played on
+two engines was stopped only on one, leaving the other voice reading freed
+samples when the sound was destroyed.
+
+- Engines are kept in a process-wide list. AudioSource::stop() stops the
+  sound on every live engine, under the list's lock; ~Soloud leaves the
+  list first, so it waits for a stop in progress.
+- Sound IDs are process-wide, so sounds first played on different engines
+  no longer share an ID (stopping one stopped the other).
+- BusInstance remembers its own engine. BusInstance and QueueInstance
+  clear their parent's instance pointer and handle when destroyed, so Bus
+  and Queue calls after the instance or its engine is gone do nothing
+  instead of using freed memory. Playing a bus or queue again, on any
+  engine, stops its old instance.
+- A bus that never found its handle no longer stops every main-bus voice
+  when its instance is destroyed.
+- An engine's audio mutex now lives as long as the engine, and
+  postinit_internal holds it, because a sound can be stopped on an engine
+  from another thread while it is being initialized.
+- SINGLE_INSTANCE stops the sound only on the engine playing it.
+---
+ include/soloud.h                  |  9 +++-
+ include/soloud_bus.h              |  2 +
+ src/core/soloud.cpp               | 72 ++++++++++++++++++++++++++++---
+ src/core/soloud_audiosource.cpp   |  5 +--
+ src/core/soloud_bus.cpp           | 33 +++++++++-----
+ src/core/soloud_core_basicops.cpp |  8 +---
+ src/core/soloud_queue.cpp         | 24 ++++++-----
+ 7 files changed, 114 insertions(+), 39 deletions(-)
+
+diff --git a/include/soloud.h b/include/soloud.h
+index e3b47d8..33b6b12 100644
+--- a/include/soloud.h
++++ b/include/soloud.h
+@@ -459,6 +459,11 @@ namespace SoLoud
+ 		// Mix N samples * M channels. Called by other mix_ functions.
+ 		void mix_internal(unsigned int aSamples, unsigned int aStride);
+ 
++		// Gives the sound a process-wide unique ID if it has none, so its voices can be found on any engine.
++		static void assignAudioSourceID_internal(AudioSource &aSound);
++		// Stops the sound on every live engine. Must not be called with an audio mutex held.
++		static void stopAudioSourceOnAllEngines_internal(AudioSource &aSound);
++
+ 		// Handle rest of initialization (called from backend)
+ 		void postinit_internal(unsigned int aSamplerate, unsigned int aBufferSize, unsigned int aFlags, unsigned int aChannels);
+ 
+@@ -540,8 +545,8 @@ namespace SoLoud
+ 		float mPostClipScaler;
+ 		// Current play index. Used to create audio handles.
+ 		unsigned int mPlayIndex;
+-		// Current sound source index. Used to create sound source IDs.
+-		unsigned int mAudioSourceID;
++		// Next engine in the process-wide list of live engines.
++		Soloud *mNextEngine;
+ 		// Fader for the global volume.
+ 		Fader mGlobalVolumeFader;
+ 		// Global stream time, for the global volume fader.
+diff --git a/include/soloud_bus.h b/include/soloud_bus.h
+index dd8de45..f1aa8b4 100644
+--- a/include/soloud_bus.h
++++ b/include/soloud_bus.h
+@@ -35,6 +35,8 @@ namespace SoLoud
+ 	{
+ 	public:
+ 		Bus *mParent;
++		// The engine this instance plays on; the bus may be played on another engine later.
++		Soloud *mSoloud;
+ 		unsigned int mScratchSize;
+ 		AlignedFloatBuffer mScratch;
+ 
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index ae9c7e5..4ab6f73 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -53,6 +53,24 @@ freely, subject to the following restrictions:
+ 
+ namespace SoLoud
+ {
++	namespace
++	{
++		// The live engines and the next sound ID. Never destroyed, so engines
++		// and sounds in static storage can still use it at exit.
++		struct EngineRegistry
++		{
++			void *mMutex;
++			Soloud *mFirst;
++			unsigned int mNextAudioSourceID;
++		};
++
++		EngineRegistry &engineRegistry()
++		{
++			static EngineRegistry registry = { Thread::createMutex(), 0, 1 };
++			return registry;
++		}
++	}
++
+ 	AlignedFloatBuffer::AlignedFloatBuffer()
+ 	{
+ 		mBasePtr = 0;
+@@ -113,7 +131,8 @@ namespace SoLoud
+ 		mGlobalVolume = 0;
+ 		mPlayIndex = 0;
+ 		mBackendData = NULL;
+-		mAudioThreadMutex = NULL;
++		// Lives as long as the engine: a sound can be stopped on any engine, initialized or not.
++		mAudioThreadMutex = Thread::createMutex();
+ 		mPostClipScaler = 0;
+ 		mBackendCleanupFunc = NULL;
+ 		mBackendPauseFunc = NULL;
+@@ -121,7 +140,6 @@ namespace SoLoud
+ 		mChannels = 2;		
+ 		mStreamTime = 0;
+ 		mLastClockedTime = 0;
+-		mAudioSourceID = 1;
+ 		mBackendString = 0;
+ 		mBackendID = 0;
+ 		mActiveVoiceDirty = true;
+@@ -170,10 +188,26 @@ namespace SoLoud
+ 		mResampleDataOwner = NULL;
+ 		for (i = 0; i < 3 * MAX_CHANNELS; i++)
+ 			m3dSpeakerPosition[i] = 0;
++
++		EngineRegistry &registry = engineRegistry();
++		Thread::lockMutex(registry.mMutex);
++		mNextEngine = registry.mFirst;
++		registry.mFirst = this;
++		Thread::unlockMutex(registry.mMutex);
+ 	}
+ 
+ 	Soloud::~Soloud()
+ 	{
++		// Leave the list first; this waits for a sound being stopped on another thread to finish with this engine.
++		EngineRegistry &registry = engineRegistry();
++		Thread::lockMutex(registry.mMutex);
++		Soloud **link = &registry.mFirst;
++		while (*link && *link != this)
++			link = &(*link)->mNextEngine;
++		if (*link)
++			*link = mNextEngine;
++		Thread::unlockMutex(registry.mMutex);
++
+ 		// let's stop all sounds before deinit, so we don't mess up our mutexes
+ 		stopAll();
+ 		deinit();
+@@ -187,6 +221,8 @@ namespace SoLoud
+ 		delete[] mVoiceGroup;
+ 		delete[] mResampleData;
+ 		delete[] mResampleDataOwner;
++		if (mAudioThreadMutex)
++			Thread::destroyMutex(mAudioThreadMutex);
+ 	}
+ 
+ 	void Soloud::deinit()
+@@ -199,9 +235,6 @@ namespace SoLoud
+ 		if (mBackendCleanupFunc)
+ 			mBackendCleanupFunc(this);
+ 		mBackendCleanupFunc = 0;
+-		if (mAudioThreadMutex)
+-			Thread::destroyMutex(mAudioThreadMutex);
+-		mAudioThreadMutex = NULL;
+ 	}
+ 
+ 	result Soloud::init(unsigned int aFlags, unsigned int aBackend, unsigned int aSamplerate, unsigned int aBufferSize, unsigned int aChannels)
+@@ -211,8 +244,6 @@ namespace SoLoud
+ 
+ 		deinit();
+ 
+-		mAudioThreadMutex = Thread::createMutex();
+-
+ 		mBackendID = 0;
+ 		mBackendString = 0;
+ 
+@@ -590,6 +621,8 @@ namespace SoLoud
+ 
+ 	void Soloud::postinit_internal(unsigned int aSamplerate, unsigned int aBufferSize, unsigned int aFlags, unsigned int aChannels)
+ 	{		
++		// Another thread may be stopping a sound on this engine.
++		lockAudioMutex_internal();
+ 		mGlobalVolume = 1;
+ 		mChannels = aChannels;
+ 		mSamplerate = aSamplerate;
+@@ -703,6 +736,7 @@ namespace SoLoud
+ 			m3dSpeakerPosition[7 * 3 + 2] = -1;
+ 			break;
+ 		}
++		unlockAudioMutex_internal();
+ 	}
+ 
+ 	const char * Soloud::getErrorString(result aErrorCode) const
+@@ -2341,6 +2375,30 @@ namespace SoLoud
+ 		}
+ 	}
+ 
++	void Soloud::assignAudioSourceID_internal(AudioSource &aSound)
++	{
++		EngineRegistry &registry = engineRegistry();
++		Thread::lockMutex(registry.mMutex);
++		if (!aSound.mAudioSourceID)
++		{
++			aSound.mAudioSourceID = registry.mNextAudioSourceID++;
++			if (registry.mNextAudioSourceID == 0)
++				registry.mNextAudioSourceID = 1;
++		}
++		Thread::unlockMutex(registry.mMutex);
++	}
++
++	void Soloud::stopAudioSourceOnAllEngines_internal(AudioSource &aSound)
++	{
++		if (!aSound.mAudioSourceID)
++			return;
++		EngineRegistry &registry = engineRegistry();
++		Thread::lockMutex(registry.mMutex);
++		for (Soloud *engine = registry.mFirst; engine; engine = engine->mNextEngine)
++			engine->stopAudioSource(aSound);
++		Thread::unlockMutex(registry.mMutex);
++	}
++
+ 	void Soloud::lockAudioMutex_internal()
+ 	{
+ 		if (mAudioThreadMutex)
+diff --git a/src/core/soloud_audiosource.cpp b/src/core/soloud_audiosource.cpp
+index bf75f32..0e7f22b 100644
+--- a/src/core/soloud_audiosource.cpp
++++ b/src/core/soloud_audiosource.cpp
+@@ -282,10 +282,7 @@ namespace SoLoud
+ 
+ 	void AudioSource::stop()
+ 	{
+-		if (mSoloud)
+-		{
+-			mSoloud->stopAudioSource(*this);
+-		}
++		Soloud::stopAudioSourceOnAllEngines_internal(*this);
+ 	}
+ 
+ 	void AudioSource::set3dMinMaxDistance(float aMinDistance, float aMaxDistance)
+diff --git a/src/core/soloud_bus.cpp b/src/core/soloud_bus.cpp
+index 60754e7..96670f2 100644
+--- a/src/core/soloud_bus.cpp
++++ b/src/core/soloud_bus.cpp
+@@ -31,6 +31,7 @@ namespace SoLoud
+ 	BusInstance::BusInstance(Bus *aParent)
+ 	{
+ 		mParent = aParent;
++		mSoloud = aParent->mSoloud;
+ 		mFlags |= PROTECTED | INAUDIBLE_TICK;		
+ 		for (int i = 0; i < MAX_CHANNELS; i++)
+ 			mVisualizationChannelVolume[i] = 0;
+@@ -52,7 +53,7 @@ namespace SoLoud
+ 			return aSamplesToRead;
+ 		}
+ 		
+-		Soloud *s = mParent->mSoloud;
++		Soloud *s = mSoloud;
+ 		
+ 		s->mixBus_internal(aBuffer, aSamplesToRead, aBufferSize, mScratch.mData, handle, mSamplerate, mChannels, mParent->mResampler);
+ 
+@@ -107,15 +108,23 @@ namespace SoLoud
+ 
+ 	BusInstance::~BusInstance()
+ 	{
+-		Soloud *s = mParent->mSoloud;
+-		int i;
+-		for (i = 0; i < (signed)s->mHighestVoice; i++)
++		if (mParent->mInstance != this)
++			return;
++		// Handle 0 is the main bus; a bus that never found its handle has no voices of its own.
++		if (mParent->mChannelHandle)
+ 		{
+-			if (s->mVoice[i] && s->mVoice[i]->mBusHandle == mParent->mChannelHandle)
++			Soloud *s = mSoloud;
++			int i;
++			for (i = 0; i < (signed)s->mHighestVoice; i++)
+ 			{
+-				s->stopVoice_internal(i);
++				if (s->mVoice[i] && s->mVoice[i]->mBusHandle == mParent->mChannelHandle)
++				{
++					s->stopVoice_internal(i);
++				}
+ 			}
+ 		}
++		mParent->mInstance = 0;
++		mParent->mChannelHandle = 0;
+ 	}
+ 
+ 	Bus::Bus()
+@@ -133,19 +142,19 @@ namespace SoLoud
+ 	
+ 	BusInstance * Bus::createInstance()
+ 	{
+-		if (mChannelHandle)
++		// One instance per bus: playing it again, on any engine, moves it.
++		if (mInstance)
+ 		{
+ 			stop();
+-			mChannelHandle = 0;
+-			mInstance = 0;
+ 		}
++		mChannelHandle = 0;
+ 		mInstance = new BusInstance(this);
+ 		return mInstance;
+ 	}
+ 
+ 	void Bus::findBusHandle()
+ 	{
+-		if (mChannelHandle == 0)
++		if (mChannelHandle == 0 && mInstance)
+ 		{
+ 			// Find the channel the bus is playing on to calculate handle..
+ 			int i;
+@@ -227,6 +236,8 @@ namespace SoLoud
+ 
+ 	void Bus::annexSound(handle aVoiceHandle)
+ 	{
++		if (!mInstance || !mSoloud)
++			return;
+ 		findBusHandle();
+ 		FOR_ALL_VOICES_PRE_EXT
+ 			mSoloud->mVoice[ch]->mBusHandle = mChannelHandle;
+@@ -334,6 +345,8 @@ namespace SoLoud
+ 	{
+ 		int i;
+ 		unsigned int count = 0;
++		if (!mInstance || !mSoloud)
++			return 0;
+ 		findBusHandle();
+ 		mSoloud->lockAudioMutex_internal();
+ 		for (i = 0; i < VOICE_COUNT; i++)
+diff --git a/src/core/soloud_core_basicops.cpp b/src/core/soloud_core_basicops.cpp
+index fe873ce..545db83 100644
+--- a/src/core/soloud_core_basicops.cpp
++++ b/src/core/soloud_core_basicops.cpp
+@@ -34,12 +34,13 @@ namespace SoLoud
+ 		if (aSound.mFlags & AudioSource::SINGLE_INSTANCE)
+ 		{
+ 			// Only one instance allowed, stop others
+-			aSound.stop();
++			stopAudioSource(aSound);
+ 		}
+ 
+ 		// Creation of an audio instance may take significant amount of time,
+ 		// so let's not do it inside the audio thread mutex.
+ 		aSound.mSoloud = this;
++		assignAudioSourceID_internal(aSound);
+ 		SoLoud::AudioSourceInstance *instance = aSound.createInstance();
+ 
+ 		lockAudioMutex_internal();
+@@ -50,11 +51,6 @@ namespace SoLoud
+ 			delete instance;
+ 			return 0; // the invalid handle; UNKNOWN_ERROR would decode as voice 6
+ 		}
+-		if (!aSound.mAudioSourceID)
+-		{
+-			aSound.mAudioSourceID = mAudioSourceID;
+-			mAudioSourceID++;
+-		}
+ 		mVoice[ch] = instance;
+ 		mVoice[ch]->mAudioSourceID = aSound.mAudioSourceID;
+ 		mVoice[ch]->mBusHandle = aBus;
+diff --git a/src/core/soloud_queue.cpp b/src/core/soloud_queue.cpp
+index b2d1f5a..98c0d91 100644
+--- a/src/core/soloud_queue.cpp
++++ b/src/core/soloud_queue.cpp
+@@ -64,6 +64,11 @@ namespace SoLoud
+ 
+ 	QueueInstance::~QueueInstance()
+ 	{
++		if (mParent->mInstance == this)
++		{
++			mParent->mInstance = 0;
++			mParent->mQueueHandle = 0;
++		}
+ 	}
+ 
+ 	Queue::Queue()
+@@ -83,8 +88,8 @@ namespace SoLoud
+ 		if (mInstance)
+ 		{
+ 			stop();
+-			mInstance = 0;
+ 		}
++		mQueueHandle = 0;
+ 		mInstance = new QueueInstance(this);
+ 		return mInstance;
+ 	}
+@@ -92,6 +97,8 @@ namespace SoLoud
+ 	void Queue::findQueueHandle()
+ 	{
+ 		// Find the channel the queue is playing on to calculate handle..
++		if (!mInstance)
++			return;
+ 		int i;
+ 		for (i = 0; mQueueHandle == 0 && i < (signed)mSoloud->mHighestVoice; i++)
+ 		{
+@@ -104,7 +111,7 @@ namespace SoLoud
+ 
+ 	result Queue::play(AudioSource &aSound)
+ 	{
+-		if (!mSoloud)
++		if (!mInstance || !mSoloud)
+ 		{
+ 			return INVALID_PARAMETER;
+ 		}
+@@ -117,11 +124,7 @@ namespace SoLoud
+ 		if (mCount >= SOLOUD_QUEUE_MAX)
+ 			return OUT_OF_MEMORY;
+ 
+-		if (!aSound.mAudioSourceID)
+-		{
+-			aSound.mAudioSourceID = mSoloud->mAudioSourceID;
+-			mSoloud->mAudioSourceID++;
+-		}
++		Soloud::assignAudioSourceID_internal(aSound);
+ 
+ 		SoLoud::AudioSourceInstance *instance = aSound.createInstance();
+ 
+@@ -144,9 +147,10 @@ namespace SoLoud
+ 
+ 	unsigned int Queue::getQueueCount()
+ 	{
+-		if (!mSoloud)
++		// Without an instance no audio thread reads the queue.
++		if (!mInstance || !mSoloud)
+ 		{
+-			return 0;
++			return mCount;
+ 		}
+ 		unsigned int count;
+ 		mSoloud->lockAudioMutex_internal();
+@@ -157,7 +161,7 @@ namespace SoLoud
+ 
+ 	bool Queue::isCurrentlyPlaying(AudioSource &aSound)
+ 	{
+-		if (mSoloud == 0 || mCount == 0 || aSound.mAudioSourceID == 0)
++		if (!mInstance || !mSoloud || mCount == 0 || aSound.mAudioSourceID == 0)
+ 			return false;
+ 		mSoloud->lockAudioMutex_internal();
+ 		bool res = mSource[mReadIndex]->mAudioSourceID == aSound.mAudioSourceID;

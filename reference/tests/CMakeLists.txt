@@ -28,15 +28,18 @@ endforeach()
 
 add_subdirectory("${SOLOUDER_REFERENCE_DIR}/contrib" soloud EXCLUDE_FROM_ALL)
 
+# soloud_thread.cpp uses pthreads outside Windows.
+find_package(Threads REQUIRED)
+
 add_executable(reference_regressions regressions.cpp)
 target_include_directories(reference_regressions PRIVATE "${SOLOUDER_REFERENCE_DIR}/include")
-target_link_libraries(reference_regressions PRIVATE soloud)
+target_link_libraries(reference_regressions PRIVATE soloud Threads::Threads)
 
 # Renders tests/scenarios/*.scn for comparison with the Rust port
 # (scripts/run_parity.py).
 add_executable(parity_runner parity_runner.cpp)
 target_include_directories(parity_runner PRIVATE "${SOLOUDER_REFERENCE_DIR}/include")
-target_link_libraries(parity_runner PRIVATE soloud)
+target_link_libraries(parity_runner PRIVATE soloud Threads::Threads)
 
 # One process per test so a crash or hang fails only that test.
 set(REFERENCE_TESTS
@@ -61,6 +64,13 @@ set(REFERENCE_TESTS
   play_without_free_voice
   handle_slot_out_of_range
   raw_wave_rejects_bad_layout
+  source_outlives_its_engine
+  source_stops_on_every_engine
+  source_ids_unique_across_engines
+  bus_outlives_its_engine
+  queue_outlives_its_engine
+  bus_moved_to_another_engine
+  sources_and_engines_on_two_threads
 )
 
 enable_testing()
