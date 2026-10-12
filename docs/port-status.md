@@ -77,6 +77,7 @@ harness, so they are checked by Rust tests instead of scenarios:
 | `callback` unit tests (cpal) | Long callbacks render in parts identical to manual renders, conversion to `i16`, a renderer panic gives silence, dropping the callback returns the renderer |
 | `device_lifecycle` (cpal) | Repeated open/play/close, drop while playing, two outputs at once, invalid settings rejected before the device is opened |
 | `headless_playback` (Bevy, 8 tests) | Play to the end, stop on despawn, remove and replace, pause and resume, despawn on finish, `.wav` loading through the asset server, a bad file fails the player |
+| `playback_ownership` (Bevy, 8 tests) | Removing `SoundStatus` cannot orphan a voice, a replaced status shows the current state, a stolen sound reports `Stolen` and despawns its entity, starting speed and protection ride in the play request (sample-exact against the mixer with a nearly full queue), unusable settings are ignored and never resent, quiet frames send no commands, a failed output or dropped renderer fails waiting and playing sounds |
 | `plugin_lifecycle` (Bevy) | No output keeps the app running and fails plays, despawn before load never starts a voice, a 5000-sound burst gets one outcome per sound with every ID released, repeated device app teardown, prompt drop mid-playback |
 
 Device tests skip on machines without audio output (as in CI) unless
