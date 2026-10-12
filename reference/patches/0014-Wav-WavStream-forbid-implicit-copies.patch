@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: V <61495413+kelo221@users.noreply.github.com>
 Date: Mon, 12 Oct 2026 12:03:17 +0300
-Subject: [PATCH 14/14] Wav, WavStream: forbid implicit copies
+Subject: [PATCH] Wav, WavStream: forbid implicit copies
 
 Both own heap state (Wav::mData; WavStream::mFilename and mMemFile).
 The implicit copy constructor and assignment shallow-copied it, so the

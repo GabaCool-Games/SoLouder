@@ -39,10 +39,11 @@ def main(argv: list[str] | None = None) -> int:
     out_dir.mkdir(parents=True, exist_ok=True)
     for old in out_dir.glob("*.patch"):
         old.unlink()
-    # --zero-commit and --no-signature keep the files stable across exports.
+    # --zero-commit, --no-signature and --no-numbered keep existing files
+    # unchanged when later patches are added.
     subprocess.run(
         ["git", "-C", str(fork), "format-patch", "--zero-commit", "--no-signature",
-         "--output-directory", str(out_dir), f"{base}..{args.ref}"],
+         "--no-numbered", "--output-directory", str(out_dir), f"{base}..{args.ref}"],
         check=True,
     )
     count = len(list(out_dir.glob("*.patch")))

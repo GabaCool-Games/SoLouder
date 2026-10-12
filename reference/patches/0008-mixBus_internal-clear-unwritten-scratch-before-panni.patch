@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: V <61495413+kelo221@users.noreply.github.com>
 Date: Mon, 12 Oct 2026 11:59:32 +0300
-Subject: [PATCH 08/14] mixBus_internal: clear unwritten scratch before panning
- a voice
+Subject: [PATCH] mixBus_internal: clear unwritten scratch before panning a
+ voice
 
 When a voice's fixed-point step is zero (relative speed near zero, or a
 step beyond the fixed-point range that is forced to zero), the resample

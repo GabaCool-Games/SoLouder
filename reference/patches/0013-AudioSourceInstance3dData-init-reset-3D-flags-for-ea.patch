@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: V <61495413+kelo221@users.noreply.github.com>
 Date: Mon, 12 Oct 2026 12:02:52 +0300
-Subject: [PATCH 13/14] AudioSourceInstance3dData::init: reset 3D flags for
- each new voice
+Subject: [PATCH] AudioSourceInstance3dData::init: reset 3D flags for each new
+ voice
 
 init() did not touch mFlags, so a reused voice slot kept the previous
 voice's 3D flags until update3dAudio copied the instance flags. play3d

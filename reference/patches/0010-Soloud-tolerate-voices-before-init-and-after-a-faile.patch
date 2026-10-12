@@ -1,8 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: V <61495413+kelo221@users.noreply.github.com>
 Date: Mon, 12 Oct 2026 12:00:18 +0300
-Subject: [PATCH 10/14] Soloud: tolerate voices before init and after a failed
- init
+Subject: [PATCH] Soloud: tolerate voices before init and after a failed init
 
 mMaxActiveVoices is 16 from construction, but mResampleData and
 mResampleDataOwner are only allocated by postinit_internal. Stopping a

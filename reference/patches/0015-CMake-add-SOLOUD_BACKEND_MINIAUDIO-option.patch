@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 12:48:05 +0300
+Subject: [PATCH] CMake: add SOLOUD_BACKEND_MINIAUDIO option
+
+Builds src/backend/miniaudio and, on Linux, links libdl, pthread and libm.
+miniaudio opens ALSA, PulseAudio and JACK at run time, so the library has no
+hard dependency on any of them.
+---
+ contrib/Configure.cmake |  3 +++
+ contrib/src.cmake       | 20 ++++++++++++++++++++
+ 2 files changed, 23 insertions(+)
+
+diff --git a/contrib/Configure.cmake b/contrib/Configure.cmake
+index bd68ab5..61180bb 100644
+--- a/contrib/Configure.cmake
++++ b/contrib/Configure.cmake
+@@ -38,5 +38,8 @@ print_option_status (SOLOUD_BACKEND_WINMM "WINMM backend")
+ option (SOLOUD_BACKEND_WASAPI "Set to ON for building WASAPI backend" OFF)
+ print_option_status (SOLOUD_BACKEND_WASAPI "WASAPI backend")
+ 
++option (SOLOUD_BACKEND_MINIAUDIO "Set to ON for building MiniAudio backend" OFF)
++print_option_status (SOLOUD_BACKEND_MINIAUDIO "MiniAudio backend")
++
+ option (SOLOUD_GENERATE_GLUE "Set to ON for generating the Glue APIs" OFF)
+ print_option_status (SOLOUD_GENERATE_GLUE "Generate Glue")
+diff --git a/contrib/src.cmake b/contrib/src.cmake
+index c39b03c..a85b826 100644
+--- a/contrib/src.cmake
++++ b/contrib/src.cmake
+@@ -248,6 +248,26 @@ if (SOLOUD_BACKEND_WASAPI)
+ 	)
+ endif()
+ 
++if (SOLOUD_BACKEND_MINIAUDIO)
++	add_definitions (-DWITH_MINIAUDIO)
++
++	set (BACKENDS_SOURCES
++		${BACKENDS_SOURCES}
++		${BACKENDS_PATH}/miniaudio/soloud_miniaudio.cpp
++	)
++
++	# miniaudio loads ALSA, PulseAudio and JACK at run time.
++	if (UNIX AND NOT APPLE)
++		find_package (Threads REQUIRED)
++		set (LINK_LIBRARIES
++			${LINK_LIBRARIES}
++			${CMAKE_DL_LIBS}
++			Threads::Threads
++			m
++		)
++	endif()
++endif()
++
+ # Filters
+ set (FILTERS_PATH ${SOURCE_PATH}/filter)
+ set (FILTERS_SOURCES

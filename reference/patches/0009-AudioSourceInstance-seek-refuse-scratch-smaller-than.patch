@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: V <61495413+kelo221@users.noreply.github.com>
 Date: Mon, 12 Oct 2026 11:59:48 +0300
-Subject: [PATCH 09/14] AudioSourceInstance::seek: refuse scratch smaller than
- one frame
+Subject: [PATCH] AudioSourceInstance::seek: refuse scratch smaller than one
+ frame
 
 The generic decode-and-discard loop computed mScratchSize / mChannels
 frames per pass; with less than one frame of scratch (or zero channels)

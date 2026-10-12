@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: V <61495413+kelo221@users.noreply.github.com>
 Date: Mon, 12 Oct 2026 11:59:14 +0300
-Subject: [PATCH 06/14] calcActiveVoices_internal: map resample buffers when
+Subject: [PATCH] calcActiveVoices_internal: map resample buffers when
  must-live voices fill the cap
 
 When INAUDIBLE_TICK voices alone filled mMaxActiveVoices, the function

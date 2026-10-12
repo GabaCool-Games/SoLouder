@@ -1,8 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: V <61495413+kelo221@users.noreply.github.com>
 Date: Mon, 12 Oct 2026 11:59:06 +0300
-Subject: [PATCH 05/14] WavStreamInstance::hasEnded: a looping stream has not
- ended
+Subject: [PATCH] WavStreamInstance::hasEnded: a looping stream has not ended
 
 Matches WavInstance::hasEnded. Without the guard, consumers that ask the
 instance directly (for example Queue) saw a looping stream as finished.

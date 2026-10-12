@@ -1,7 +1,7 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: V <61495413+kelo221@users.noreply.github.com>
 Date: Mon, 12 Oct 2026 11:59:22 +0300
-Subject: [PATCH 07/14] calcActiveVoices_internal: keep protected voices active
+Subject: [PATCH] calcActiveVoices_internal: keep protected voices active
 
 PROTECTED was only consulted when choosing a voice slot to steal. The
 active-voice ranking sorted purely by volume, so a quiet protected voice

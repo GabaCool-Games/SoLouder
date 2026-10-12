@@ -325,10 +325,14 @@ unpatched reference, and each needs a matching Rust test.
 | 0012 | #401, #317 | Decoder metadata validation: `Wav` WAV/FLAC/MP3 overflowed `float tmp[512 * MAX_CHANNELS]` with more than 8 channels and truncated 64-bit frame counts when allocating; `Wav::loadogg` accepted length 0 and could copy past the reported length; `WavStream` FLAC/MP3/WAV clamped `mChannels` but still decoded every channel into the fixed block. Invalid layouts are rejected, allocation is `nothrow`, short reads are zero-filled. | `wav_rejects_too_many_channels`, `wavstream_rejects_too_many_channels` |
 | 0013 | #361 | `AudioSourceInstance3dData::init` kept the previous voice's 3D flags; `play3d` in a slot last used by a listener-relative voice started at volume 1.0 instead of 1/99 at 99 units. | `play3d_reused_slot_flags` |
 | 0014 | PR #375 | `Wav` and `WavStream` are non-copyable (implicit copies double-freed owned buffers). | compile-time |
+| 0015 | — | Build only: `SOLOUD_BACKEND_MINIAUDIO` CMake option (GoreGrind's Linux library uses MiniAudio, which loads ALSA/PulseAudio/JACK at run time). | — |
+| 0016 | — (GoreGrind) | The MiniAudio backend kept one global `ma_device`: a second engine re-initialized the device the first was playing on, and deiniting any engine stopped all of them. The device is now per engine in `mBackendData`, as in 0001. | — (device only; checked with two engines on a PulseAudio null sink) |
 
-GoreGrind's shipped DLL is built from the same branch with
-`build_windows.bat` in the fork; the C API and WASAPI/WinMM backends compile
-with all patches.
+GoreGrind's native libraries are built from the same branch: Windows with
+`build_windows.bat` (WASAPI, WinMM, Null), Linux with `build_linux.sh`
+(MiniAudio, Null; built in Ubuntu 20.04 so it needs at most glibc 2.29), and
+macOS with GoreGrind's `ci/soloud/build-macos.sh` (CoreAudio, Null; universal
+arm64 + x86_64). The macOS build needs Apple's SDK and runs on a Mac.
 
 ### Still open in the reference
 

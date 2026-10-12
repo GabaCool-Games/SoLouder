@@ -1,8 +1,8 @@
 From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
 From: V <61495413+kelo221@users.noreply.github.com>
 Date: Mon, 12 Oct 2026 11:58:38 +0300
-Subject: [PATCH 03/14] build: CMake 3.5 minimum, static MSVC runtime,
- Elements.def header-only
+Subject: [PATCH] build: CMake 3.5 minimum, static MSVC runtime, Elements.def
+ header-only
 
 CMake 4 rejects cmake_minimum_required below 3.5. Policy CMP0091 plus
 CMAKE_MSVC_RUNTIME_LIBRARY gives a self-contained /MT Windows DLL for
