@@ -19,6 +19,11 @@ pub struct PlayOptions {
     pub pan: f32,
     /// Start paused; the voice keeps its slot but is not mixed.
     pub paused: bool,
+    /// Relative play speed from the first frame; values not greater than 0
+    /// (and NaN) play at 1.
+    pub speed: f32,
+    /// Start protected: never stolen, always mixed.
+    pub protect: bool,
 }
 
 impl Default for PlayOptions {
@@ -27,6 +32,8 @@ impl Default for PlayOptions {
             volume: None,
             pan: 0.0,
             paused: false,
+            speed: 1.0,
+            protect: false,
         }
     }
 }
@@ -71,11 +78,14 @@ impl Mixer {
         self.voices.play_index = next_play_index(play_index);
         let mut voice = Voice::new(sound, play_index);
         voice.set_flag(flags::PAUSED, options.paused);
+        voice.set_flag(flags::PROTECTED, options.protect);
         voice.set_pan(options.pan);
         voice.set_volume(options.volume.unwrap_or(sound.volume()));
         // Start at full volume rather than ramping up from silence.
         voice.snap_gains();
-        voice.set_relative_play_speed(1.0);
+        if !voice.set_relative_play_speed(options.speed) {
+            voice.set_relative_play_speed(1.0);
+        }
         self.voices.slots[slot] = Some(voice);
         self.voices.dirty = true;
         Handle::new(slot, play_index)

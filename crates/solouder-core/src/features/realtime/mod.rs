@@ -38,7 +38,9 @@ pub struct RealtimeConfig {
     /// Commands applied per render; the rest wait for the next one, so a
     /// burst of requests cannot make one render arbitrarily slow.
     pub commands_per_render: usize,
-    /// Retired audio buffers the audio thread holds for the controller.
+    /// Retired audio buffers in flight to the controller. Buffers beyond this
+    /// wait on the audio thread, in storage reserved for them, until the
+    /// queue has room.
     pub retired_capacity: usize,
 }
 
@@ -59,11 +61,12 @@ impl Default for RealtimeConfig {
 pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer) {
     let voice_ids = config.voice_ids.max(1);
     let commands_per_render = config.commands_per_render.max(1);
-    // Retired buffers wait in the mixer while the queue is full. One render
-    // retires at most every voice plus two buffers per command (a stolen
-    // voice and the request's sound).
-    let per_render = crate::VOICE_COUNT + 2 * commands_per_render;
-    mixer.keep_retired_audio(config.retired_capacity.max(1) + per_render);
+    // A play retires at most two buffers: the request's sound, and the
+    // voice's audio when it finishes. The controller holds two credits per
+    // voice ID and spends two per play, so the mixer's kept list holds
+    // everything not yet collected and never has to free audio itself.
+    let retire_credits = 2 * voice_ids;
+    mixer.keep_retired_audio(retire_credits);
     let (command_tx, command_rx) = rtrb::RingBuffer::new(config.command_capacity.max(1));
     let (event_tx, event_rx) = rtrb::RingBuffer::new(voice_ids * 2);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(config.retired_capacity.max(1));
@@ -73,6 +76,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
         events: event_rx,
         retired: retired_rx,
         ids: IdPool::new(voice_ids),
+        retire_credits,
         shared: Arc::clone(&shared),
     };
     let renderer = Renderer {

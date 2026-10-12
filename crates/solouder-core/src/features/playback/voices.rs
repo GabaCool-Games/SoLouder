@@ -31,6 +31,9 @@ pub(crate) struct Voices {
     pub pool: ResamplePool,
     /// Audio of stopped voices, when the owner disposes of it elsewhere.
     pub retired: Retired,
+    /// `find_free` stopped a voice to make room since the flag was last
+    /// taken.
+    pub stole: bool,
 }
 
 /// Two resample blocks per active voice (`mResampleData`), each owned by at
@@ -63,6 +66,7 @@ impl Voices {
             dirty: true,
             pool: ResamplePool::new(DEFAULT_MAX_ACTIVE),
             retired: Retired::default(),
+            stole: false,
         }
     }
 
@@ -123,6 +127,7 @@ impl Voices {
         }
         let (_, slot) = oldest?;
         self.stop(slot);
+        self.stole = true;
         Some(slot)
     }
 

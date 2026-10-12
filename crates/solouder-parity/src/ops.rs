@@ -73,6 +73,7 @@ impl State {
             volume: (volume >= 0.0).then_some(volume),
             pan: step.number_or("pan", 0.0)?,
             paused: step.flag_or("paused", false)?,
+            ..PlayOptions::default()
         };
         let sound = self
             .sounds

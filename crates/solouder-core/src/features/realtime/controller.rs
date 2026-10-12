@@ -24,6 +24,9 @@ pub enum ControllerError {
     NoFreeVoiceId,
     /// Play speeds must be greater than 0.
     InvalidSpeed,
+    /// The renderer has been dropped: nothing will apply this request, and
+    /// voices already queued or playing will not report again.
+    Disconnected,
 }
 
 impl fmt::Display for ControllerError {
@@ -32,6 +35,7 @@ impl fmt::Display for ControllerError {
             Self::QueueFull => write!(f, "the audio command queue is full"),
             Self::NoFreeVoiceId => write!(f, "every voice ID is in use"),
             Self::InvalidSpeed => write!(f, "play speed must be greater than 0"),
+            Self::Disconnected => write!(f, "the audio renderer is gone"),
         }
     }
 }
@@ -51,11 +55,17 @@ pub struct Controller {
     pub(super) events: Consumer<Event>,
     pub(super) retired: Consumer<Pcm>,
     pub(super) ids: IdPool,
+    /// Retired buffers the renderer may still send back without running out
+    /// of reserved storage; a play spends two.
+    pub(super) retire_credits: usize,
     pub(super) shared: Arc<Shared>,
 }
 
 impl Controller {
     fn send(&mut self, command: Command) -> Result<(), ControllerError> {
+        if self.commands.is_abandoned() {
+            return Err(ControllerError::Disconnected);
+        }
         self.commands
             .push(command)
             .map_err(|_| ControllerError::QueueFull)
@@ -68,19 +78,45 @@ impl Controller {
 
     /// Queues a play request and returns the ID of its voice-to-be. The
     /// voice reports [`Event::Started`] or [`Event::Failed`], and later
-    /// [`Event::Finished`].
+    /// [`Event::Finished`]. Speed and protection in `options` apply from the
+    /// first mixed frame.
+    ///
+    /// Fails with [`ControllerError::QueueFull`] when the command queue is
+    /// full, and also when the audio thread holds as much finished audio as
+    /// it has room for because [`Controller::poll_event`] has not collected
+    /// it.
     pub fn play_with(
         &mut self,
         sound: &Sound,
         options: PlayOptions,
     ) -> Result<VoiceId, ControllerError> {
+        if options.speed.is_nan() || options.speed <= 0.0 {
+            return Err(ControllerError::InvalidSpeed);
+        }
+        if self.commands.is_abandoned() {
+            return Err(ControllerError::Disconnected);
+        }
         if self.commands.slots() == 0 {
             return Err(ControllerError::QueueFull);
         }
         let id = self.ids.allocate().ok_or(ControllerError::NoFreeVoiceId)?;
+        if self.retire_credits < 2 {
+            self.ids.release(id);
+            return Err(ControllerError::QueueFull);
+        }
         let sound = sound.clone();
-        self.send(Command::Play { id, sound, options })?;
+        if let Err(error) = self.send(Command::Play { id, sound, options }) {
+            self.ids.release(id);
+            return Err(error);
+        }
+        self.retire_credits -= 2;
         Ok(id)
+    }
+
+    /// Whether the renderer still exists. Once it is dropped every request
+    /// fails with [`ControllerError::Disconnected`].
+    pub fn is_connected(&self) -> bool {
+        !self.commands.is_abandoned()
     }
 
     /// Stops the voice; it reports [`Event::Finished`] with
@@ -154,6 +190,10 @@ impl Controller {
         if event.is_final() {
             self.ids.release(event.id());
         }
+        if let Event::Failed(_) = event {
+            // No voice was created, so no voice audio will come back.
+            self.retire_credits += 1;
+        }
         Some(event)
     }
 
@@ -163,6 +203,7 @@ impl Controller {
         while self.retired.pop().is_ok() {
             released += 1;
         }
+        self.retire_credits += released;
         released
     }
 

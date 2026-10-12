@@ -63,4 +63,9 @@ impl Mixer {
     pub fn retired_overflow(&self) -> u64 {
         self.voices.retired.overflowed
     }
+
+    /// Whether a play stole a voice since the last call.
+    pub(crate) fn take_stolen(&mut self) -> bool {
+        std::mem::take(&mut self.voices.stole)
+    }
 }

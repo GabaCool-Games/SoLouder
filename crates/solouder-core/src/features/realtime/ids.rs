@@ -3,7 +3,7 @@
 
 use std::fmt;
 
-use crate::features::playback::Handle;
+use crate::features::playback::{Handle, VOICE_COUNT};
 
 /// A play request and, once started, its voice.
 ///
@@ -81,6 +81,9 @@ struct Entry {
 pub(crate) struct LiveTable {
     entries: Vec<Option<Entry>>,
     live: Vec<u32>,
+    /// For each mixer voice slot, the index of the entry using it, plus one
+    /// (0: none).
+    by_slot: Vec<u32>,
 }
 
 impl LiveTable {
@@ -88,6 +91,7 @@ impl LiveTable {
         Self {
             entries: vec![None; capacity],
             live: Vec::with_capacity(capacity),
+            by_slot: vec![0; VOICE_COUNT],
         }
     }
 
@@ -101,6 +105,21 @@ impl LiveTable {
             position: self.live.len() as u32,
         });
         self.live.push(id.index);
+        if let Some(slot) = handle.slot() {
+            self.by_slot[slot] = id.index + 1;
+        }
+    }
+
+    /// Removes the voice that used mixer slot `slot`, if the table still has
+    /// one there.
+    pub fn remove_slot(&mut self, slot: usize) -> Option<VoiceId> {
+        let index = self.by_slot.get(slot)?.checked_sub(1)?;
+        let entry = self.entries[index as usize]?;
+        if entry.handle.slot() != Some(slot) {
+            return None;
+        }
+        self.remove(entry.id);
+        Some(entry.id)
     }
 
     pub fn handle(&self, id: VoiceId) -> Option<Handle> {
@@ -116,6 +135,11 @@ impl LiveTable {
             .get(id.index())?
             .filter(|entry| entry.id == id)?;
         self.entries[id.index()] = None;
+        if let Some(slot) = entry.handle.slot()
+            && self.by_slot[slot] == id.index + 1
+        {
+            self.by_slot[slot] = 0;
+        }
         let position = entry.position as usize;
         self.live.swap_remove(position);
         if let Some(&moved) = self.live.get(position)

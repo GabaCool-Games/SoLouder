@@ -33,28 +33,38 @@ impl Event {
 /// Why a voice finished.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum FinishReason {
-    /// It played to the end, or a new voice took its slot.
+    /// It played to the end.
     Ended,
     /// A stop command stopped it.
     Stopped,
+    /// Every voice slot was busy and a new play took this voice's slot (the
+    /// oldest unprotected voice is the one stolen). Reported just before the
+    /// new voice's [`Event::Started`].
+    Stolen,
 }
 
 /// Engine counters published after every render.
+///
+/// Each field is published atomically on its own. A snapshot taken while a
+/// render is publishing can combine fields from two consecutive renders, so
+/// treat them as gauges, not as one consistent record.
 #[derive(Clone, Copy, Debug, Default, PartialEq)]
 pub struct Status {
     /// Seconds of audio rendered (`getStreamTime`).
     pub stream_time: f64,
     /// Voices in the table, playing or paused (`getVoiceCount`).
     pub voices: u32,
-    /// Voices mixed in the last render (`getActiveVoiceCount`).
+    /// Voices selected for mixing as of the end of the last render
+    /// (`getActiveVoiceCount`): voices that ended in that render no longer
+    /// count.
     pub active_voices: u32,
     /// Completed renders.
     pub renders: u64,
     /// Commands still queued after the last render: more than the per-render
     /// limit arrived, or they were queued while it ran.
     pub deferred_commands: u64,
-    /// Audio buffers the audio thread had to free itself because the
-    /// retirement queue was full.
+    /// Audio buffers the audio thread had to free itself. The controller
+    /// reserves room for every buffer a play can retire, so this stays 0.
     pub retired_overflow: u64,
 }
 

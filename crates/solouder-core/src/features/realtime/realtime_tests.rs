@@ -47,7 +47,7 @@ fn renders_the_same_samples_as_the_mixer() {
     let options = PlayOptions {
         volume: Some(0.7),
         pan: 0.3,
-        paused: false,
+        ..PlayOptions::default()
     };
     let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
     let handle = mixer.play_with(&tone, options);
@@ -204,4 +204,116 @@ fn play_fails_when_every_voice_is_protected() {
     let all = events(&mut controller);
     assert_eq!(all.last(), Some(&Event::Failed(extra)));
     assert_eq!(controller.status().voices, crate::VOICE_COUNT as u32);
+}
+
+#[test]
+fn a_stolen_voice_finishes_before_its_replacement_starts() {
+    let (mut controller, mut renderer) = runtime(RealtimeConfig::default());
+    let tone = sound(100_000);
+    let first = controller.play(&tone).unwrap();
+    for _ in 1..crate::VOICE_COUNT {
+        controller.play(&tone).unwrap();
+        if controller.queue_space() < 2 {
+            render(&mut renderer, 0);
+        }
+    }
+    render(&mut renderer, 0);
+    render(&mut renderer, 0);
+    events(&mut controller);
+    let extra = controller.play(&tone).unwrap();
+    // A stop for the stolen voice in the same render must not report it again.
+    controller.stop(first).unwrap();
+    render(&mut renderer, 64);
+    assert_eq!(
+        events(&mut controller),
+        [
+            Event::Finished(first, FinishReason::Stolen),
+            Event::Started(extra)
+        ]
+    );
+}
+
+#[test]
+fn uncollected_audio_blocks_plays_instead_of_being_freed_in_render() {
+    let (mut controller, mut renderer) = runtime(RealtimeConfig {
+        voice_ids: 4,
+        retired_capacity: 1,
+        ..RealtimeConfig::default()
+    });
+    // Every play uses its own buffer, dropped before rendering, so the
+    // renderer holds the last reference to each.
+    let mut refused = false;
+    for _ in 0..64 {
+        match controller.play(&sound(1)) {
+            Ok(_) => {}
+            Err(ControllerError::QueueFull) => refused = true,
+            Err(other) => panic!("{other:?}"),
+        }
+        render(&mut renderer, 64);
+        events(&mut controller);
+        assert_eq!(controller.status().retired_overflow, 0);
+    }
+    assert!(
+        refused,
+        "plays should wait for retired audio to be collected"
+    );
+    for _ in 0..64 {
+        render(&mut renderer, 0);
+        controller.release_retired_audio();
+    }
+    controller.play(&sound(1)).unwrap();
+}
+
+#[test]
+fn a_dropped_renderer_disconnects_the_controller() {
+    let (mut controller, renderer) = runtime(RealtimeConfig::default());
+    let id = controller.play(&sound(100)).unwrap();
+    assert!(controller.is_connected());
+    drop(renderer);
+    assert!(!controller.is_connected());
+    assert_eq!(
+        controller.play(&sound(100)),
+        Err(ControllerError::Disconnected)
+    );
+    assert_eq!(
+        controller.set_volume(id, 0.5),
+        Err(ControllerError::Disconnected)
+    );
+    assert_eq!(controller.stop_all(), Err(ControllerError::Disconnected));
+}
+
+#[test]
+fn play_options_set_speed_and_protection_from_the_first_frame() {
+    let tone = sound(3000);
+    let options = PlayOptions {
+        speed: 0.5,
+        protect: true,
+        ..PlayOptions::default()
+    };
+    let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
+    let handle = mixer.play(&tone);
+    mixer.set_relative_play_speed(handle, 0.5).unwrap();
+    let mut expected = vec![0.0; 2 * 300];
+    mixer.mix_interleaved(&mut expected);
+
+    let (mut controller, mut renderer) = runtime(RealtimeConfig {
+        commands_per_render: 1,
+        ..RealtimeConfig::default()
+    });
+    // Commands ahead of the play use up the first render's budget.
+    controller.set_global_volume(1.0).unwrap();
+    let id = controller.play_with(&tone, options).unwrap();
+    render(&mut renderer, 0);
+    assert_eq!(render(&mut renderer, 300), expected);
+    assert_eq!(events(&mut controller), [Event::Started(id)]);
+
+    let invalid = PlayOptions {
+        speed: f32::NAN,
+        ..PlayOptions::default()
+    };
+    assert_eq!(
+        controller.play_with(&tone, invalid),
+        Err(ControllerError::InvalidSpeed)
+    );
+    assert_eq!(controller.voice_ids_in_use(), 1);
 }

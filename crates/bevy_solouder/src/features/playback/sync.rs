@@ -155,6 +155,7 @@ fn start(
         volume: Some(settings.volume),
         pan: settings.pan,
         paused: settings.paused,
+        ..PlayOptions::default()
     };
     let voice = match controller.play_with(&sound, options) {
         Ok(voice) => voice,

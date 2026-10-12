@@ -12,7 +12,9 @@ use crate::features::playback::{Handle, Mixer, MixerConfig};
 
 /// Owns the mixer on the audio thread. Each [`Renderer::render`] applies
 /// queued commands, mixes, and reports finished voices. Rendering does not
-/// allocate, free memory, lock or wait.
+/// allocate, free memory, lock or wait: audio that voices release is handed
+/// back to the controller, which reserved room for it when it accepted the
+/// play.
 ///
 /// Drop the renderer on a thread that may free memory, after the audio
 /// callback that uses it has stopped.
@@ -72,9 +74,21 @@ impl Renderer {
             Command::Play { id, sound, options } => {
                 let mixer = &mut self.mixer;
                 let handle = mixer.play_with(&sound, options);
+                let stole = mixer.take_stolen();
                 if handle == Handle::INVALID {
                     report(&mut self.events, Event::Failed(id));
                 } else {
+                    // The slot's previous voice is gone: stolen just now, or
+                    // (defensively) ended without being noticed yet.
+                    let slot = handle.slot();
+                    if let Some(old) = slot.and_then(|slot| self.live.remove_slot(slot)) {
+                        let reason = if stole {
+                            FinishReason::Stolen
+                        } else {
+                            FinishReason::Ended
+                        };
+                        report(&mut self.events, Event::Finished(old, reason));
+                    }
                     self.live.insert(id, handle);
                     report(&mut self.events, Event::Started(id));
                 }
