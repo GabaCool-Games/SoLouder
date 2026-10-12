@@ -14,9 +14,10 @@ sample rates, pause all, background play, single-instance sounds, stopping
 and counting a sound's voices), 8- and 16-bit raw loads, 16-bit output,
 voice groups, SoLoud's FFT, and per-voice and global filters (biquad,
 lofi, echo, waveshaper, DC removal, the FFT pitch filter, bassboost,
-robotize, flanger and freeverb) with live parameters, fades and oscillations
-are done (see [PORTING.md](PORTING.md#milestone-d-units) for the remaining
-units).
+robotize, flanger and freeverb) with live parameters, fades and oscillations,
+and buses (nested, with their own channels, resampler, filters and
+visualization data) are done (see
+[PORTING.md](PORTING.md#milestone-d-units) for the remaining units).
 Milestone C (Windows and Bevy playable slice) is done; milestone B (offline
 playback) before it. The mixer plays prepared PCM with 1
 to 8 channels on outputs of 1 to 8 channels: play, stop, pause, loop, volume,
@@ -29,14 +30,15 @@ For real-time use the mixer is split into a `Controller` for the game thread
 and a `Renderer` for the audio thread, joined by bounded wait-free queues
 (see [ARCHITECTURE.md](ARCHITECTURE.md#ownership-and-the-real-time-boundary)).
 `solouder-cpal` runs the renderer on the default output device and
-`bevy_solouder` plays `.wav` assets from entities. Other codecs, buses,
-queues and 3D audio do not exist yet.
+`bevy_solouder` plays `.wav` assets from entities. Other codecs, queues and
+3D audio do not exist yet, and buses are not reachable through the
+`Controller` yet.
 
 | Crate | Slices / modules | Contents |
 |---|---|---|
 | `solouder-core` | `contracts` | `Pcm` (validated planar samples from `f32`, `u8` or `i16`), `SAMPLE_GRANULARITY`, `MAX_CHANNELS` |
 | `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping, faders (linear fades and sine oscillation), `fft` (Ooura's split-radix FFT as SoLoud has it), `waveform` (`generateWaveform`) |
-| `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `SoundId`, `Handle`, `PlayOptions`, `FilterTarget`, voice table, active-voice selection, resample-buffer pool, bus mixing, voice control and queries, fades and timers, voice groups, sound and global filter slots and their parameters, `f32` and `i16` output |
+| `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `Bus`, `Playable`, `SoundId`, `Handle`, `PlayOptions`, `FilterTarget`, voice table, active-voice selection, resample-buffer pool, bus mixing (nested bus voices, bus seeking, visualization data), voice control and queries, fades and timers, voice groups, sound, bus and global filter slots and their parameters, `f32` and `i16` output |
 | `solouder-core` | `features/filters` | `Filter` and `FilterInstance` traits, `FilterParams` (live values with fades), `BiquadResonantFilter`, `LofiFilter`, `EchoFilter`, `WaveShaperFilter`, `DcRemovalFilter`, `FftFilter`, `BassboostFilter`, `RobotizeFilter`, `FlangerFilter`, `FreeverbFilter` |
 | `solouder-core` | `features/realtime` | `split`, `Controller`, `Renderer`, `VoiceId`, `Event`, `Status`, `RealtimeConfig`; retirement of ended voices' PCM to the game thread |
 | `solouder-decoders` | `features/decoded_audio` | `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `DecodeLimits`, `DecodeError` |
@@ -77,6 +79,8 @@ stays `in-progress` until its remaining flags are done.
 | `fft` | `FFT::fft` and `FFT::ifft` on noise and saw signals for every power-of-two size from 4 to 4096 floats, which covers every kernel path | 17,656 |
 | `filters_spectral` | The FFT pitch filter and bassboost on mono, stereo and 6-channel voices and as global filters, across mix calls and blocks of any size, at a changing voice rate; wet and boost set, faded and oscillated; bassboost validation | 32,577 |
 | `filters_modulation` | Robotize with every waveform and an index without one, periods that are not at least 1 (patch 0042) and parameter fades (patch 0041); the flanger with its channels sharing the LFO (patch 0043), delays that grow its line and a delay of 0 (patch 0044); freeverb on stereo voices, a mono voice and a mono engine (left unchanged, patch 0039), with its settings applied (patch 0040), faded and frozen; settings validation (patch 0045) and parameter descriptions | 36,818 |
+| `buses` | Sounds and a bus played through buses, mono, stereo and quad buses on a 48 kHz output (so the bus voices resample), `Bus::play`'s default volume of 1 (#381), clocked plays through a bus, speed, volume and pan on a bus voice, changing the resampler (including an index without one), visualization and filters of a playing bus and filters set before it plays, invalid channel counts, approximate volumes for channels past the bus's (patch 0047), wave and FFT data, annexing a voice and a group, a voice given a bus handle the bus never looked up (not mixed, not stopped with it), stopping, replaying and `stopAudioSource` on a bus stopping its voices (#280) | 23,946 |
+| `bus_seek` | Seeking mono, stereo and 5.1 buses with voices of 1, 2 and 6 channels in passes whose strides are not multiples of 16 (patch 0046), seeking back (`NOT_IMPLEMENTED`), seeking a sped-up bus, and a seek after a voice was replaced in its slot before the next mix (patch 0048), and a quad bus whose seeks end in blocks of 285 and 193 frames (visualization data from the last) | 28,104 |
 | `sound_tails` | Sounds play out when mixes of 256, 441 or 480 frames end partway through their last block, with every resampler, slow and fast speeds, a resampled stereo sound and a sound of whole blocks (patch 0024) | 25,758 |
 | `sound_replace` | Reloading a sound name stops the old sound's voices and keeps other sounds playing; a failed reload keeps the old sound | 2,600 |
 | `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV (every code); extensible 5.1, 7.1, 24-in-32-bit, A-law and mu-law headers; channel masks with a high bit or none; extra and odd-sized chunks; six files both sides reject (9, 33 and 65535 channels, no frames, sample rate 0, a header cut short) | 15,562 |
@@ -132,7 +136,11 @@ Rust 1.98.1, no device).
 | FFT filter buffers | Sized for the channel count of the first call; a later call with more channels writes past them | Grow to the larger count | Memory safety; unreachable from the mixer, which keeps a voice's channel count |
 | Flanger line allocation | A failed `new` leaves the audio unfiltered; a line of 2^32 samples or more wraps its size | `try_reserve_exact`; on failure the audio is left unfiltered | Same outcome without the wrap |
 | Sound identity | A copied `AudioSource` keeps its ID, so stopping either copy stops both | A cloned `Sound` keeps its `SoundId` the same way; `Sound::new` gives a new one | Same behavior; cloning is how Rust shares a sound |
-| Seek result | `Soloud::seek` returns an error code, never an error for a `Wav` | `Mixer::seek` returns nothing | A `Sound` always seeks |
+| Seek result | `Soloud::seek` returns an error code: `NOT_IMPLEMENTED` when a bus would seek back, otherwise `SO_NO_ERROR` | `Mixer::seek` returns `Err(ControlError::CannotSeekBack)` or `Ok(())` | There are no result codes |
+| Bus play volume | `Bus::play` and `Bus::playClocked` default the volume to 1, while `Soloud::play` defaults to the source's (#381) | `Mixer::bus_play` takes `PlayOptions`, whose `volume: None` uses the source's volume everywhere; the parity runner passes 1 to match | One default for every play call |
+| Bus settings | `Bus::setFilter`, `setResampler` and `setVisualizationEnable` change the bus and its playing instance | `Bus` setters affect later plays; `Mixer::set_bus_filter`, `set_bus_resampler` and `set_bus_visualization` change both | A `Bus`, like a `Sound`, holds no pointer to its voices |
+| Bus instances | A bus has one instance: playing it again, on any engine, stops the previous one | Playing a bus again stops its voice on that mixer only | A bus does not know the mixers playing it (as for `Sound`) |
+| Bus wave data | `getWave` and `calcFFT` return the bus's last copy once its voice has stopped | `Mixer::bus_wave` and `bus_fft` return `None` | A stale copy looks like live data |
 | Error strings | `getErrorString` names result codes | Error enums implement `Display` | There are no result codes |
 | Engine before init | `Soloud` exists before `init`; calls then do nothing | `Mixer::new` validates and initializes in one step | No half-initialized state |
 | Play speed | `setRelativePlaySpeed` rejects `<= 0` but accepts NaN | Rejects anything not `> 0`, including NaN | NaN would poison the fixed-point step |
@@ -156,7 +164,7 @@ Rust 1.98.1, no device).
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0024 and 0026
-to 0045 (pan ramp leftovers, surround fold-down volumes, no-free-voice
+to 0048 (pan ramp leftovers, surround fold-down volumes, no-free-voice
 handling, raw layout validation, the #343 hang, protection and ticking not
 recomputing the active voices, sound endings dropped when a mix ends
 mid-block, the hang on a negative sample rate, seeks scaled by play speed,
@@ -166,8 +174,10 @@ channels only, zero-length echo and DC removal lines, the waveshaper's 0 / 0,
 DC removal reading its freed filter, NaN filter settings, the biquad reading
 before a one-sample buffer, freeverb reading past mono audio and ignoring its
 settings, freeverb and robotize ignoring parameter fades, robotize dividing by
-a period of 0, the flanger's channels each advancing the LFO, and flanger
-delays of 0 or past its line) are listed in
+a period of 0, the flanger's channels each advancing the LFO, flanger
+delays of 0 or past its line, bus seeks with unaligned strides or more voice
+channels than the bus has, a bus volume read past its channels, and bus seeks
+mixing voices that have no resample buffers yet) are listed in
 [PORTING.md](PORTING.md#reference-patch-ledger). Patch 0025 (sounds, buses
 and queues that outlive their engine or play on several engines) has no Rust
 counterpart: sounds hold no engine pointer, and voices own their samples.
@@ -177,7 +187,7 @@ counterpart: sounds hold no engine pointer, and voices own their samples.
 - Init flags other than the clipper (`LEFT_HANDED_3D`, ...), device
   reconnection, and device output outside Windows WASAPI (checked only to
   build and skip on Linux).
-- Buses and queues (Milestone D), the real-time controller commands for the milestone D
-  controls and filters, and 3D audio with the `INAUDIBLE` flag it sets
-  (Milestone E).
+- Queues (Milestone D), the real-time controller commands for the milestone D
+  controls, filters and buses, and 3D audio with the `INAUDIBLE` flag it sets,
+  including `Bus::play3d` and `play3dClocked` (Milestone E).
 - Streaming, Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).

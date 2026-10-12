@@ -4,9 +4,10 @@
 
 use std::fmt;
 
+use super::bus;
 use super::handle::{Handle, next_play_index};
 use super::mixer::Mixer;
-use super::sound::Sound;
+use super::source::Playable;
 use super::voice::{Voice, flags};
 use crate::dsp::Resampler;
 use crate::dsp::fader::FaderState;
@@ -14,7 +15,7 @@ use crate::dsp::fader::FaderState;
 /// How [`Mixer::play_with`] starts a voice.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct PlayOptions {
-    /// Voice volume; `None` uses [`Sound::volume`].
+    /// Voice volume; `None` uses the source's volume.
     pub volume: Option<f32>,
     /// Stereo pan from -1 (left) to 1 (right).
     pub pan: f32,
@@ -23,8 +24,12 @@ pub struct PlayOptions {
     /// Relative play speed from the first frame; values not greater than 0
     /// (and NaN) play at 1.
     pub speed: f32,
-    /// Start protected: never stolen, always mixed.
+    /// Start protected: never stolen, always mixed. Bus voices always are.
     pub protect: bool,
+    /// The bus voice to play through (`aBus`); [`Handle::INVALID`] plays on
+    /// the main output. A bus mixes nothing until a bus call such as
+    /// [`Mixer::bus_play`] has looked up its handle.
+    pub bus: Handle,
 }
 
 impl Default for PlayOptions {
@@ -35,6 +40,7 @@ impl Default for PlayOptions {
             paused: false,
             speed: 1.0,
             protect: false,
+            bus: Handle::INVALID,
         }
     }
 }
@@ -49,6 +55,10 @@ pub enum ControlError {
     InvalidVoiceCount,
     /// The handle does not name an existing voice group.
     InvalidVoiceGroup,
+    /// Buses have 1, 2, 4, 6 or 8 channels.
+    InvalidChannels,
+    /// A bus cannot seek backwards (`NOT_IMPLEMENTED`).
+    CannotSeekBack,
 }
 
 impl fmt::Display for ControlError {
@@ -57,6 +67,8 @@ impl fmt::Display for ControlError {
             Self::InvalidSpeed => write!(f, "play speed must be greater than 0"),
             Self::InvalidVoiceCount => write!(f, "active voice limit must be 1 to 1023"),
             Self::InvalidVoiceGroup => write!(f, "not a voice group"),
+            Self::InvalidChannels => write!(f, "a bus has 1, 2, 4, 6 or 8 channels"),
+            Self::CannotSeekBack => write!(f, "a bus cannot seek backwards"),
         }
     }
 }
@@ -66,29 +78,43 @@ impl std::error::Error for ControlError {}
 /// Playing and controlling voices. Calls with a handle whose voice has
 /// stopped do nothing; a voice group handle changes every voice in the group.
 impl Mixer {
-    /// Starts `sound` with default options (`Soloud::play`).
-    pub fn play(&mut self, sound: &Sound) -> Handle {
-        self.play_with(sound, PlayOptions::default())
+    /// Starts `source` with default options (`Soloud::play`).
+    pub fn play(&mut self, source: &impl Playable) -> Handle {
+        self.play_with(source, PlayOptions::default())
     }
 
-    /// Starts `sound`. When all `VOICE_COUNT` slots are taken, the oldest
+    /// Starts `source`. When all `VOICE_COUNT` slots are taken, the oldest
     /// unprotected voice is stopped to make room; if every voice is protected,
     /// nothing plays and [`Handle::INVALID`] is returned. A single-instance
-    /// sound first stops its other voices.
-    pub fn play_with(&mut self, sound: &Sound, options: PlayOptions) -> Handle {
-        if sound.single_instance() {
-            self.stop_sound(sound);
+    /// sound, and any bus, first stops its other voices.
+    pub fn play_with(&mut self, source: &impl Playable, options: PlayOptions) -> Handle {
+        source.play_on(self, options)
+    }
+
+    /// The common part of `play_with`: `default_volume` is the source's.
+    pub(crate) fn start_voice(
+        &mut self,
+        mut voice: Voice,
+        stop_others: bool,
+        default_volume: f32,
+        options: PlayOptions,
+    ) -> Handle {
+        if stop_others {
+            self.voices.stop_sound(voice.sound_id);
         }
         let Some(slot) = self.voices.find_free() else {
             return Handle::INVALID;
         };
         let play_index = self.voices.play_index;
         self.voices.play_index = next_play_index(play_index);
-        let mut voice = Voice::new(sound, play_index);
+        voice.play_index = play_index;
+        voice.bus = options.bus;
         voice.set_flag(flags::PAUSED, options.paused);
-        voice.set_flag(flags::PROTECTED, options.protect);
+        if options.protect {
+            voice.set_flag(flags::PROTECTED, true);
+        }
         voice.set_pan(options.pan);
-        voice.set_volume(options.volume.unwrap_or(sound.volume()));
+        voice.set_volume(options.volume.unwrap_or(default_volume));
         // Start at full volume rather than ramping up from silence.
         voice.snap_gains();
         if !voice.set_relative_play_speed(options.speed) {
@@ -99,15 +125,20 @@ impl Mixer {
         Handle::new(slot, play_index)
     }
 
-    /// Starts `sound` at full gain on the left and right speakers, for music
+    /// Starts `source` at full gain on the left and right speakers, for music
     /// and ambience (`Soloud::playBackground`).
-    pub fn play_background(&mut self, sound: &Sound, volume: Option<f32>, paused: bool) -> Handle {
+    pub fn play_background(
+        &mut self,
+        source: &impl Playable,
+        volume: Option<f32>,
+        paused: bool,
+    ) -> Handle {
         let options = PlayOptions {
             volume,
             paused,
             ..PlayOptions::default()
         };
-        let handle = self.play_with(sound, options);
+        let handle = self.play_with(source, options);
         self.set_pan_absolute(handle, 1.0, 1.0);
         handle
     }
@@ -125,10 +156,10 @@ impl Mixer {
         }
     }
 
-    /// Stops every voice of `sound` and its clones (`Soloud::stopAudioSource`;
+    /// Stops every voice of `source` and its clones (`Soloud::stopAudioSource`;
     /// `AudioSource::stop` is this call on each mixer).
-    pub fn stop_sound(&mut self, sound: &Sound) {
-        self.voices.stop_sound(sound.id());
+    pub fn stop_sound(&mut self, source: &impl Playable) {
+        self.voices.stop_sound(source.source_id());
     }
 
     /// Sets a voice's volume, cancelling a volume fade; the change ramps in
@@ -243,8 +274,23 @@ impl Mixer {
     /// Moves a voice to `seconds` into its sound (`Soloud::seek`). Seeking
     /// back restarts the sound and skips forward from there. Audio already
     /// read ahead (up to one 512-frame block) plays before the new position.
-    pub fn seek(&mut self, handle: Handle, seconds: f64) {
-        self.with_voice(handle, |voice| voice.seek(seconds));
+    /// A bus cannot seek back; seeking it forward mixes its voices over the
+    /// time skipped. For a group, the error is that of any voice that failed.
+    pub fn seek(&mut self, handle: Handle, seconds: f64) -> Result<(), ControlError> {
+        let (scratch_frames, time) = (self.scratch_frames, self.stream_time);
+        let mut result = Ok(());
+        self.voices.for_each_slot(handle, |voices, slot| {
+            let Some(mut voice) = voices.slots[slot].take() else {
+                return;
+            };
+            if voice.as_bus().is_none() {
+                voice.seek(seconds);
+            } else if !bus::seek(&mut voice, voices, seconds, scratch_frames, time) {
+                result = Err(ControlError::CannotSeekBack);
+            }
+            voices.slots[slot] = Some(voice);
+        });
+        result
     }
 
     /// Scales a voice's playback rate, changing pitch and speed together, and

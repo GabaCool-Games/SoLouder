@@ -2,19 +2,23 @@
 // src/audiosource/wav/soloud_wav.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
 
+use super::control::PlayOptions;
+use super::handle::Handle;
+use super::mixer::Mixer;
+use super::source::{Playable, SourceSettings, source_settings_api};
+use super::voice::{Voice, VoiceSource};
 use crate::contracts::Pcm;
-use crate::features::filters::{FILTERS_PER_STREAM, Filter};
 
-/// Identifies a [`Sound`] and its clones, so their voices can be stopped or
-/// counted together (`mAudioSourceID`). Unique within the process.
+/// Identifies a [`Sound`] or [`Bus`](super::Bus) and its clones, so their
+/// voices can be stopped or counted together (`mAudioSourceID`). Unique
+/// within the process.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct SoundId(u64);
 
 impl SoundId {
-    fn next() -> Self {
+    pub(crate) fn next() -> Self {
         static NEXT: AtomicU64 = AtomicU64::new(1);
         Self(NEXT.fetch_add(1, Ordering::Relaxed))
     }
@@ -25,24 +29,14 @@ impl SoundId {
 ///
 /// Cloning is cheap; the samples are shared. A clone keeps the original's
 /// [`SoundId`], as a copied SoLoud `AudioSource` keeps its ID, so
-/// [`Mixer::stop_sound`](super::Mixer::stop_sound) stops the voices of both.
-/// Each `play` starts an independent voice with its own position.
+/// [`Mixer::stop_sound`] stops the voices of both. Each `play` starts an
+/// independent voice with its own position.
 #[derive(Clone, Debug)]
 pub struct Sound {
     pcm: Pcm,
     id: SoundId,
-    volume: f32,
-    looping: bool,
-    loop_point: f64,
-    auto_stop: bool,
-    single_instance: bool,
-    inaudible_tick: bool,
-    inaudible_kill: bool,
-    /// Shared with clones until one of them changes a filter.
-    filters: Option<Arc<FilterSlots>>,
+    settings: SourceSettings,
 }
-
-type FilterSlots = [Option<Arc<dyn Filter>>; FILTERS_PER_STREAM];
 
 impl Sound {
     /// A sound at volume 1 that does not loop, with a new [`SoundId`].
@@ -50,14 +44,7 @@ impl Sound {
         Self {
             pcm,
             id: SoundId::next(),
-            volume: 1.0,
-            looping: false,
-            loop_point: 0.0,
-            auto_stop: true,
-            single_instance: false,
-            inaudible_tick: false,
-            inaudible_kill: false,
-            filters: None,
+            settings: SourceSettings::default(),
         }
     }
 
@@ -82,87 +69,26 @@ impl Sound {
         f64::from(self.pcm.frames() as f32 / self.pcm.sample_rate())
     }
 
-    /// Volume used by `play` when no volume is given (`AudioSource::setVolume`).
-    pub fn volume(&self) -> f32 {
-        self.volume
+    source_settings_api!();
+
+    /// A voice at the start of the sound, before `play` applies its options.
+    pub(crate) fn voice(&self) -> Voice {
+        let source = VoiceSource::Pcm {
+            pcm: self.pcm.clone(),
+            offset: 0,
+        };
+        Voice::new(&self.settings, self.id, source, self.pcm.sample_rate(), 0)
+    }
+}
+
+impl Playable for Sound {
+    fn source_id(&self) -> SoundId {
+        self.id
     }
 
-    /// Sets the default volume for voices started after this call.
-    pub fn set_volume(&mut self, volume: f32) {
-        self.volume = volume;
-    }
-
-    /// Whether new voices loop (`AudioSource::setLooping`).
-    pub fn looping(&self) -> bool {
-        self.looping
-    }
-
-    /// Sets whether voices started after this call loop.
-    pub fn set_looping(&mut self, looping: bool) {
-        self.looping = looping;
-    }
-
-    /// Seconds into the sound where looping voices restart; 0 by default.
-    pub fn loop_point(&self) -> f64 {
-        self.loop_point
-    }
-
-    /// Sets the loop point for voices started after this call
-    /// (`AudioSource::setLoopPoint`).
-    pub fn set_loop_point(&mut self, seconds: f64) {
-        self.loop_point = seconds;
-    }
-
-    /// Whether voices stop once the sound has played out; true by default.
-    pub fn auto_stop(&self) -> bool {
-        self.auto_stop
-    }
-
-    /// Sets whether voices started after this call stop at the end of the
-    /// sound or stay, silent, until stopped (`AudioSource::setAutoStop`).
-    pub fn set_auto_stop(&mut self, auto_stop: bool) {
-        self.auto_stop = auto_stop;
-    }
-
-    /// Whether playing the sound first stops its other voices on that mixer.
-    pub fn single_instance(&self) -> bool {
-        self.single_instance
-    }
-
-    /// Sets whether playing the sound first stops its other voices
-    /// (`AudioSource::setSingleInstance`).
-    pub fn set_single_instance(&mut self, single_instance: bool) {
-        self.single_instance = single_instance;
-    }
-
-    /// Whether voices keep playing when inaudible (`tick`) and whether
-    /// they are stopped then (`kill`).
-    pub fn inaudible_behavior(&self) -> (bool, bool) {
-        (self.inaudible_tick, self.inaudible_kill)
-    }
-
-    /// Sets the inaudible behavior of voices started after this call
-    /// (`AudioSource::setInaudibleBehavior`). Ticking voices are always among
-    /// the active voices.
-    pub fn set_inaudible_behavior(&mut self, tick: bool, kill: bool) {
-        self.inaudible_tick = tick;
-        self.inaudible_kill = kill;
-    }
-
-    /// The filter in `slot`, if any.
-    pub fn filter(&self, slot: u32) -> Option<&Arc<dyn Filter>> {
-        self.filters.as_ref()?.get(slot as usize)?.as_ref()
-    }
-
-    /// Sets or clears the filter in `slot`, 0 to 7, for voices started after
-    /// this call (`AudioSource::setFilter`); other slots are ignored. Each
-    /// voice gets its own instance with the filter's settings, and runs its
-    /// filters in slot order on the sound's audio at the voice's rate.
-    pub fn set_filter(&mut self, slot: u32, filter: Option<Arc<dyn Filter>>) {
-        let slot = slot as usize;
-        if slot < FILTERS_PER_STREAM {
-            Arc::make_mut(self.filters.get_or_insert_default())[slot] = filter;
-        }
+    fn play_on(&self, mixer: &mut Mixer, options: PlayOptions) -> Handle {
+        let stop_others = self.settings.single_instance;
+        mixer.start_voice(self.voice(), stop_others, self.settings.volume, options)
     }
 }
 

@@ -4,8 +4,9 @@
 
 use solouder_core::{Handle, SOLOUD_VERSION, Sound};
 
+use crate::bus_ops::Source;
 use crate::ops::{code, hex64};
-use crate::run::{MAX_MIX_FRAMES, SO_NO_ERROR, State};
+use crate::run::{MAX_MIX_FRAMES, NOT_IMPLEMENTED, SO_NO_ERROR, State};
 use crate::scenario::{ScenarioError, Step};
 
 impl State {
@@ -47,8 +48,11 @@ impl State {
             mixer.set_sample_rate(handle, rate);
         }
         if present("seek") {
-            mixer.seek(handle, seek);
-            self.log(format!("set {name} seek {SO_NO_ERROR}"));
+            let result = match mixer.seek(handle, seek) {
+                Ok(()) => SO_NO_ERROR,
+                Err(_) => NOT_IMPLEMENTED,
+            };
+            self.log(format!("set {name} seek {result}"));
         }
         Ok(())
     }
@@ -94,9 +98,13 @@ impl State {
     /// [`solouder_core::Mixer::stop_sound`] here.
     pub(crate) fn stop_sound(&mut self, step: &Step) -> Result<(), ScenarioError> {
         step.check_keys(&["name", "source"])?;
-        let sound = self.named_sound(step)?;
+        let source = self.source(step, "name")?;
         step.flag_or("source", false)?;
-        self.mixer(step)?.stop_sound(&sound);
+        let mixer = self.mixer(step)?;
+        match &source {
+            Source::Sound(sound) => mixer.stop_sound(sound),
+            Source::Bus(bus) => mixer.stop_sound(bus),
+        }
         Ok(())
     }
 

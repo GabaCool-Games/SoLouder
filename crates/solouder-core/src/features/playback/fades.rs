@@ -5,7 +5,7 @@
 use super::control::PlayOptions;
 use super::handle::Handle;
 use super::mixer::Mixer;
-use super::sound::Sound;
+use super::source::Playable;
 use super::voice::flags;
 use super::voices::Voices;
 use crate::dsp::fader::{Fader, FaderState};
@@ -145,13 +145,18 @@ impl Mixer {
         });
     }
 
-    /// Plays `sound` delayed by `sound_time` minus the time of the first
+    /// Plays `source` delayed by `sound_time` minus the time of the first
     /// clocked play since the last mix, so sounds started from one game
     /// update keep their spacing (`Soloud::playClocked`). Delays outside 0 to
     /// 2048 frames are dropped.
-    pub fn play_clocked(&mut self, sound_time: f64, sound: &Sound, options: PlayOptions) -> Handle {
+    pub fn play_clocked(
+        &mut self,
+        sound_time: f64,
+        source: &impl Playable,
+        options: PlayOptions,
+    ) -> Handle {
         let handle = self.play_with(
-            sound,
+            source,
             PlayOptions {
                 paused: true,
                 ..options

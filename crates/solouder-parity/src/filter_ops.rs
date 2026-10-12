@@ -134,7 +134,7 @@ impl State {
     }
 
     /// The filter named by `key`, or `None` when the key is absent.
-    fn named_filter(
+    pub(crate) fn named_filter(
         &self,
         step: &Step,
         key: &str,

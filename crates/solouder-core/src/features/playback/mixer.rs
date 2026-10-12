@@ -3,6 +3,7 @@
 
 use super::config::{ConfigError, MixerConfig};
 use super::fades::advance_voices;
+use super::handle::Handle;
 use super::mix_bus::{Layout, mix_bus};
 use super::voices::Voices;
 use crate::contracts::MAX_CHANNELS;
@@ -11,7 +12,8 @@ use crate::dsp::clip::clip;
 use crate::dsp::fader::{Fader, FaderState};
 use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
 
-/// The SoLouder mixer: plays [`Sound`](super::Sound)s and renders interleaved
+/// The SoLouder mixer: plays [`Sound`](super::Sound)s and
+/// [`Bus`](super::Bus)es and renders interleaved
 /// `f32` output.
 ///
 /// Corresponds to an initialized SoLoud engine driven by explicit `mix` calls
@@ -23,7 +25,7 @@ pub struct Mixer {
     pub(super) config: MixerConfig,
     /// Frames the scratch buffers hold per channel; the most one internal mix
     /// pass renders (`mScratchSize`).
-    scratch_frames: usize,
+    pub(super) scratch_frames: usize,
     /// Each voice's resampled audio, then the clipped mix (`mScratch`).
     scratch: Vec<f32>,
     /// The accumulated mix before clipping (`mOutputScratch`).
@@ -140,6 +142,7 @@ impl Mixer {
             sample_rate,
             resampler: self.resampler,
             time: self.stream_time,
+            bus: Handle::INVALID,
         };
         mix_bus(voices, &mut self.output_scratch, &mut self.scratch, layout);
         for filter in self.global_filters.iter_mut().flatten() {

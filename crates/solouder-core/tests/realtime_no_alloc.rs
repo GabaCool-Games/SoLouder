@@ -86,6 +86,7 @@ fn rendering_never_allocates_or_frees() {
             paused: i % 10 == 0,
             speed: 0.5 + (i % 4) as f32 * 0.25,
             protect: i % 7 == 0,
+            ..PlayOptions::default()
         };
         let shape = shapes[i % 3];
         ids.push(play_fresh(

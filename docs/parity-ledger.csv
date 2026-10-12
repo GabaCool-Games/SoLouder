@@ -1,7 +1,7 @@
 behavior,kind,c_functions,slice,milestone,status,scenarios,notes
 Soloud::addVoiceToGroup,engine,Soloud_addVoiceToGroup,routing,D,ported,voice_groups,
 Soloud::calcFFT,engine,Soloud_calcFFT,visualization,F,todo,,
-Soloud::countAudioSource,engine,Soloud_countAudioSource,playback,B,ported,sound_instances,Mixer::count_sound; clones of a Sound share its SoundId.
+Soloud::countAudioSource,engine,Soloud_countAudioSource,playback,B,ported,sound_instances buses,Mixer::count_sound takes a Sound or Bus; clones share its SoundId.
 Soloud::createVoiceGroup,engine,Soloud_createVoiceGroup,routing,D,ported,voice_groups,
 Soloud::deinit,engine,Soloud_deinit,output_lifecycle,C,ported,,Dropping or closing solouder_cpal::Output stops the stream before the mixer is freed on the closing thread. device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
 Soloud::destroyVoiceGroup,engine,Soloud_destroyVoiceGroup,routing,D,ported,voice_groups,
@@ -54,14 +54,14 @@ Soloud::oscillateGlobalVolume,engine,Soloud_oscillateGlobalVolume,playback,D,por
 Soloud::oscillatePan,engine,Soloud_oscillatePan,playback,D,ported,fades,
 Soloud::oscillateRelativePlaySpeed,engine,Soloud_oscillateRelativePlaySpeed,playback,D,ported,fades,
 Soloud::oscillateVolume,engine,Soloud_oscillateVolume,playback,D,ported,fades,
-Soloud::play,engine,Soloud_play Soloud_playEx,playback,B,ported,play_basic volume_pan_ramps pause_stop sound_instances,"Volume (negative = sound's), pan, paused; a single-instance sound first stops its other voices. Returns 0 when every voice is protected (patch 0020). The bus argument arrives with routing (D)."
+Soloud::play,engine,Soloud_play Soloud_playEx,playback,B,ported,play_basic volume_pan_ramps pause_stop sound_instances buses,"Volume (negative = sound's), pan, paused; a single-instance sound first stops its other voices. Returns 0 when every voice is protected (patch 0020). Plays a Sound or a Bus (Playable); the bus argument is PlayOptions::bus."
 Soloud::play3d,engine,Soloud_play3d Soloud_play3dEx,spatial,E,todo,,
 Soloud::play3dClocked,engine,Soloud_play3dClocked Soloud_play3dClockedEx,spatial,E,todo,,
 Soloud::playBackground,engine,Soloud_playBackground Soloud_playBackgroundEx,playback,B,ported,voice_controls,The bus argument arrives with routing (D).
-Soloud::playClocked,engine,Soloud_playClocked Soloud_playClockedEx,playback,D,ported,fades,Mixer::play_clocked takes PlayOptions; PlayOptions.paused is honored (the C API always starts the voice).
+Soloud::playClocked,engine,Soloud_playClocked Soloud_playClockedEx,playback,D,ported,fades buses,Mixer::play_clocked takes PlayOptions (including bus); PlayOptions.paused is honored (the C API always starts the voice).
 Soloud::schedulePause,engine,Soloud_schedulePause,playback,D,ported,fades,
 Soloud::scheduleStop,engine,Soloud_scheduleStop,playback,D,ported,fades,
-Soloud::seek,engine,Soloud_seek,playback,B,ported,voice_controls,"Mixer::seek; never fails for a Sound, so it returns nothing. Frames are counted at the base rate (patch 0028)."
+Soloud::seek,engine,Soloud_seek,playback,B,ported,voice_controls bus_seek,"Mixer::seek returns Err(CannotSeekBack) where SoLoud returns NOT_IMPLEMENTED (a bus seeking back). Frames are counted at the base rate (patch 0028); a bus mixes its voices over the time skipped (patches 0046, 0048)."
 Soloud::set3dListenerAt,engine,Soloud_set3dListenerAt,spatial,E,todo,,
 Soloud::set3dListenerParameters,engine,Soloud_set3dListenerParameters Soloud_set3dListenerParametersEx,spatial,E,todo,,
 Soloud::set3dListenerPosition,engine,Soloud_set3dListenerPosition,spatial,E,todo,,
@@ -98,7 +98,7 @@ Soloud::setVisualizationEnable,engine,Soloud_setVisualizationEnable,visualizatio
 Soloud::setVolume,engine,Soloud_setVolume,playback,B,ported,volume_pan_ramps pause_stop active_voices,Ramps in over the next mix; jumps while paused.
 Soloud::stop,engine,Soloud_stop,playback,B,ported,pause_stop,Voice handles only; voice groups arrive in D.
 Soloud::stopAll,engine,Soloud_stopAll,playback,B,ported,pause_stop,
-Soloud::stopAudioSource,engine,Soloud_stopAudioSource,playback,B,ported,sound_instances,Mixer::stop_sound; clones of a Sound share its SoundId.
+Soloud::stopAudioSource,engine,Soloud_stopAudioSource,playback,B,ported,sound_instances buses,Mixer::stop_sound takes a Sound or Bus; clones share its SoundId.
 Soloud::update3dAudio,engine,Soloud_update3dAudio,spatial,E,todo,,
 AudioSource::getLoopPoint,source-common,Ay_getLoopPoint Bus_getLoopPoint Monotone_getLoopPoint Noise_getLoopPoint Openmpt_getLoopPoint Queue_getLoopPoint Sfxr_getLoopPoint Speech_getLoopPoint TedSid_getLoopPoint Vic_getLoopPoint Vizsn_getLoopPoint WavStream_getLoopPoint Wav_getLoopPoint,playback,B,ported,voice_controls sound_instances,Sound::loop_point (Wav only).
 AudioSource::set3dAttenuation,source-common,Ay_set3dAttenuation Bus_set3dAttenuation Monotone_set3dAttenuation Noise_set3dAttenuation Openmpt_set3dAttenuation Queue_set3dAttenuation Sfxr_set3dAttenuation Speech_set3dAttenuation TedSid_set3dAttenuation Vic_set3dAttenuation Vizsn_set3dAttenuation WavStream_set3dAttenuation Wav_set3dAttenuation,spatial,E,todo,,
@@ -109,27 +109,27 @@ AudioSource::set3dDopplerFactor,source-common,Ay_set3dDopplerFactor Bus_set3dDop
 AudioSource::set3dListenerRelative,source-common,Ay_set3dListenerRelative Bus_set3dListenerRelative Monotone_set3dListenerRelative Noise_set3dListenerRelative Openmpt_set3dListenerRelative Queue_set3dListenerRelative Sfxr_set3dListenerRelative Speech_set3dListenerRelative TedSid_set3dListenerRelative Vic_set3dListenerRelative Vizsn_set3dListenerRelative WavStream_set3dListenerRelative Wav_set3dListenerRelative,spatial,E,todo,,
 AudioSource::set3dMinMaxDistance,source-common,Ay_set3dMinMaxDistance Bus_set3dMinMaxDistance Monotone_set3dMinMaxDistance Noise_set3dMinMaxDistance Openmpt_set3dMinMaxDistance Queue_set3dMinMaxDistance Sfxr_set3dMinMaxDistance Speech_set3dMinMaxDistance TedSid_set3dMinMaxDistance Vic_set3dMinMaxDistance Vizsn_set3dMinMaxDistance WavStream_set3dMinMaxDistance Wav_set3dMinMaxDistance,spatial,E,todo,,
 AudioSource::setAutoStop,source-common,Ay_setAutoStop Bus_setAutoStop Monotone_setAutoStop Noise_setAutoStop Openmpt_setAutoStop Queue_setAutoStop Sfxr_setAutoStop Speech_setAutoStop TedSid_setAutoStop Vic_setAutoStop Vizsn_setAutoStop WavStream_setAutoStop Wav_setAutoStop,playback,B,ported,voice_controls sound_instances,Sound::set_auto_stop (Wav only).
-AudioSource::setFilter,source-common,Ay_setFilter Bus_setFilter Monotone_setFilter Noise_setFilter Openmpt_setFilter Queue_setFilter Sfxr_setFilter Speech_setFilter TedSid_setFilter Vic_setFilter Vizsn_setFilter WavStream_setFilter Wav_setFilter,filters,D,in-progress,filters_voice filter_params,"Sound::set_filter(slot, Option<Arc<dyn Filter>>) (Wav only; buses and queues in D5 and D6). Filters are shared and immutable once set: change settings by setting a new filter."
+AudioSource::setFilter,source-common,Ay_setFilter Bus_setFilter Monotone_setFilter Noise_setFilter Openmpt_setFilter Queue_setFilter Sfxr_setFilter Speech_setFilter TedSid_setFilter Vic_setFilter Vizsn_setFilter WavStream_setFilter Wav_setFilter,filters,D,in-progress,filters_voice filter_params buses,"Sound::set_filter and Bus::set_filter (later plays) and Mixer::set_bus_filter (also the playing bus), with Option<Arc<dyn Filter>>; queues in D6. Filters are shared and immutable once set: change settings by setting a new filter."
 AudioSource::setInaudibleBehavior,source-common,Ay_setInaudibleBehavior Bus_setInaudibleBehavior Monotone_setInaudibleBehavior Noise_setInaudibleBehavior Openmpt_setInaudibleBehavior Queue_setInaudibleBehavior Sfxr_setInaudibleBehavior Speech_setInaudibleBehavior TedSid_setInaudibleBehavior Vic_setInaudibleBehavior Vizsn_setInaudibleBehavior WavStream_setInaudibleBehavior Wav_setInaudibleBehavior,playback,B,ported,sound_instances,Sound::set_inaudible_behavior (Wav only).
-AudioSource::setLooping,source-common,Ay_setLooping Bus_setLooping Monotone_setLooping Noise_setLooping Openmpt_setLooping Queue_setLooping Sfxr_setLooping Speech_setLooping TedSid_setLooping Vic_setLooping Vizsn_setLooping WavStream_setLooping Wav_setLooping,playback,B,in-progress,looping,Sound (Wav) only.
+AudioSource::setLooping,source-common,Ay_setLooping Bus_setLooping Monotone_setLooping Noise_setLooping Openmpt_setLooping Queue_setLooping Sfxr_setLooping Speech_setLooping TedSid_setLooping Vic_setLooping Vizsn_setLooping WavStream_setLooping Wav_setLooping,playback,B,in-progress,looping,"Sound and Bus (a bus never ends, so only isVoiceLooping sees it)."
 AudioSource::setLoopPoint,source-common,Ay_setLoopPoint Bus_setLoopPoint Monotone_setLoopPoint Noise_setLoopPoint Openmpt_setLoopPoint Queue_setLoopPoint Sfxr_setLoopPoint Speech_setLoopPoint TedSid_setLoopPoint Vic_setLoopPoint Vizsn_setLoopPoint WavStream_setLoopPoint Wav_setLoopPoint,playback,B,ported,voice_controls sound_instances,Sound::set_loop_point (Wav only).
-AudioSource::setVolume,source-common,Ay_setVolume Bus_setVolume Monotone_setVolume Noise_setVolume Openmpt_setVolume Queue_setVolume Sfxr_setVolume Speech_setVolume TedSid_setVolume Vic_setVolume Vizsn_setVolume WavStream_setVolume Wav_setVolume,playback,B,in-progress,volume_pan_ramps,Sound (Wav) only.
-AudioSource::stop,source-common,Ay_stop Bus_stop Monotone_stop Noise_stop Openmpt_stop Queue_stop Sfxr_stop Speech_stop TedSid_stop Vic_stop Vizsn_stop WavStream_stop Wav_stop,playback,B,ported,sound_instances,Mixer::stop_sound on each mixer: a Sound does not know the mixers playing it.
+AudioSource::setVolume,source-common,Ay_setVolume Bus_setVolume Monotone_setVolume Noise_setVolume Openmpt_setVolume Queue_setVolume Sfxr_setVolume Speech_setVolume TedSid_setVolume Vic_setVolume Vizsn_setVolume WavStream_setVolume Wav_setVolume,playback,B,in-progress,volume_pan_ramps buses,Sound and Bus.
+AudioSource::stop,source-common,Ay_stop Bus_stop Monotone_stop Noise_stop Openmpt_stop Queue_stop Sfxr_stop Speech_stop TedSid_stop Vic_stop Vizsn_stop WavStream_stop Wav_stop,playback,B,ported,sound_instances buses,Mixer::stop_sound on each mixer: a Sound or Bus does not know the mixers playing it.
 Ay::lifecycle,source,Ay_create Ay_destroy,sources,F,todo,,
-Bus::annexSound,source,Bus_annexSound,routing,D,todo,,
-Bus::calcFFT,source,Bus_calcFFT,routing,D,todo,,
-Bus::getActiveVoiceCount,source,Bus_getActiveVoiceCount,routing,D,todo,,
-Bus::getApproximateVolume,source,Bus_getApproximateVolume,routing,D,todo,,
-Bus::getResampler,source,Bus_getResampler,routing,D,todo,,
-Bus::getWave,source,Bus_getWave,routing,D,todo,,
-Bus::lifecycle,source,Bus_create Bus_destroy,routing,D,todo,,
-Bus::play,source,Bus_play Bus_playEx,routing,D,todo,,
-Bus::play3d,source,Bus_play3d Bus_play3dEx,routing,D,todo,,
-Bus::play3dClocked,source,Bus_play3dClocked Bus_play3dClockedEx,routing,D,todo,,
-Bus::playClocked,source,Bus_playClocked Bus_playClockedEx,routing,D,todo,,
-Bus::setChannels,source,Bus_setChannels,routing,D,todo,,
-Bus::setResampler,source,Bus_setResampler,routing,D,todo,,
-Bus::setVisualizationEnable,source,Bus_setVisualizationEnable,routing,D,todo,,
+Bus::annexSound,source,Bus_annexSound,routing,D,ported,buses,"Mixer::annex_sound(&Bus, handle); voice groups move every voice."
+Bus::calcFFT,source,Bus_calcFFT,routing,D,ported,buses,Mixer::bus_fft; None when the bus is not playing on that mixer (SoLoud returns its last copy).
+Bus::getActiveVoiceCount,source,Bus_getActiveVoiceCount,routing,D,ported,buses,"Mixer::bus_voice_count; like SoLoud, looks up the bus handle, which lets the bus mix voices given that handle."
+Bus::getApproximateVolume,source,Bus_getApproximateVolume,routing,D,ported,buses,Mixer::bus_approximate_volume; 0 for channels past the bus's (patch 0047).
+Bus::getResampler,source,Bus_getResampler,routing,D,ported,buses,Bus::resampler.
+Bus::getWave,source,Bus_getWave,routing,D,ported,buses,Mixer::bus_wave; None when the bus is not playing on that mixer (SoLoud returns its last copy).
+Bus::lifecycle,source,Bus_create Bus_destroy,routing,D,ported,buses,"Bus::new; a stereo bus with linear resampling. Dropping a Bus leaves its voice playing, as for Sound; Mixer::stop_sound stops it and its voices."
+Bus::play,source,Bus_play Bus_playEx,routing,D,ported,buses,"Mixer::bus_play(&Bus, &impl Playable, PlayOptions); volume None uses the source volume where SoLoud defaults to 1 (#381). Playing a Bus itself (Mixer::play_with) stops its earlier voice on that mixer."
+Bus::play3d,source,Bus_play3d Bus_play3dEx,routing,E,todo,,With 3D audio.
+Bus::play3dClocked,source,Bus_play3dClocked Bus_play3dClockedEx,routing,E,todo,,With 3D audio.
+Bus::playClocked,source,Bus_playClocked Bus_playClockedEx,routing,D,ported,buses,Mixer::bus_play_clocked.
+Bus::setChannels,source,Bus_setChannels,routing,D,ported,buses,"Bus::set_channels: 1, 2, 4, 6 or 8, else ControlError::InvalidChannels; later plays."
+Bus::setResampler,source,Bus_setResampler,routing,D,ported,buses,Bus::set_resampler (later plays) and Mixer::set_bus_resampler (also the playing bus); the enum has no invalid values to ignore.
+Bus::setVisualizationEnable,source,Bus_setVisualizationEnable,routing,D,ported,buses,Bus::set_visualization (later plays) and Mixer::set_bus_visualization (also the playing bus).
 Monotone::lifecycle,source,Monotone_create Monotone_destroy,sources,F,todo,,
 Monotone::load,source,Monotone_load,sources,F,todo,,
 Monotone::loadFile,source,Monotone_loadFile,sources,F,todo,,

@@ -4,7 +4,8 @@
 //! The scenario format is specified in `tests/scenarios/README.md` at the
 //! repository root; the C++ side is `reference/tests/parity_runner.cpp`.
 
-pub mod compare;
+mod bus_ops;
+mod compare;
 mod fade_ops;
 mod fft_ops;
 mod files;

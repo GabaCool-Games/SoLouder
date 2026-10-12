@@ -20,8 +20,8 @@ pub use contracts::{MAX_CHANNELS, Pcm, PcmError, SAMPLE_GRANULARITY};
 pub use dsp::{Clipper, Resampler};
 pub use features::filters;
 pub use features::playback::{
-    ConfigError, ControlError, FilterTarget, Handle, Mixer, MixerConfig, PlayOptions, Sound,
-    SoundId, VOICE_COUNT,
+    Bus, ConfigError, ControlError, FilterTarget, Handle, Mixer, MixerConfig, PlayOptions,
+    Playable, Sound, SoundId, VOICE_COUNT,
 };
 
 /// The SoLoud release whose behavior this crate reproduces

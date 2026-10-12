@@ -1,7 +1,7 @@
 //! Scenario operations on sounds and voices. Each mirrors the operation of
 //! the same name in `reference/tests/parity_runner.cpp`.
 
-use solouder_core::{Handle, Pcm, PlayOptions, Resampler, Sound};
+use solouder_core::{Handle, Pcm, Resampler, Sound};
 
 use crate::pattern::{MAX_SOUND_SAMPLES, Pattern};
 use crate::run::{INVALID_PARAMETER, SO_NO_ERROR, State};
@@ -104,59 +104,6 @@ impl State {
             self.store(name.clone(), sound);
         });
         self.log(format!("sound {name} {}", code(result)));
-        Ok(())
-    }
-
-    pub(crate) fn play(&mut self, step: &Step) -> Result<(), ScenarioError> {
-        step.check_keys(&[
-            "sound",
-            "as",
-            "volume",
-            "pan",
-            "paused",
-            "clock",
-            "background",
-        ])?;
-        if step.get("clock").is_some() && step.get("paused").is_some() {
-            return Err(step.error("`clock` and `paused` cannot be combined"));
-        }
-        let background = step.flag_or("background", false)?;
-        if step.get("background").is_some()
-            && (step.get("pan").is_some() || step.get("clock").is_some())
-        {
-            return Err(step.error("`background` cannot be combined with `pan` or `clock`"));
-        }
-        let clock = step
-            .get("clock")
-            .map(|_| step.seconds_or("clock", 0.0))
-            .transpose()?;
-        let sound_name = step.text("sound")?;
-        let name = step.text("as")?.to_owned();
-        let volume = step.number_or("volume", -1.0)?;
-        let options = PlayOptions {
-            // SoLoud's `play` treats a negative volume as "use the sound's".
-            volume: (volume >= 0.0).then_some(volume),
-            pan: step.number_or("pan", 0.0)?,
-            paused: step.flag_or("paused", false)?,
-            ..PlayOptions::default()
-        };
-        let sound = self
-            .sounds
-            .get(sound_name)
-            .cloned()
-            .ok_or_else(|| step.error(format!("no sound named `{sound_name}`")))?;
-        let mixer = self.mixer(step)?;
-        let handle = match clock {
-            _ if background => mixer.play_background(&sound, options.volume, options.paused),
-            Some(time) => mixer.play_clocked(time, &sound, options),
-            None => mixer.play_with(&sound, options),
-        };
-        self.played
-            .entry(sound_name.to_owned())
-            .or_default()
-            .push(handle);
-        self.handles.insert(name.clone(), handle);
-        self.log(format!("play {name} {}", handle.raw()));
         Ok(())
     }
 

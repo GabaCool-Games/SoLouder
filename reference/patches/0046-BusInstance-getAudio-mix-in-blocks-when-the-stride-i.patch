@@ -1,0 +1,71 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 19:29:12 +0300
+Subject: [PATCH] BusInstance::getAudio: mix in blocks when the stride is not
+ one block
+
+Soloud::seek on a bus voice discards audio through the generic seek, which
+calls getAudio with passes of the engine's scratch size divided by the bus's
+channels and uses that as the channel stride. mixBus_internal then ran
+panAndExpand with a stride that need not be a multiple of 16 (an assert,
+and a fault in its aligned SSE loads) and wrote child voices with more
+channels than fit into the bus's one-block scratch. Mix such calls one
+block at a time and copy each block into place.
+---
+ include/soloud_bus.h    |  3 +++
+ src/core/soloud_bus.cpp | 21 +++++++++++++++++++++
+ 2 files changed, 24 insertions(+)
+
+diff --git a/include/soloud_bus.h b/include/soloud_bus.h
+index f1aa8b4..937093d 100644
+--- a/include/soloud_bus.h
++++ b/include/soloud_bus.h
+@@ -39,6 +39,9 @@ namespace SoLoud
+ 		Soloud *mSoloud;
+ 		unsigned int mScratchSize;
+ 		AlignedFloatBuffer mScratch;
++		// One block of the bus's mix, for calls whose stride is not
++		// SAMPLE_GRANULARITY (seeking discards audio in larger passes).
++		AlignedFloatBuffer mBlock;
+ 
+ 		// Approximate volume for channels.
+ 		float mVisualizationChannelVolume[MAX_CHANNELS];
+diff --git a/src/core/soloud_bus.cpp b/src/core/soloud_bus.cpp
+index 96670f2..21e8f02 100644
+--- a/src/core/soloud_bus.cpp
++++ b/src/core/soloud_bus.cpp
+@@ -39,6 +39,7 @@ namespace SoLoud
+ 			mVisualizationWaveData[i] = 0;
+ 		mScratchSize = SAMPLE_GRANULARITY;
+ 		mScratch.init(mScratchSize * MAX_CHANNELS);
++		mBlock.init(SAMPLE_GRANULARITY * MAX_CHANNELS);
+ 	}
+ 	
+ 	unsigned int BusInstance::getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize)
+@@ -53,6 +54,26 @@ namespace SoLoud
+ 			return aSamplesToRead;
+ 		}
+ 		
++		// mixBus_internal needs a stride that is a multiple of 16 and mixes
++		// into mScratch, which holds one block of each channel.
++		if (aBufferSize != SAMPLE_GRANULARITY)
++		{
++			unsigned int done = 0;
++			while (done < aSamplesToRead)
++			{
++				unsigned int n = aSamplesToRead - done;
++				if (n > SAMPLE_GRANULARITY)
++					n = SAMPLE_GRANULARITY;
++				getAudio(mBlock.mData, n, SAMPLE_GRANULARITY);
++				unsigned int i, j;
++				for (j = 0; j < mChannels; j++)
++					for (i = 0; i < n; i++)
++						aBuffer[done + i + j * aBufferSize] = mBlock.mData[i + j * SAMPLE_GRANULARITY];
++				done += n;
++			}
++			return aSamplesToRead;
++		}
++
+ 		Soloud *s = mSoloud;
+ 		
+ 		s->mixBus_internal(aBuffer, aSamplesToRead, aBufferSize, mScratch.mData, handle, mSamplerate, mChannels, mParent->mResampler);

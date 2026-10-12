@@ -72,6 +72,9 @@ set(REFERENCE_TESTS
   flanger_channels_share_the_lfo
   flanger_delay_extremes_are_safe
   more_filter_params_reject_nan
+  bus_seek_mixes_in_blocks
+  bus_volume_channel_in_range
+  bus_seek_skips_voices_without_buffers
   play_stop_without_init
   play_after_failed_init
   wav_rejects_too_many_channels

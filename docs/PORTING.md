@@ -388,6 +388,9 @@ unpatched reference, and each needs a matching Rust test.
 | 0043 | — (found porting milestone D) | The flanger advanced its LFO once per channel per frame, so each channel got a different sweep and a stereo flanger ran twice as fast as set. All channels now start from the same phase. | `flanger_channels_share_the_lfo` |
 | 0044 | — (found porting milestone D) | A flanger delay of 0 (by fade or set) made the line 0 samples long (`% 0` crashed), and a delay past the `int` range made its length `INT_MIN`. The line is at least one sample, and the delay is converted once and used for both the line and the sweep. | `flanger_delay_extremes_are_safe` |
 | 0045 | — (found porting milestone D) | `BassboostFilter`, `FlangerFilter` and `FreeverbFilter` `setParams` accepted NaN, as 0037 fixed for the others. | `more_filter_params_reject_nan` |
+| 0046 | — (found porting milestone D) | `Soloud::seek` on a bus discards audio through the generic seek, which calls `BusInstance::getAudio` with passes of the engine's scratch size divided by the bus's channels and uses that as the channel stride. `panAndExpand` then asserted (a breakpoint in MSVC builds) or faulted in its aligned SSE loads for strides that are not a multiple of 16, and voices with more channels than the bus were written past its one-block scratch. Such calls are now mixed one block at a time. | `bus_seek_mixes_in_blocks` |
+| 0047 | — (found porting milestone D) | `Bus::getApproximateVolume` checked the channel with `>` instead of `>=`, so channel 8 of an 8-channel bus read past the volume array. | `bus_volume_channel_in_range` |
+| 0048 | — (found porting milestone D) | The active voice list is only recomputed when a mix starts, so a bus seek after a voice was stopped and another played into its slot mixed the new voice, whose resample buffers are not assigned yet, through a null pointer. `mixBus_internal` skips voices without resample buffers. | `bus_seek_skips_voices_without_buffers` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the `goregrind` branch). Its README lists every fix with
@@ -395,7 +398,7 @@ credits. Commits after 0017 on `goregrind` add build scripts and that README,
 so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto `goregrind`. Patches 0018 to
-0025 were pushed on 2026-10-12 (public `master` at `9318875`); 0026 to 0045 are
+0025 were pushed on 2026-10-12 (public `master` at `9318875`); 0026 to 0048 are
 on `goregrind` but not pushed yet.
 
 GoreGrind's native libraries are built from the same branch: Windows with
@@ -428,9 +431,9 @@ or has not decided, with a test either way.
 
 | Upstream | Reference behavior |
 |---|---|
-| #381 | `Soloud::play` defaults `aVolume` to `-1` (use the source volume); `Soloud::play3d` and every `Bus::play*` default to `1.0`. |
-| #395 | Nested buses reduce gain compared to direct playback with the same settings. |
-| #280 | Stopping a bus handle tears down every voice playing through that bus. |
+| #381 | `Soloud::play` defaults `aVolume` to `-1` (use the source volume); `Soloud::play3d` and every `Bus::play*` default to `1.0`. Rust: `PlayOptions::volume` of `None` uses the source volume for every play call: changed (`buses` passes 1 explicitly). |
+| #395 | Nested buses reduce gain compared to direct playback with the same settings. Rust: preserved (each bus voice pans its mix again; `bus_mixes_its_voices_through_its_own_pan`, scenario `buses`). |
+| #280 | Stopping a bus handle tears down every voice playing through that bus. Rust: preserved, including SoLoud's exception for a bus that never looked up its handle (`bus_is_silent_until_its_handle_is_looked_up`, scenario `buses`). |
 | #240 | Hard-coded inaudibility thresholds: `0.001` in `update3dAudio` and `0.01` in `play3d`/`play3dClocked` (`soloud_core_3d.cpp`). |
 | #175, #203 (reported) | Pops or wrong orientation when 3D voices become audible or between `update3dAudio` calls. Volume/pan ramps are per mix call, so change rate depends on device buffer size. |
 | #94, #105 | `LEFT_HANDED_3D` only flips part of the listener basis; reporters found front/back and Z errors. Derive the Bevy mapping from tests, not the flag. |
@@ -556,9 +559,10 @@ scenarios, ledger rows and a commit.
 4. **FFT and the remaining filters** (done): the FFT, FFT filter, bassboost,
    robotize, flanger and freeverb. Patches 0039 to 0045. Scenarios `fft`,
    `filters_spectral`, `filters_modulation`.
-5. **Buses:** buses as playable sources, nested routing, bus filters,
-   channels and resampler, `annexSound`, active voice counts and
-   visualization.
+5. **Buses** (done): buses as playable sources, nested routing, bus filters,
+   channels and resampler, `annexSound`, active voice counts, visualization
+   and bus seeking. Patches 0046 to 0048. Scenarios `buses`, `bus_seek`.
+   `Bus::play3d` and `play3dClocked` come with 3D audio in milestone E.
 6. **Queues.**
 7. **Real-time control and review:** controller commands for the new
    controls, documentation, ledger and the milestone review.

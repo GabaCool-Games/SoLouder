@@ -255,6 +255,7 @@ fn start(
         paused: sent.paused,
         speed: sent.speed,
         protect: sent.protect,
+        ..PlayOptions::default()
     };
     match controller.play_with(&sound, options) {
         Ok(voice) => Ok(Some((voice, sent))),

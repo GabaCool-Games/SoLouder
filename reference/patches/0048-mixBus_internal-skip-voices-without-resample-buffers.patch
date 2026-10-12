@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 19:43:32 +0300
+Subject: [PATCH] mixBus_internal: skip voices without resample buffers
+
+The active voice list is only recomputed when a mix starts. Soloud::seek on a
+bus mixes the bus's voices from that list, so after a voice was stopped and
+another played into its slot, the new voice, whose resample buffers are not
+assigned until the next mix, was mixed through a null pointer.
+---
+ src/core/soloud.cpp | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 825c55f..c7927a7 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1671,7 +1671,11 @@ namespace SoLoud
+ 		for (i = 0; i < mActiveVoiceCount; i++)
+ 		{
+ 			AudioSourceInstance *voice = mVoice[mActiveVoice[i]];
++			// The active list is recomputed by mixes only, so between a play and
++			// the next mix (a bus seek) a listed slot can hold a voice that has
++			// no resample buffers yet.
+ 			if (voice &&
++				voice->mResampleData[0] &&
+ 				voice->mBusHandle == aBus &&
+ 				!(voice->mFlags & AudioSourceInstance::PAUSED) &&
+ 				!(voice->mFlags & AudioSourceInstance::INAUDIBLE))
+@@ -1872,6 +1876,7 @@ namespace SoLoud
+ 			}
+ 			else
+ 				if (voice &&
++					voice->mResampleData[0] &&
+ 					voice->mBusHandle == aBus &&
+ 					!(voice->mFlags & AudioSourceInstance::PAUSED) &&
+ 					(voice->mFlags & AudioSourceInstance::INAUDIBLE) &&

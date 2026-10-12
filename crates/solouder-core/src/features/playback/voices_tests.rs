@@ -9,7 +9,8 @@ fn sound() -> Sound {
 /// Places a voice like `play` does and returns its handle.
 fn add(voices: &mut Voices, volume: f32) -> Option<Handle> {
     let slot = voices.find_free()?;
-    let mut voice = Voice::new(&sound(), voices.play_index);
+    let mut voice = sound().voice();
+    voice.play_index = voices.play_index;
     voice.set_volume(volume);
     let handle = Handle::new(slot, voices.play_index);
     voices.play_index += 1;

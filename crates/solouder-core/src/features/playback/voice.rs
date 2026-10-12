@@ -4,7 +4,10 @@
 
 use std::f64::consts::PI;
 
-use super::sound::{Sound, SoundId};
+use super::bus::BusVoice;
+use super::handle::Handle;
+use super::sound::SoundId;
+use super::source::SourceSettings;
 use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
 use crate::dsp::fader::Fader;
 use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
@@ -33,13 +36,23 @@ pub(crate) struct ResampleBlocks {
     pub previous: usize,
 }
 
-/// One playing instance of a [`Sound`] (`AudioSourceInstance` plus
-/// `WavInstance`). Fields keep SoLoud's meaning and units.
+/// What a voice plays.
+#[derive(Debug)]
+pub(crate) enum VoiceSource {
+    /// A sound's samples (`WavInstance`) and the next frame to read.
+    Pcm { pcm: Pcm, offset: u32 },
+    /// The mix of the voices playing through this voice (`BusInstance`).
+    Bus(Box<BusVoice>),
+}
+
+/// One playing instance of a sound or bus (`AudioSourceInstance`). Fields
+/// keep SoLoud's meaning and units.
 #[derive(Debug)]
 pub(crate) struct Voice {
-    pcm: Pcm,
-    /// Next frame to read from `pcm`.
-    offset: u32,
+    pub source: VoiceSource,
+    /// The bus voice this voice plays through; [`Handle::INVALID`] is the
+    /// main output (`mBusHandle`).
+    pub bus: Handle,
     pub sound_id: SoundId,
     pub play_index: u32,
     pub flags: u32,
@@ -89,28 +102,21 @@ pub(crate) struct VoiceFaders {
 }
 
 impl Voice {
-    /// A voice at the start of `sound`, before `play` applies volume and pan.
-    pub fn new(sound: &Sound, play_index: u32) -> Self {
-        let pcm = sound.pcm().clone();
-        let rate = pcm.sample_rate();
-        let (tick, kill) = sound.inaudible_behavior();
-        let mut voice_flags = 0;
-        for (on, flag) in [
-            (sound.looping(), flags::LOOPING),
-            (kill, flags::INAUDIBLE_KILL),
-            (tick, flags::INAUDIBLE_TICK),
-            (!sound.auto_stop(), flags::DISABLE_AUTOSTOP),
-        ] {
-            if on {
-                voice_flags |= flag;
-            }
-        }
+    /// A voice at the start of `source`, before `play` applies volume and
+    /// pan, with `extra_flags` on top of the source's.
+    pub fn new(
+        settings: &SourceSettings,
+        sound_id: SoundId,
+        source: VoiceSource,
+        rate: f32,
+        extra_flags: u32,
+    ) -> Self {
         Self {
-            pcm,
-            offset: 0,
-            sound_id: sound.id(),
-            play_index,
-            flags: voice_flags,
+            source,
+            bus: Handle::INVALID,
+            sound_id,
+            play_index: 0,
+            flags: settings.voice_flags() | extra_flags,
             pan: 0.0,
             channel_volume: [1.0; MAX],
             current_channel_volume: [0.0; MAX],
@@ -123,23 +129,19 @@ impl Voice {
             stream_time: 0.0,
             stream_position: 0.0,
             loop_count: 0,
-            loop_point: sound.loop_point(),
+            loop_point: settings.loop_point,
             src_offset: 0,
             leftover_samples: 0,
             block_samples: 0,
             delay_samples: 0,
             resample: None,
             faders: VoiceFaders::default(),
-            filters: std::array::from_fn(|slot| {
-                sound
-                    .filter(slot as u32)
-                    .map(|filter| filter.create_instance())
-            }),
+            filters: settings.filter_instances(),
         }
     }
 
     pub fn channels(&self) -> usize {
-        self.pcm.channels() as usize
+        channels_of(&self.source)
     }
 
     pub fn has_flag(&self, flag: u32) -> bool {
@@ -158,43 +160,65 @@ impl Voice {
     /// `c` at `c * SAMPLE_GRANULARITY`), starting `start` frames into each
     /// channel, and returns how many were copied (`WavInstance::getAudio`).
     pub fn read(&mut self, block: &mut [f32], start: usize, frames: u32) -> u32 {
-        let count = (self.pcm.frames() - self.offset).min(frames);
-        let from = self.offset as usize;
-        for c in 0..self.pcm.channels() {
-            let src = &self.pcm.channel(c)[from..from + count as usize];
+        let VoiceSource::Pcm { pcm, offset } = &mut self.source else {
+            return 0;
+        };
+        let count = (pcm.frames() - *offset).min(frames);
+        let from = *offset as usize;
+        for c in 0..pcm.channels() {
+            let src = &pcm.channel(c)[from..from + count as usize];
             let at = c as usize * BLOCK + start;
             block[at..at + count as usize].copy_from_slice(src);
         }
-        self.offset += count;
+        *offset += count;
         count
     }
 
     /// The voice's samples, released when it stops.
-    pub fn into_pcm(self) -> Pcm {
-        self.pcm
+    pub fn into_pcm(self) -> Option<Pcm> {
+        match self.source {
+            VoiceSource::Pcm { pcm, .. } => Some(pcm),
+            VoiceSource::Bus(_) => None,
+        }
     }
 
-    /// `WavInstance::hasEnded`: a looping voice never ends.
+    /// The bus state, for a bus voice.
+    pub fn as_bus(&self) -> Option<&BusVoice> {
+        match &self.source {
+            VoiceSource::Bus(bus) => Some(bus),
+            VoiceSource::Pcm { .. } => None,
+        }
+    }
+
+    /// `hasEnded`: a looping voice never ends, nor does a bus.
     pub fn has_ended(&self) -> bool {
-        !self.has_flag(flags::LOOPING) && self.offset >= self.pcm.frames()
+        match &self.source {
+            VoiceSource::Pcm { pcm, offset } => {
+                !self.has_flag(flags::LOOPING) && *offset >= pcm.frames()
+            }
+            VoiceSource::Bus(_) => false,
+        }
     }
 
     /// SoLoud's generic seek (`AudioSourceInstance::seek`): rewinds unless
     /// `seconds` is past the stream position, then skips frames at the base
     /// sample rate (reference patch 0028) up to the end. The resample blocks
-    /// already read still play first.
+    /// already read still play first. Buses seek in `bus::seek`.
     pub fn seek(&mut self, seconds: f64) {
+        let VoiceSource::Pcm { pcm, offset: read } = &mut self.source else {
+            return;
+        };
         let mut offset = seconds - self.stream_position;
         if offset <= 0.0 {
-            self.offset = 0;
+            *read = 0;
             self.stream_position = 0.0;
             offset = seconds;
         }
         let frames = (f64::from(self.base_sample_rate) * offset).floor();
         // `(int)` of a value outside its range is INT_MIN on x86: skip nothing.
         if (1.0..2_147_483_648.0).contains(&frames) {
-            let end = u64::from(self.offset) + frames as u64;
-            self.offset = end.min(u64::from(self.pcm.frames())) as u32;
+            let end = u64::from(*read) + frames as u64;
+            *read = end.min(u64::from(pcm.frames())) as u32;
         }
         self.stream_position = seconds;
     }
@@ -208,7 +232,7 @@ impl Voice {
         let v = &mut self.channel_volume;
         v[0] = l;
         v[1] = r;
-        match self.pcm.channels() {
+        match channels_of(&self.source) {
             4 => (v[2], v[3]) = (l, r),
             6 => (v[2], v[3], v[4], v[5]) = (1.0 / 2.0_f32.sqrt(), 1.0, l, r),
             8 => {
@@ -227,7 +251,7 @@ impl Voice {
         v[0] = left;
         v[1] = right;
         let mean = (left + right) * 0.5;
-        match self.pcm.channels() {
+        match channels_of(&self.source) {
             4 => (v[2], v[3]) = (left, right),
             6 => (v[2], v[3], v[4], v[5]) = (mean, mean, left, right),
             8 => {
@@ -280,14 +304,28 @@ impl Voice {
     }
 }
 
+fn channels_of(source: &VoiceSource) -> usize {
+    match source {
+        VoiceSource::Pcm { pcm, .. } => pcm.channels() as usize,
+        VoiceSource::Bus(bus) => bus.channels(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::features::playback::Sound;
 
     fn voice(channels: u32, frames: usize) -> Voice {
         let samples = (0..channels as usize * frames).map(|i| i as f32).collect();
-        let sound = Sound::new(Pcm::from_planar(samples, channels, 44100.0).unwrap());
-        Voice::new(&sound, 0)
+        Sound::new(Pcm::from_planar(samples, channels, 44100.0).unwrap()).voice()
+    }
+
+    fn offset(v: &Voice) -> u32 {
+        match v.source {
+            VoiceSource::Pcm { offset, .. } => offset,
+            VoiceSource::Bus(_) => unreachable!(),
+        }
     }
 
     #[test]
@@ -308,16 +346,16 @@ mod tests {
         let mut v = voice(1, 44100);
         v.set_relative_play_speed(2.0);
         v.seek(0.25);
-        assert_eq!((v.offset, v.stream_position), (11025, 0.25));
+        assert_eq!((offset(&v), v.stream_position), (11025, 0.25));
         v.seek(0.5);
-        assert_eq!(v.offset, 22050);
+        assert_eq!(offset(&v), 22050);
         v.seek(0.1);
-        assert_eq!(v.offset, 4410);
+        assert_eq!(offset(&v), 4410);
         v.seek(5.0);
         assert!(v.has_ended());
         assert_eq!(v.stream_position, 5.0);
         v.seek(f64::NAN);
-        assert_eq!(v.offset, 44100);
+        assert_eq!(offset(&v), 44100);
     }
 
     #[test]

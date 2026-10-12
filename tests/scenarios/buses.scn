@@ -1,0 +1,93 @@
+# Buses: voices played through a bus are mixed at the bus voice's rate and
+# channel count with the bus's resampler, then the bus voice plays that mix
+# with its own volume, pan, speed and filters. Covers nested buses, mono and
+# quad buses, Bus::play defaulting the volume to 1 (#381) and playClocked.
+# Also: changing the resampler, visualization and filters while a bus plays,
+# annexing voices and groups, a bus that never looked up its handle, and
+# stopping or replaying a bus stopping its voices (#280).
+init channels=2 rate=48000
+filter name=lp kind=biquad type=lowpass freq=1500 res=2
+filter name=echo kind=echo delay=0.003 decay=0.5 filter=0.2
+sound name=saw channels=2 frames=6000 pattern=saw period=41 amp=0.4 looping=1
+sound name=noise frames=5000 pattern=noise seed=3 amp=0.3 volume=0.5
+sound name=low frames=7000 pattern=saw period=300 amp=0.5 rate=22050 looping=1
+bus name=music visualization=1
+bus name=sfx channels=1 resampler=2 volume=0.8
+bus name=master channels=4
+bus name=bad channels=3
+play sound=master as=m
+play sound=music as=mu bus=master
+play sound=sfx as=fx pan=-0.3
+play sound=saw as=a bus=music pan=0.2
+play sound=noise as=n bus=sfx
+play sound=low as=l bus=music volume=0.7
+play sound=noise as=direct
+query h=n
+query h=direct
+query h=mu
+bus_query bus=music
+bus_query bus=master
+mix frames=1000
+bus_query bus=music
+bus_wave bus=music
+bus_wave bus=music fft=1
+bus_wave bus=sfx
+bus_wave bus=bad
+mix frames=777
+set h=mu speed=1.3
+set h=fx volume=0.4 pan=0.6
+bus_set bus=music resampler=0
+bus_filter bus=music slot=0 filter=lp
+mix frames=2048
+bus_set bus=music resampler=7 visualization=0
+bus_set bus=sfx channels=5
+bus_set bus=music channels=8
+bus_query bus=music
+bus_wave bus=music
+mix frames=1500
+
+# Moving a voice and a group to a bus; a stereo voice into a mono bus.
+play sound=saw as=b volume=0.5
+group as=g
+play sound=low as=g1
+play sound=low as=g2 pan=-0.8
+group_add group=g h=g1
+group_add group=g h=g2
+mix frames=600
+annex bus=sfx h=b
+annex bus=music h=g
+bus_query bus=sfx
+bus_query bus=music
+mix frames=1200
+
+# Filters set before a bus plays; clocked plays through a bus.
+bus name=late volume=0.9
+bus_filter bus=late slot=2 filter=echo
+play sound=late as=lt pan=0.5
+play sound=noise as=c1 bus=late clock=1.0
+play sound=noise as=c2 bus=late clock=1.004 volume=0.6
+mix frames=2000
+
+# A voice given a bus handle before the bus has looked it up is not mixed,
+# and stays when that bus stops.
+bus name=raw
+play sound=raw as=r
+play sound=low as=x via=r
+mix frames=800
+query h=x
+stop h=r
+counts
+play sound=raw as=r2
+bus_query bus=raw
+mix frames=512
+
+# Stopping or replaying a bus stops the voices playing through it.
+stop h=mu
+counts
+play sound=sfx as=fx2
+counts
+stop_sound name=master
+counts
+bus_wave bus=master
+bus_query bus=master
+mix frames=1024

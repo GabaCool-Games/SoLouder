@@ -1,7 +1,8 @@
 // Ported from SoLoud src/core/soloud.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
-use super::voice::{Voice, flags};
+use super::handle::Handle;
+use super::voice::{Voice, VoiceSource, flags};
 use super::voices::{BLOCK_LEN, Voices};
 use crate::contracts::SAMPLE_GRANULARITY;
 use crate::dsp::Resampler;
@@ -24,12 +25,16 @@ pub(crate) struct Layout {
     pub resampler: Resampler,
     /// The mixer's stream time, which drives filter parameter fades.
     pub time: f64,
+    /// The bus voice whose voices are mixed; [`Handle::INVALID`] for the
+    /// main output.
+    pub bus: Handle,
 }
 
-/// Mixes every active, unpaused, audible voice into the accumulator `out`, using
-/// `scratch` (up to `MAX_CHANNELS` planar channels) for each voice's
-/// resampled audio, and stops voices that have ended
-/// (`Soloud::mixBus_internal`).
+/// Mixes every active, unpaused, audible voice playing through `bus.bus`
+/// into the accumulator `out`, using `scratch` (up to `MAX_CHANNELS` planar
+/// channels) for each voice's resampled audio, and stops voices that have
+/// ended (`Soloud::mixBus_internal`). A bus voice mixes its own voices as it
+/// reads each block.
 pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32], bus: Layout) {
     let frames = bus.frames as usize;
     for k in 0..bus.channels {
@@ -37,14 +42,24 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
     }
     for i in 0..voices.active_count {
         let slot = voices.active[i] as usize;
-        let Some(voice) = voices.slots[slot].as_mut() else {
+        let Some(voice) = voices.slots[slot].as_ref() else {
             continue;
         };
         // Inaudible voices that tick advance without mixing (milestone E).
-        if voice.has_flag(flags::PAUSED | flags::INAUDIBLE) {
+        // A bus seek mixes from the active set of the last mix, which may
+        // list a voice played since then, without resample blocks: it is
+        // skipped (reference patch 0048).
+        if voice.bus != bus.bus
+            || voice.resample.is_none()
+            || voice.has_flag(flags::PAUSED | flags::INAUDIBLE)
+        {
             continue;
         }
-        let step_fixed = resample_voice(voice, &mut voices.pool.data, scratch, bus);
+        // Out of its slot while mixed, so a bus voice can mix the others.
+        let Some(mut voice) = voices.slots[slot].take() else {
+            continue;
+        };
+        let step_fixed = resample_voice(&mut voice, voices, scratch, bus);
         let source_channels = voice.channels();
         let gains = Gains {
             current: &mut voice.current_channel_volume,
@@ -60,7 +75,9 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
             scratch,
             bus.channels,
         );
-        if has_finished(voice, step_fixed) {
+        let finished = has_finished(&voice, step_fixed);
+        voices.slots[slot] = Some(voice);
+        if finished {
             voices.stop(slot);
         }
     }
@@ -81,7 +98,7 @@ fn has_finished(voice: &Voice, step_fixed: u32) -> bool {
 /// Renders `bus.frames` frames of `voice` at the bus rate into `scratch`,
 /// pulling 512-frame source blocks into the voice's resample blocks as needed.
 /// Returns the fixed-point step it used.
-fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus: Layout) -> u32 {
+fn resample_voice(voice: &mut Voice, voices: &mut Voices, scratch: &mut [f32], bus: Layout) -> u32 {
     let (frames, stride) = (bus.frames, bus.stride);
     let channels = voice.channels();
     let mut step = voice.sample_rate / bus.sample_rate;
@@ -92,7 +109,7 @@ fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus:
     }
     let step_fixed = (step * FRAC_MUL as f32).floor() as u32;
     let Some(mut blocks) = voice.resample else {
-        // Not reachable: active voices always have blocks. Render silence.
+        // Not reachable: `mix_bus` skips voices without blocks.
         clear_tail(scratch, channels, stride, 0, frames);
         return step_fixed;
     };
@@ -107,9 +124,10 @@ fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus:
     while step_fixed != 0 && written < frames {
         if voice.leftover_samples == 0 {
             std::mem::swap(&mut blocks.current, &mut blocks.previous);
-            let block = &mut pool[blocks.current * BLOCK_LEN..][..BLOCK_LEN];
-            let read = fill_block(voice, block);
+            let at = blocks.current * BLOCK_LEN;
+            let read = fill_block(voice, voices, at, bus.time);
             voice.block_samples = read;
+            let block = &mut voices.pool.data[at..][..BLOCK_LEN];
             if read < SAMPLE_GRANULARITY {
                 for c in 0..channels {
                     block[c * BLOCK + read as usize..(c + 1) * BLOCK].fill(0.0);
@@ -140,6 +158,7 @@ fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus:
         }
 
         if count != 0 {
+            let pool = &voices.pool.data;
             let current = &pool[blocks.current * BLOCK_LEN..][..BLOCK_LEN];
             let previous = &pool[blocks.previous * BLOCK_LEN..][..BLOCK_LEN];
             for c in 0..channels {
@@ -158,9 +177,15 @@ fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus:
     step_fixed
 }
 
-/// Reads the next source block, wrapping to the loop point as often as needed
-/// for a looping voice. Returns the frames read.
-fn fill_block(voice: &mut Voice, block: &mut [f32]) -> u32 {
+/// Reads the next source block into the pool block at `at`, wrapping to the
+/// loop point as often as needed for a looping voice. Returns the frames read.
+fn fill_block(voice: &mut Voice, voices: &mut Voices, at: usize, time: f64) -> u32 {
+    if let VoiceSource::Bus(state) = &mut voice.source {
+        state.render(voices, voice.sample_rate, time, SAMPLE_GRANULARITY);
+        voices.pool.data[at..][..BLOCK_LEN].copy_from_slice(&state.block);
+        return SAMPLE_GRANULARITY;
+    }
+    let block = &mut voices.pool.data[at..][..BLOCK_LEN];
     let looping = voice.has_flag(flags::LOOPING);
     if voice.has_ended() && !looping {
         return 0;

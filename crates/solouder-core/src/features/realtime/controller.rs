@@ -11,7 +11,7 @@ use super::ids::IdPool;
 use super::status::{Event, Shared, Status};
 use crate::contracts::Pcm;
 use crate::dsp::Resampler;
-use crate::features::playback::{PlayOptions, Sound};
+use crate::features::playback::{Handle, PlayOptions, Sound};
 
 /// Why the controller refused a request. Nothing was queued.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,7 +79,8 @@ impl Controller {
     /// Queues a play request and returns the ID of its voice-to-be. The
     /// voice reports [`Event::Started`] or [`Event::Failed`], and later
     /// [`Event::Finished`]. Speed and protection in `options` apply from the
-    /// first mixed frame.
+    /// first mixed frame. The voice plays on the main output whatever
+    /// `options.bus` says.
     ///
     /// Fails with [`ControllerError::QueueFull`] when the command queue is
     /// full, and also when the audio thread holds as much finished audio as
@@ -105,6 +106,10 @@ impl Controller {
             return Err(ControllerError::QueueFull);
         }
         let sound = sound.clone();
+        let options = PlayOptions {
+            bus: Handle::INVALID,
+            ..options
+        };
         if let Err(error) = self.send(Command::Play { id, sound, options }) {
             self.ids.release(id);
             return Err(error);

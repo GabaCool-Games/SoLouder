@@ -1,5 +1,8 @@
-//! Playback: sounds, voices and their controls, and rendering of the mix.
+//! Playback: sounds, buses, voices and their controls, and rendering of the
+//! mix.
 
+mod bus;
+mod bus_control;
 mod config;
 mod control;
 mod fades;
@@ -11,12 +14,15 @@ mod mixer;
 mod queries;
 mod retire;
 mod sound;
+mod source;
 mod voice;
 mod voices;
 
+pub use bus::Bus;
 pub use config::{ConfigError, MixerConfig};
 pub use control::{ControlError, PlayOptions};
 pub use filter_control::FilterTarget;
 pub use handle::{Handle, VOICE_COUNT};
 pub use mixer::Mixer;
 pub use sound::{Sound, SoundId};
+pub use source::Playable;

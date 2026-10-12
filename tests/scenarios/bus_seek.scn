@@ -1,0 +1,63 @@
+# Seeking a bus mixes its voices over the time skipped, in passes of the
+# engine's scratch size (6000 frames with this buffer) divided by the bus's
+# channels, one block at a time (patch 0046); the visualization data comes
+# from the last block, which may be shorter than 256 frames. Voices played
+# since the last mix are skipped, keeping their pan ramp for that mix (patch
+# 0048). A bus cannot seek back (NOT_IMPLEMENTED).
+init channels=2 rate=44100 buffer=6000
+sound name=st channels=2 frames=40000 pattern=saw period=77 amp=0.5
+sound name=mono frames=40000 pattern=noise seed=9 amp=0.4
+sound name=surround channels=6 frames=40000 pattern=saw period=131 amp=0.3
+bus name=one channels=1 visualization=1
+bus name=two
+bus name=six channels=6
+play sound=one as=o
+play sound=two as=t
+play sound=six as=s pan=0.3
+play sound=st as=a bus=one
+play sound=mono as=b bus=two
+play sound=surround as=c bus=six
+play sound=mono as=d bus=six pan=-0.5
+play sound=surround as=e bus=two
+mix frames=512
+set h=o seek=0.31
+set h=t seek=0.2
+set h=s seek=0.25
+bus_wave bus=one
+bus_query bus=one
+mix frames=1024
+bus_wave bus=one
+set h=t seek=0.1
+set h=o speed=1.7
+set h=o seek=0.6
+set h=s seek=0.25
+mix frames=2000
+query h=o
+query h=a
+
+# A slot freed and reused by a new voice before the next mix.
+stop h=b
+play sound=mono as=f bus=two
+set h=f pan=0.8
+set h=t seek=0.5
+mix frames=600
+query h=f
+counts
+mix frames=4096
+mix frames=4096
+counts
+
+# A quad bus: passes of 1500 frames. 797 frames end in a block of 285, and
+# 2205 frames in passes of 1500 and 705, the last block 193 frames long.
+init channels=2 rate=44100 buffer=6000
+sound name=st channels=2 frames=40000 pattern=saw period=77 amp=0.5
+bus name=quad channels=4 visualization=1
+play sound=quad as=q
+play sound=st as=g bus=quad pan=0.4
+mix frames=512
+set h=q seek=0.0297
+bus_wave bus=quad
+bus_query bus=quad
+set h=q seek=0.0797
+bus_wave bus=quad
+mix frames=700

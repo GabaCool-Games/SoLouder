@@ -178,7 +178,9 @@ impl Voices {
         Some(slot)
     }
 
-    /// `stopVoice_internal`: frees the slot and its resample blocks.
+    /// `stopVoice_internal`: frees the slot and its resample blocks. A bus
+    /// voice whose handle is known also stops the voices playing through it
+    /// (`~BusInstance`).
     pub fn stop(&mut self, slot: usize) {
         self.dirty = true;
         if let Some(voice) = self.slots[slot].take() {
@@ -187,7 +189,17 @@ impl Voices {
                     *owner = None;
                 }
             }
-            self.retired.put(voice.into_pcm());
+            let bus = voice.as_bus().and_then(|bus| bus.handle);
+            if let Some(pcm) = voice.into_pcm() {
+                self.retired.put(pcm);
+            }
+            if let Some(bus) = bus {
+                for child in 0..self.highest {
+                    if self.slots[child].as_ref().is_some_and(|v| v.bus == bus) {
+                        self.stop(child);
+                    }
+                }
+            }
         }
     }
 

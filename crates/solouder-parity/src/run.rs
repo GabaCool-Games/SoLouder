@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use solouder_core::filters::Filter;
-use solouder_core::{Clipper, Handle, Mixer, MixerConfig, Sound};
+use solouder_core::{Bus, Clipper, Handle, Mixer, MixerConfig, Sound};
 
 use crate::scenario::{Scenario, ScenarioError, Step};
 
@@ -17,6 +17,8 @@ pub const MAX_MIX_FRAMES: u32 = 4096;
 pub(crate) const SO_NO_ERROR: i32 = 0;
 /// SoLoud's `INVALID_PARAMETER`.
 pub(crate) const INVALID_PARAMETER: i32 = 1;
+/// SoLoud's `NOT_IMPLEMENTED`.
+pub(crate) const NOT_IMPLEMENTED: i32 = 6;
 
 /// What a scenario produced.
 #[derive(Clone, Debug, PartialEq)]
@@ -35,6 +37,7 @@ pub fn run(scenario: &Scenario) -> Result<Rendered, ScenarioError> {
     let mut state = State {
         mixer: None,
         sounds: HashMap::new(),
+        buses: HashMap::new(),
         played: HashMap::new(),
         handles: HashMap::new(),
         filters: HashMap::new(),
@@ -54,6 +57,8 @@ pub(crate) struct State {
     pub mixer: Option<Mixer>,
     /// Sounds by scenario name; cleared by `init`.
     pub sounds: HashMap<String, Sound>,
+    /// Buses by scenario name; cleared by `init`.
+    pub buses: HashMap<String, Bus>,
     /// Voices started from each sound name, stopped when the name is
     /// reloaded; cleared by `init`.
     pub played: HashMap<String, Vec<Handle>>,
@@ -98,6 +103,12 @@ impl State {
             }
             "filter_info" => self.filter_info(step),
             "fft" => self.fft(step),
+            "bus" => self.bus(step),
+            "annex" => self.annex(step),
+            "bus_query" => self.bus_query(step),
+            "bus_wave" => self.bus_wave(step),
+            "bus_filter" => self.bus_filter(step),
+            "bus_set" => self.bus_set(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }
@@ -153,6 +164,7 @@ impl State {
             clipper,
         };
         self.sounds.clear();
+        self.buses.clear();
         self.played.clear();
         self.handles.clear();
         self.mixer = None;

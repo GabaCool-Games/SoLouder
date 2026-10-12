@@ -841,6 +841,87 @@ namespace
 		return aWav.loadRawWave(data.data(), (unsigned int)data.size(), (float)kRate, aChannels, true, false);
 	}
 
+	// Soloud::seek on a bus voice discards audio by mixing the bus's voices
+	// in passes of the engine's scratch size divided by the bus's channels,
+	// with that many frames as the channel stride. Strides that are not a
+	// multiple of 16 hit panAndExpand's alignment assert (a breakpoint in
+	// MSVC builds) or fault in its SSE loads, and a voice with more channels
+	// than the bus overran the bus's one-block scratch.
+	void bus_seek_mixes_in_blocks()
+	{
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		Wav stereo;
+		check(loadConstantRaw(stereo, 2, 30000, 0.25f) == SO_NO_ERROR, "raw wave loads");
+		Bus mono;
+		check(mono.setChannels(1) == SO_NO_ERROR, "mono bus");
+		Bus wide;
+		handle monoBus = soloud.play(mono);
+		handle wideBus = soloud.play(wide);
+		check(mono.play(stereo, 1) != 0 && wide.play(stereo, 1) != 0, "voices play through the buses");
+		// A bus only mixes voices already in the active set.
+		std::vector<float> out(2 * 4096);
+		soloud.mix(out.data(), 512);
+		// 21538 and 8308 frames: passes of 4096 and 2048 frames, then 1058
+		// and 116.
+		check(soloud.seek(monoBus, 0.5) == SO_NO_ERROR, "mono bus seeks");
+		check(soloud.seek(wideBus, 0.2) == SO_NO_ERROR, "stereo bus seeks");
+		soloud.mix(out.data(), 4096);
+		check(allFinite(out), "output stays finite");
+		soloud.mix(out.data(), 4096);
+		soloud.mix(out.data(), 4096);
+		soloud.mix(out.data(), 4096);
+		// 30000 frames: the mono bus's voice is past its end after 22050 +
+		// 16384 frames, the stereo bus's is not.
+		check(mono.getActiveVoiceCount() == 0, "the seek advanced the mono bus's voice");
+		check(wide.getActiveVoiceCount() == 1, "the stereo bus's voice is still playing");
+	}
+
+	// The active voice list is only recomputed by a mix, so a bus seek right
+	// after a voice was stopped and another played in its slot mixed the new
+	// voice, which has no resample buffers yet: getAudio wrote through a null
+	// pointer.
+	void bus_seek_skips_voices_without_buffers()
+	{
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		Wav sound;
+		check(loadConstantRaw(sound, 1, 30000, 0.25f) == SO_NO_ERROR, "raw wave loads");
+		Bus bus;
+		handle busHandle = soloud.play(bus);
+		handle first = bus.play(sound, 1);
+		std::vector<float> out(2 * 512);
+		soloud.mix(out.data(), 512);
+		soloud.stop(first);
+		handle second = bus.play(sound, 1);
+		check((second & 0xfff) == (first & 0xfff), "the new voice reuses the slot");
+		check(soloud.seek(busHandle, 0.2) == SO_NO_ERROR, "bus seeks");
+		soloud.mix(out.data(), 512);
+		check(allFinite(out), "output stays finite");
+		check(bus.getActiveVoiceCount() == 1, "the new voice still plays");
+	}
+
+	// Bus::getApproximateVolume compared the channel with `>` instead of
+	// `>=`, so channel 8 of an 8-channel bus read past the volume array (into
+	// the wave data).
+	void bus_volume_channel_in_range()
+	{
+		Soloud soloud;
+		check(initNull(soloud, 8), "null driver init");
+		Wav sound;
+		check(loadConstantRaw(sound, 8, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		Bus bus;
+		check(bus.setChannels(8) == SO_NO_ERROR, "8-channel bus");
+		bus.setVisualizationEnable(true);
+		soloud.play(bus);
+		bus.play(sound, 1);
+		std::vector<float> out(8 * 1024);
+		soloud.mix(out.data(), 1024);
+		check(bus.getWave()[0] != 0, "the bus has wave data");
+		check(bus.getApproximateVolume(7) > 0, "channel 7 has a volume");
+		check(bus.getApproximateVolume(8) == 0, "channel 8 does not exist");
+	}
+
 	// The SSE 1->2 and 2->2 pan paths scaled the per-sample volume step by 4
 	// for the quad loop and then reused it, from the starting volume, for the
 	// frames left over when a mix call is not a multiple of 4 frames long.
@@ -1156,6 +1237,9 @@ namespace
 		{ "flanger_channels_share_the_lfo", flanger_channels_share_the_lfo },
 		{ "flanger_delay_extremes_are_safe", flanger_delay_extremes_are_safe },
 		{ "more_filter_params_reject_nan", more_filter_params_reject_nan },
+		{ "bus_seek_mixes_in_blocks", bus_seek_mixes_in_blocks },
+		{ "bus_volume_channel_in_range", bus_volume_channel_in_range },
+		{ "bus_seek_skips_voices_without_buffers", bus_seek_skips_voices_without_buffers },
 		{ "play_stop_without_init", play_stop_without_init },
 		{ "play_after_failed_init", play_after_failed_init },
 		{ "wav_rejects_too_many_channels", wav_rejects_too_many_channels },

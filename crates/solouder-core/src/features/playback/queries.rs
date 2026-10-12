@@ -4,7 +4,7 @@
 
 use super::handle::Handle;
 use super::mixer::Mixer;
-use super::sound::Sound;
+use super::source::Playable;
 use super::voice::flags;
 use crate::dsp::Resampler;
 
@@ -98,10 +98,10 @@ impl Mixer {
         self.voices.count()
     }
 
-    /// Voices of `sound` and its clones, playing or paused
+    /// Voices of `source` and its clones, playing or paused
     /// (`Soloud::countAudioSource`).
-    pub fn count_sound(&self, sound: &Sound) -> usize {
-        let id = sound.id();
+    pub fn count_sound(&self, source: &impl Playable) -> usize {
+        let id = source.source_id();
         self.voices.slots[..self.voices.highest]
             .iter()
             .flatten()

@@ -22,6 +22,7 @@
 #include "soloud.h"
 #include "soloud_bassboostfilter.h"
 #include "soloud_biquadresonantfilter.h"
+#include "soloud_bus.h"
 #include "soloud_dcremovalfilter.h"
 #include "soloud_echofilter.h"
 #include "soloud_fft.h"
@@ -265,6 +266,7 @@ namespace
 		SoLoud::Soloud *soloud;
 		bool initialized;
 		std::map<std::string, SoLoud::Wav *> sounds;
+		std::map<std::string, SoLoud::Bus *> buses;
 		std::map<std::string, SoLoud::handle> handles;
 		// Filters by name. Sounds keep pointers to their filters, so every
 		// filter created lives until the runner ends; not cleared by init.
@@ -285,13 +287,16 @@ namespace
 				delete ownedFilters[i];
 		}
 
-		// A Wav stops its voices in the engine when destroyed, so sounds go
-		// before the engine.
+		// A Wav or Bus stops its voices in the engine when destroyed, so
+		// sounds and buses go before the engine.
 		void clearSounds()
 		{
 			for (std::map<std::string, SoLoud::Wav *>::iterator it = sounds.begin(); it != sounds.end(); ++it)
 				delete it->second;
 			sounds.clear();
+			for (std::map<std::string, SoLoud::Bus *>::iterator it = buses.begin(); it != buses.end(); ++it)
+				delete it->second;
+			buses.clear();
 			handles.clear();
 		}
 
@@ -327,6 +332,28 @@ namespace
 			if (it == sounds.end())
 				throw ScenarioError(step.line, "no sound named `" + name + "`");
 			return *it->second;
+		}
+
+		SoLoud::Bus &busArg(const Step &step, const char *key)
+		{
+			const std::string &name = textArg(step, key);
+			std::map<std::string, SoLoud::Bus *>::iterator it = buses.find(name);
+			if (it == buses.end())
+				throw ScenarioError(step.line, "no bus named `" + name + "`");
+			return *it->second;
+		}
+
+		// A sound, or else a bus, by name.
+		SoLoud::AudioSource &sourceArg(const Step &step, const char *key)
+		{
+			const std::string &name = textArg(step, key);
+			std::map<std::string, SoLoud::Wav *>::iterator it = sounds.find(name);
+			if (it != sounds.end())
+				return *it->second;
+			std::map<std::string, SoLoud::Bus *>::iterator bus = buses.find(name);
+			if (bus == buses.end())
+				throw ScenarioError(step.line, "no sound or bus named `" + name + "`");
+			return *bus->second;
 		}
 
 		// The filter named by `key`, or null when the key is absent.
@@ -606,6 +633,108 @@ namespace
 			sounds[name] = wav;
 		}
 
+		void busOp(const Step &step)
+		{
+			if (step.op == "bus")
+			{
+				static const char *const keys[] = { "name", "channels", "resampler", "visualization", "volume" };
+				checkKeys(step, keys, 5);
+				engine(step);
+				std::string name = textArg(step, "name");
+				SoLoud::Bus *bus = new SoLoud::Bus;
+				SoLoud::result code = SoLoud::SO_NO_ERROR;
+				if (step.get("channels"))
+					code = bus->setChannels(uintArg(step, "channels", true, 0));
+				if (step.get("resampler"))
+					bus->setResampler(uintArg(step, "resampler", true, 0));
+				bus->setVisualizationEnable(flagArg(step, "visualization", false));
+				bus->setVolume(floatArg(step, "volume", 1.0f));
+				std::map<std::string, SoLoud::Bus *>::iterator old = buses.find(name);
+				if (old != buses.end())
+					delete old->second;
+				buses[name] = bus;
+				std::ostringstream line;
+				line << "bus " << name << " " << code;
+				logLine(line);
+			}
+			else if (step.op == "annex")
+			{
+				static const char *const keys[] = { "bus", "h" };
+				checkKeys(step, keys, 2);
+				SoLoud::Bus &bus = busArg(step, "bus");
+				SoLoud::handle h = handleArg(step);
+				engine(step);
+				bus.annexSound(h);
+			}
+			else if (step.op == "bus_query")
+			{
+				static const char *const keys[] = { "bus" };
+				checkKeys(step, keys, 1);
+				SoLoud::Bus &bus = busArg(step, "bus");
+				SoLoud::Soloud &s = engine(step);
+				std::ostringstream line;
+				unsigned int voices = bus.getActiveVoiceCount();
+				line << "bus_query " << textArg(step, "bus") << " voices=" << voices << " count=" << s.countAudioSource(bus) << " volumes=";
+				for (unsigned int c = 0; c < 10; c++)
+					line << (c ? "," : "") << hex32(bus.getApproximateVolume(c));
+				logLine(line);
+			}
+			else if (step.op == "bus_wave")
+			{
+				static const char *const keys[] = { "bus", "fft" };
+				checkKeys(step, keys, 2);
+				SoLoud::Bus &bus = busArg(step, "bus");
+				bool fft = flagArg(step, "fft", false);
+				engine(step);
+				std::ostringstream line;
+				line << "bus_wave " << textArg(step, "bus");
+				if (bus.mInstance)
+				{
+					float *data = fft ? bus.calcFFT() : bus.getWave();
+					samples.insert(samples.end(), data, data + 256);
+				}
+				else
+				{
+					line << " none";
+				}
+				logLine(line);
+			}
+			else if (step.op == "bus_filter")
+			{
+				static const char *const keys[] = { "bus", "slot", "filter" };
+				checkKeys(step, keys, 3);
+				SoLoud::Bus &bus = busArg(step, "bus");
+				unsigned int slot = uintArg(step, "slot", true, 0);
+				SoLoud::Filter *filter = filterArg(step, "filter");
+				engine(step);
+				bus.setFilter(slot, filter);
+			}
+			else
+			{
+				static const char *const keys[] = { "bus", "channels", "resampler", "visualization" };
+				checkKeys(step, keys, 4);
+				SoLoud::Bus &bus = busArg(step, "bus");
+				engine(step);
+				bool logged = false;
+				SoLoud::result code = SoLoud::SO_NO_ERROR;
+				if (step.get("channels"))
+				{
+					code = bus.setChannels(uintArg(step, "channels", true, 0));
+					logged = true;
+				}
+				if (step.get("resampler"))
+					bus.setResampler(uintArg(step, "resampler", true, 0));
+				if (step.get("visualization"))
+					bus.setVisualizationEnable(flagArg(step, "visualization", false));
+				if (logged)
+				{
+					std::ostringstream line;
+					line << "bus_set " << textArg(step, "bus") << " channels " << code;
+					logLine(line);
+				}
+			}
+		}
+
 		void apply(const Step &step)
 		{
 			if (step.op == "tolerance")
@@ -742,26 +871,35 @@ namespace
 			}
 			else if (step.op == "play")
 			{
-				static const char *const keys[] = { "sound", "as", "volume", "pan", "paused", "clock", "background" };
-				checkKeys(step, keys, 7);
-				const std::string &soundName = textArg(step, "sound");
-				std::string name = textArg(step, "as");
-				float volume = floatArg(step, "volume", -1.0f);
-				float pan = floatArg(step, "pan", 0.0f);
-				bool paused = flagArg(step, "paused", false);
+				static const char *const keys[] = { "sound", "as", "volume", "pan", "paused", "clock", "background", "bus", "via" };
+				checkKeys(step, keys, 9);
 				if (step.get("clock") && step.get("paused"))
 					throw ScenarioError(step.line, "`clock` and `paused` cannot be combined");
-				std::map<std::string, SoLoud::Wav *>::iterator it = sounds.find(soundName);
-				if (it == sounds.end())
-					throw ScenarioError(step.line, "no sound named `" + soundName + "`");
+				if (step.get("bus") && step.get("via"))
+					throw ScenarioError(step.line, "`bus` and `via` cannot be combined");
 				bool background = flagArg(step, "background", false);
-				if (step.get("background") && (step.get("pan") || step.get("clock")))
-					throw ScenarioError(step.line, "`background` cannot be combined with `pan` or `clock`");
-				SoLoud::handle h = background
-					? engine(step).playBackground(*it->second, volume, paused)
-					: step.get("clock")
-					? engine(step).playClocked(timeArg(step, "clock", 0), *it->second, volume, pan)
-					: engine(step).play(*it->second, volume, pan, paused);
+				if (step.get("background") && (step.get("pan") || step.get("clock") || step.get("bus") || step.get("via")))
+					throw ScenarioError(step.line, "`background` cannot be combined with `pan`, `clock`, `bus` or `via`");
+				SoLoud::AudioSource &source = sourceArg(step, "sound");
+				SoLoud::Bus *through = step.get("bus") ? &busArg(step, "bus") : 0;
+				SoLoud::handle via = step.get("via") ? namedHandle(step, "via") : 0;
+				std::string name = textArg(step, "as");
+				// Bus::play's volume defaults to 1, Soloud::play's to -1 (the source's).
+				float volume = floatArg(step, "volume", through ? 1.0f : -1.0f);
+				float pan = floatArg(step, "pan", 0.0f);
+				bool paused = flagArg(step, "paused", false);
+				SoLoud::Soloud &s = engine(step);
+				SoLoud::handle h;
+				if (background)
+					h = s.playBackground(source, volume, paused);
+				else if (through && step.get("clock"))
+					h = through->playClocked(timeArg(step, "clock", 0), source, volume, pan);
+				else if (through)
+					h = through->play(source, volume, pan, paused);
+				else if (step.get("clock"))
+					h = s.playClocked(timeArg(step, "clock", 0), source, volume, pan, via);
+				else
+					h = s.play(source, volume, pan, paused, via);
 				handles[name] = h;
 				std::ostringstream line;
 				line << "play " << name << " " << h;
@@ -923,7 +1061,7 @@ namespace
 			{
 				static const char *const keys[] = { "name", "source" };
 				checkKeys(step, keys, 2);
-				SoLoud::Wav &wav = soundArg(step, "name");
+				SoLoud::AudioSource &wav = sourceArg(step, "name");
 				bool source = flagArg(step, "source", false);
 				engine(step);
 				if (source)
@@ -1094,6 +1232,10 @@ namespace
 			else if (step.op == "fft")
 			{
 				fftDump(step);
+			}
+			else if (step.op == "bus" || step.op == "annex" || step.op == "bus_query" || step.op == "bus_wave" || step.op == "bus_filter" || step.op == "bus_set")
+			{
+				busOp(step);
 			}
 			else
 			{
