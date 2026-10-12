@@ -104,6 +104,7 @@ impl State {
         match &source {
             Source::Sound(sound) => mixer.stop_sound(sound),
             Source::Bus(bus) => mixer.stop_sound(bus),
+            Source::Queue(queue) => mixer.stop_sound(queue),
         }
         Ok(())
     }

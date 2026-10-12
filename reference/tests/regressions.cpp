@@ -922,6 +922,44 @@ namespace
 		check(bus.getApproximateVolume(8) == 0, "channel 8 does not exist");
 	}
 
+	// A looping sound in a queue returned no frames once at its end without
+	// ever ending, so QueueInstance::getAudio looped forever inside the mix.
+	void queue_looping_source_does_not_hang()
+	{
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		Wav looping;
+		check(loadConstantRaw(looping, 1, 1000, 0.25f) == SO_NO_ERROR, "raw wave loads");
+		looping.setLooping(true);
+		Wav next;
+		check(loadConstantRaw(next, 1, 1000, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		Queue queue;
+		soloud.play(queue);
+		check(queue.play(looping) == SO_NO_ERROR && queue.play(next) == SO_NO_ERROR, "sounds queue");
+		std::vector<float> out(2 * 4096);
+		soloud.mix(out.data(), 4096);
+		check(queue.getQueueCount() == 0, "both sounds played");
+	}
+
+	// A queued sound with fewer channels than the queue left the other
+	// channels of the voice's resample buffer as they were: two blocks back,
+	// that was the previous sound's audio.
+	void queue_silences_missing_channels()
+	{
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		Wav stereo;
+		check(loadConstantRaw(stereo, 2, 600, 0.25f) == SO_NO_ERROR, "raw wave loads");
+		Wav mono;
+		check(loadConstantRaw(mono, 1, 3000, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		Queue queue;
+		check(queue.setParams((float)kRate, 2) == SO_NO_ERROR, "stereo queue");
+		soloud.play(queue);
+		check(queue.play(stereo) == SO_NO_ERROR && queue.play(mono) == SO_NO_ERROR, "sounds queue");
+		std::vector<float> out = render(soloud, 2048);
+		check(maxAbsChannel(std::vector<float>(out.begin() + 2 * 700, out.end()), 1) == 0, "the mono sound plays on the left only");
+	}
+
 	// The SSE 1->2 and 2->2 pan paths scaled the per-sample volume step by 4
 	// for the quad loop and then reused it, from the starting volume, for the
 	// frames left over when a mix call is not a multiple of 4 frames long.
@@ -1240,6 +1278,8 @@ namespace
 		{ "bus_seek_mixes_in_blocks", bus_seek_mixes_in_blocks },
 		{ "bus_volume_channel_in_range", bus_volume_channel_in_range },
 		{ "bus_seek_skips_voices_without_buffers", bus_seek_skips_voices_without_buffers },
+		{ "queue_looping_source_does_not_hang", queue_looping_source_does_not_hang },
+		{ "queue_silences_missing_channels", queue_silences_missing_channels },
 		{ "play_stop_without_init", play_stop_without_init },
 		{ "play_after_failed_init", play_after_failed_init },
 		{ "wav_rejects_too_many_channels", wav_rejects_too_many_channels },

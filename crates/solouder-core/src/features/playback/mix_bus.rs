@@ -2,6 +2,7 @@
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
 use super::handle::Handle;
+use super::queue::{self, LOOP_SEEK_SCRATCH, Queues};
 use super::voice::{Voice, VoiceSource, flags};
 use super::voices::{BLOCK_LEN, Voices};
 use crate::contracts::SAMPLE_GRANULARITY;
@@ -75,7 +76,7 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
             scratch,
             bus.channels,
         );
-        let finished = has_finished(&voice, step_fixed);
+        let finished = has_finished(&voice, &voices.queues, step_fixed);
         voices.slots[slot] = Some(voice);
         if finished {
             voices.stop(slot);
@@ -88,8 +89,8 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
 /// before that block has been played, and the resamplers lag the position by
 /// up to two frames (Catmull-Rom). A voice that cannot advance stops as soon
 /// as its source ends (reference patch 0024).
-fn has_finished(voice: &Voice, step_fixed: u32) -> bool {
-    if voice.has_flag(flags::LOOPING | flags::DISABLE_AUTOSTOP) || !voice.has_ended() {
+fn has_finished(voice: &Voice, queues: &Queues, step_fixed: u32) -> bool {
+    if voice.has_flag(flags::LOOPING | flags::DISABLE_AUTOSTOP) || !voice.has_ended(queues) {
         return false;
     }
     step_fixed == 0 || voice.src_offset >= (voice.block_samples + 2) * FRAC_MUL
@@ -185,9 +186,12 @@ fn fill_block(voice: &mut Voice, voices: &mut Voices, at: usize, time: f64) -> u
         voices.pool.data[at..][..BLOCK_LEN].copy_from_slice(&state.block);
         return SAMPLE_GRANULARITY;
     }
+    if let VoiceSource::Queue { .. } = voice.source {
+        return fill_queue_block(voice, voices, at);
+    }
     let block = &mut voices.pool.data[at..][..BLOCK_LEN];
     let looping = voice.has_flag(flags::LOOPING);
-    if voice.has_ended() && !looping {
+    if voice.has_ended(&voices.queues) && !looping {
         return 0;
     }
     let mut read = voice.read(block, 0, SAMPLE_GRANULARITY);
@@ -196,6 +200,54 @@ fn fill_block(voice: &mut Voice, voices: &mut Voices, at: usize, time: f64) -> u
         // `mLoopCount` is unsigned and wraps.
         voice.loop_count = voice.loop_count.wrapping_add(1);
         let more = voice.read(block, read as usize, SAMPLE_GRANULARITY - read);
+        read += more;
+        if more == 0 {
+            break;
+        }
+    }
+    read
+}
+
+/// [`fill_block`] for a queue voice. A looping queue can only seek forward,
+/// so it wraps only to a loop point past its position.
+fn fill_queue_block(voice: &mut Voice, voices: &mut Voices, at: usize) -> u32 {
+    let looping = voice.has_flag(flags::LOOPING);
+    if voice.has_ended(&voices.queues) && !looping {
+        return 0;
+    }
+    let Voices {
+        queues,
+        pool,
+        retired,
+        ..
+    } = voices;
+    let block = &mut pool.data[at..][..BLOCK_LEN];
+    let (id, channels) = (voice.sound_id, voice.channels());
+    let mut read = queues.read(
+        id,
+        Some(&mut *block),
+        0,
+        SAMPLE_GRANULARITY,
+        BLOCK,
+        channels,
+        &mut voice.loop_count,
+        retired,
+    );
+    while looping
+        && read < SAMPLE_GRANULARITY
+        && queue::seek(voice, queues, retired, voice.loop_point, LOOP_SEEK_SCRATCH)
+    {
+        voice.loop_count = voice.loop_count.wrapping_add(1);
+        let more = queues.read(
+            id,
+            Some(&mut *block),
+            read as usize,
+            SAMPLE_GRANULARITY - read,
+            BLOCK,
+            channels,
+            &mut voice.loop_count,
+            retired,
+        );
         read += more;
         if more == 0 {
             break;

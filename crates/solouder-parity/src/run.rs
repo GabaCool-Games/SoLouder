@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use solouder_core::filters::Filter;
-use solouder_core::{Bus, Clipper, Handle, Mixer, MixerConfig, Sound};
+use solouder_core::{Bus, Clipper, Handle, Mixer, MixerConfig, Queue, Sound};
 
 use crate::scenario::{Scenario, ScenarioError, Step};
 
@@ -38,6 +38,7 @@ pub fn run(scenario: &Scenario) -> Result<Rendered, ScenarioError> {
         mixer: None,
         sounds: HashMap::new(),
         buses: HashMap::new(),
+        queues: HashMap::new(),
         played: HashMap::new(),
         handles: HashMap::new(),
         filters: HashMap::new(),
@@ -59,6 +60,8 @@ pub(crate) struct State {
     pub sounds: HashMap<String, Sound>,
     /// Buses by scenario name; cleared by `init`.
     pub buses: HashMap<String, Bus>,
+    /// Queues by scenario name; cleared by `init`.
+    pub queues: HashMap<String, Queue>,
     /// Voices started from each sound name, stopped when the name is
     /// reloaded; cleared by `init`.
     pub played: HashMap<String, Vec<Handle>>,
@@ -109,6 +112,9 @@ impl State {
             "bus_wave" => self.bus_wave(step),
             "bus_filter" => self.bus_filter(step),
             "bus_set" => self.bus_set(step),
+            "queue" => self.queue(step),
+            "queue_add" => self.queue_add(step),
+            "queue_query" => self.queue_query(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }
@@ -165,6 +171,7 @@ impl State {
         };
         self.sounds.clear();
         self.buses.clear();
+        self.queues.clear();
         self.played.clear();
         self.handles.clear();
         self.mixer = None;

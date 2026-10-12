@@ -1,18 +1,19 @@
-//! Scenario operations that play sounds and buses, and on buses. Each
+//! Scenario operations that play sounds, buses and queues, and on buses. Each
 //! mirrors the operation of the same name in
 //! `reference/tests/parity_runner.cpp`.
 
-use solouder_core::{Bus, Handle, Mixer, PlayOptions, Playable, Resampler, Sound};
+use solouder_core::{Bus, Handle, Mixer, PlayOptions, Playable, Queue, Resampler, Sound};
 
 use crate::ops::{code, hex32};
 use crate::run::State;
 use crate::scenario::{ScenarioError, Step};
 
-/// A sound or a bus, by scenario name.
+/// A sound, bus or queue, by scenario name.
 #[derive(Clone)]
 pub(crate) enum Source {
     Sound(Sound),
     Bus(Bus),
+    Queue(Queue),
 }
 
 /// How `play` starts a voice.
@@ -55,10 +56,13 @@ impl State {
         if let Some(sound) = self.sounds.get(name) {
             return Ok(Source::Sound(sound.clone()));
         }
-        self.buses
+        if let Some(bus) = self.buses.get(name) {
+            return Ok(Source::Bus(bus.clone()));
+        }
+        self.queues
             .get(name)
-            .map(|bus| Source::Bus(bus.clone()))
-            .ok_or_else(|| step.error(format!("no sound or bus named `{name}`")))
+            .map(|queue| Source::Queue(queue.clone()))
+            .ok_or_else(|| step.error(format!("no sound, bus or queue named `{name}`")))
     }
 
     fn bus_named(&self, step: &Step, key: &str) -> Result<Bus, ScenarioError> {
@@ -136,6 +140,7 @@ impl State {
         let handle = match &source {
             Source::Sound(sound) => start(mixer, sound, how),
             Source::Bus(bus) => start(mixer, bus, how),
+            Source::Queue(queue) => start(mixer, queue, how),
         };
         let sound_name = step.text("sound")?;
         self.played

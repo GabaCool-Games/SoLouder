@@ -4,6 +4,7 @@
 
 use super::groups::VoiceGroups;
 use super::handle::{Handle, VOICE_COUNT};
+use super::queue::Queues;
 use super::retire::Retired;
 use super::sound::SoundId;
 use super::voice::{ResampleBlocks, Voice, flags};
@@ -37,6 +38,8 @@ pub(crate) struct Voices {
     /// taken.
     pub stole: bool,
     pub groups: VoiceGroups,
+    /// Sounds queued on queues played on this mixer.
+    pub queues: Queues,
 }
 
 /// Two resample blocks per active voice (`mResampleData`), each owned by at
@@ -71,6 +74,7 @@ impl Voices {
             retired: Retired::default(),
             stole: false,
             groups: VoiceGroups::default(),
+            queues: Queues::default(),
         }
     }
 

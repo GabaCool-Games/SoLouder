@@ -30,6 +30,7 @@
 #include "soloud_flangerfilter.h"
 #include "soloud_freeverbfilter.h"
 #include "soloud_lofifilter.h"
+#include "soloud_queue.h"
 #include "soloud_robotizefilter.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_wav.h"
@@ -267,6 +268,7 @@ namespace
 		bool initialized;
 		std::map<std::string, SoLoud::Wav *> sounds;
 		std::map<std::string, SoLoud::Bus *> buses;
+		std::map<std::string, SoLoud::Queue *> queues;
 		std::map<std::string, SoLoud::handle> handles;
 		// Filters by name. Sounds keep pointers to their filters, so every
 		// filter created lives until the runner ends; not cleared by init.
@@ -287,10 +289,14 @@ namespace
 				delete ownedFilters[i];
 		}
 
-		// A Wav or Bus stops its voices in the engine when destroyed, so
-		// sounds and buses go before the engine.
+		// A Wav, Bus or Queue stops its voices in the engine when destroyed,
+		// so they go before the engine. Queues go first: their queued sounds
+		// read the Wavs they were made from.
 		void clearSounds()
 		{
+			for (std::map<std::string, SoLoud::Queue *>::iterator it = queues.begin(); it != queues.end(); ++it)
+				delete it->second;
+			queues.clear();
 			for (std::map<std::string, SoLoud::Wav *>::iterator it = sounds.begin(); it != sounds.end(); ++it)
 				delete it->second;
 			sounds.clear();
@@ -343,7 +349,16 @@ namespace
 			return *it->second;
 		}
 
-		// A sound, or else a bus, by name.
+		SoLoud::Queue &queueArg(const Step &step, const char *key)
+		{
+			const std::string &name = textArg(step, key);
+			std::map<std::string, SoLoud::Queue *>::iterator it = queues.find(name);
+			if (it == queues.end())
+				throw ScenarioError(step.line, "no queue named `" + name + "`");
+			return *it->second;
+		}
+
+		// A sound, else a bus, else a queue, by name.
 		SoLoud::AudioSource &sourceArg(const Step &step, const char *key)
 		{
 			const std::string &name = textArg(step, key);
@@ -351,9 +366,12 @@ namespace
 			if (it != sounds.end())
 				return *it->second;
 			std::map<std::string, SoLoud::Bus *>::iterator bus = buses.find(name);
-			if (bus == buses.end())
-				throw ScenarioError(step.line, "no sound or bus named `" + name + "`");
-			return *bus->second;
+			if (bus != buses.end())
+				return *bus->second;
+			std::map<std::string, SoLoud::Queue *>::iterator queue = queues.find(name);
+			if (queue == queues.end())
+				throw ScenarioError(step.line, "no sound, bus or queue named `" + name + "`");
+			return *queue->second;
 		}
 
 		// The filter named by `key`, or null when the key is absent.
@@ -631,6 +649,55 @@ namespace
 			if (old != sounds.end())
 				delete old->second;
 			sounds[name] = wav;
+		}
+
+		void queueOp(const Step &step)
+		{
+			if (step.op == "queue")
+			{
+				static const char *const keys[] = { "name", "channels", "rate", "from", "volume" };
+				checkKeys(step, keys, 5);
+				engine(step);
+				std::string name = textArg(step, "name");
+				SoLoud::Queue *queue = new SoLoud::Queue;
+				SoLoud::result code = SoLoud::SO_NO_ERROR;
+				if (step.get("channels") || step.get("rate"))
+					code = queue->setParams(floatArg(step, "rate", 44100.0f), uintArg(step, "channels", false, 1));
+				if (step.get("from"))
+					queue->setParamsFromAudioSource(soundArg(step, "from"));
+				queue->setVolume(floatArg(step, "volume", 1.0f));
+				std::map<std::string, SoLoud::Queue *>::iterator old = queues.find(name);
+				if (old != queues.end())
+					delete old->second;
+				queues[name] = queue;
+				std::ostringstream line;
+				line << "queue " << name << " " << code;
+				logLine(line);
+			}
+			else if (step.op == "queue_add")
+			{
+				static const char *const keys[] = { "queue", "sound" };
+				checkKeys(step, keys, 2);
+				SoLoud::Queue &queue = queueArg(step, "queue");
+				SoLoud::Wav &wav = soundArg(step, "sound");
+				engine(step);
+				std::ostringstream line;
+				line << "queue_add " << textArg(step, "queue") << " " << queue.play(wav);
+				logLine(line);
+			}
+			else
+			{
+				static const char *const keys[] = { "queue", "sound" };
+				checkKeys(step, keys, 2);
+				SoLoud::Queue &queue = queueArg(step, "queue");
+				SoLoud::Wav *wav = step.get("sound") ? &soundArg(step, "sound") : 0;
+				engine(step);
+				std::ostringstream line;
+				line << "queue_query " << textArg(step, "queue") << " count=" << queue.getQueueCount();
+				if (wav)
+					line << " current=" << (queue.isCurrentlyPlaying(*wav) ? 1 : 0);
+				logLine(line);
+			}
 		}
 
 		void busOp(const Step &step)
@@ -1196,9 +1263,10 @@ namespace
 			{
 				static const char *const keys[] = { "sound", "slot", "filter" };
 				checkKeys(step, keys, 3);
-				SoLoud::Wav &wav = soundArg(step, "sound");
+				const std::string &name = textArg(step, "sound");
+				SoLoud::AudioSource &source = sounds.count(name) ? (SoLoud::AudioSource &)soundArg(step, "sound") : queueArg(step, "sound");
 				unsigned int slot = uintArg(step, "slot", true, 0);
-				wav.setFilter(slot, filterArg(step, "filter"));
+				source.setFilter(slot, filterArg(step, "filter"));
 			}
 			else if (step.op == "global_filter")
 			{
@@ -1236,6 +1304,10 @@ namespace
 			else if (step.op == "bus" || step.op == "annex" || step.op == "bus_query" || step.op == "bus_wave" || step.op == "bus_filter" || step.op == "bus_set")
 			{
 				busOp(step);
+			}
+			else if (step.op == "queue" || step.op == "queue_add" || step.op == "queue_query")
+			{
+				queueOp(step);
 			}
 			else
 			{

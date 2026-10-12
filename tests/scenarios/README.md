@@ -48,9 +48,9 @@ exactly, and a scenario must render at least one sample.
 | `sound` | `name`, `frames`, `channels` (1), `rate` (44100), `pattern` (`dc`, `saw`, `noise`; default `dc`), `amp` (1), `period` (`saw`, 100), `seed` (`noise`, 1), `volume` (1), `looping` (0), `bits` (32), `loop_point` (0), `auto_stop` (1), `single` (0), `tick` (0), `kill` (0) | Generates planar samples (see below) and loads them with `Wav::loadRawWave` (copied). With `bits=8` or `16` (`amp` from -1 to 1) each sample `v` becomes `(unsigned char)(int)(v * 127 + 128)` or `(short)(v * 32767)` for `loadRawWave8` or `loadRawWave16`. Then applies `setVolume`, `setLooping`, `setLoopPoint`, `setAutoStop`, `setSingleInstance` and `setInaudibleBehavior(tick, kill)`. A failed load registers nothing; a successful one under an existing name deletes the old `Wav`, which stops its voices. `channels * frames` is at most 4194304. | `sound <name> <code>` |
 | `load` | `name`, `file`, `volume` (1), `looping` (0) | Loads a fixture: `Wav::load` in C++, `solouder_decoders::decode_wav` in Rust, then `setVolume`/`setLooping`. A failed load registers nothing; replacing a name stops the old sound's voices, as for `sound`. | `load <name> <code>` |
 | `samples` | `name` | Appends the sound's decoded samples, channel after channel, to the samples. | `samples <name> <channels> <frames> <rate>` (`rate` as `f32` bits in 8 hex digits) |
-| `play` | `sound` (a sound or bus name), `as` (handle name), `volume` (-1 = the source's; 1 with `bus`), `pan` (0), `paused` (0), `clock` (seconds; not with `paused`), `background` (0; not with `pan`, `clock`, `bus` or `via`), `bus` (a bus name), `via` (a handle name; not with `bus`) | `Soloud::play`, `Soloud::playClocked` when `clock` is given, or `Soloud::playBackground`; with `bus`, `Bus::play` or `Bus::playClocked` on that bus; with `via`, the handle is the `aBus` argument. Stores the handle under `as`. | `play <as> <handle>` |
+| `play` | `sound` (a sound, bus or queue name), `as` (handle name), `volume` (-1 = the source's; 1 with `bus`), `pan` (0), `paused` (0), `clock` (seconds; not with `paused`), `background` (0; not with `pan`, `clock`, `bus` or `via`), `bus` (a bus name), `via` (a handle name; not with `bus`) | `Soloud::play`, `Soloud::playClocked` when `clock` is given, or `Soloud::playBackground`; with `bus`, `Bus::play` or `Bus::playClocked` on that bus; with `via`, the handle is the `aBus` argument. Stores the handle under `as`. | `play <as> <handle>` |
 | `sound_query` | `name` | `Wav::getLength` and `Soloud::countAudioSource`. | `sound_query <name> length=<f64 bits> count=<n>` |
-| `stop_sound` | `name` (a sound or bus), `source` (0) | `Soloud::stopAudioSource`, or `AudioSource::stop` with `source=1`. | — |
+| `stop_sound` | `name` (a sound, bus or queue), `source` (0) | `Soloud::stopAudioSource`, or `AudioSource::stop` with `source=1`. | — |
 | `stop` | `h` | `Soloud::stop`. | — |
 | `stop_all` | — | `Soloud::stopAll`. | — |
 | `set` | `h`, then any of `volume`, `pan`, `pause`, `looping`, `protect`, `delay` (frames), `speed`, `loop_point`, `auto_stop`, `tick` and `kill`, `abs_l` and `abs_r`, `channel` and `channel_volume`, `rate`, `seek` (paired keys go together) | Applied in that order: `setVolume`, `setPan`, `setPause`, `setLooping`, `setProtectVoice`, `setDelaySamples`, `setRelativePlaySpeed`, `setLoopPoint`, `setAutoStop`, `setInaudibleBehavior`, `setPanAbsolute`, `setChannelVolume`, `setSamplerate`, `seek`. `h` may name a voice group. | `set <h> speed <code>` if `speed` is given, `set <h> seek <code>` if `seek` is |
@@ -68,7 +68,7 @@ exactly, and a scenario must render at least one sample.
 | `group_query` | `group` | `isVoiceGroup`, then `isVoiceGroupEmpty` (which drops stopped voices from the group). | `group_query <group> is_group=<0/1> empty=<0/1>` |
 | `filter` | `name`, `kind` (`biquad`, `lofi`, `echo`, `waveshaper`, `dc_removal`, `fft`, `bassboost`, `robotize`, `flanger`, `freeverb`), then the kind's settings: `type` (`lowpass`, `highpass`, `bandpass`), `freq`, `res`; `rate`, `bits`; `delay`, `decay`, `filter`; `amount`; `length`; none; `boost`; `freq`, `wave` (an unsigned integer); `delay`, `freq`; `freeze`, `room`, `damp`, `width` | A new filter. When any setting is given, all go to its `setParams`, missing ones at the filter's defaults (lowpass, 1000, 2; 4000, 3; 0.3, 0.7, 0; 0; 0.1; —; 2; 30, 0; 0.005, 10; 0, 0.5, 0.5, 1). `RobotizeFilter::setParams` returns nothing and logs 0. Filters are kept across `init`, and replacing a name does not change sounds that use the old filter. | `filter <name> <code>` |
 | `filter_info` | `name` | `getParamCount`, then `getParamName`, `getParamType`, `getParamMax` and `getParamMin` for each parameter and one past the last. | `filter_info <name> count=<n>` then ` <i>:<name or ->:<type>:<max f32 bits>:<min f32 bits>` per index |
-| `sound_filter` | `sound`, `slot`, `filter` (optional) | `AudioSource::setFilter`; without `filter` the slot is cleared. | — |
+| `sound_filter` | `sound`, `slot`, `filter` (optional) | `AudioSource::setFilter` on a sound or queue; without `filter` the slot is cleared. | — |
 | `global_filter` | `slot`, `filter` (optional) | `Soloud::setGlobalFilter`; without `filter` the slot is cleared. | — |
 | `filter_set` | `h` (optional), `slot`, `param`, `value` | `setFilterParameter`; without `h` on the global filter (handle 0). | — |
 | `filter_fade` | `h` (optional), `slot`, `param`, `to`, `time` | `fadeFilterParameter`. | — |
@@ -81,11 +81,14 @@ exactly, and a scenario must render at least one sample.
 | `bus_wave` | `bus`, `fft` (0) | Appends the 256 floats of `getWave`, or `calcFFT` with `fft=1`, to the samples, if the bus has an instance. | `bus_wave <bus>`, or `bus_wave <bus> none` without an instance |
 | `bus_filter` | `bus`, `slot`, `filter` (absent clears the slot) | `Bus::setFilter`, which also replaces the playing instance's filter. | — |
 | `bus_set` | `bus`, then any of `channels`, `resampler`, `visualization` | Applied in that order: `setChannels`, `setResampler`, `setVisualizationEnable`. | `bus_set <bus> channels <code>` if `channels` is given |
+| `queue` | `name`, `channels`, `rate`, `from`, `volume` (1) | A new `Queue`: `setParams(rate, channels)` if either is given (defaults 44100 and 1), `setParamsFromAudioSource` on the sound `from`, `setVolume`. A queue under an existing name is deleted first, which stops its voices. Play a queue with `play`. | `queue <name> <setParams code>` (0 without `setParams`) |
+| `queue_add` | `queue`, `sound` | `Queue::play` with the sound. Do not replace or reload a sound while it is queued: the reference then reads the deleted `Wav`. | `queue_add <queue> <code>` |
+| `queue_query` | `queue`, `sound` (optional) | `getQueueCount`, and `isCurrentlyPlaying` for `sound`. | `queue_query <queue> count=<n>`, then ` current=<0 or 1>` with `sound` |
 
 Every operation except `tolerance`, `init`, `samples` and `fft` needs a
 successful `init`. Unknown sound or handle names are scenario errors. `<code>` is the
 SoLoud error code (0 = no error, 1 = invalid parameter, 3 = file load failed,
-5 = out of memory).
+5 = out of memory, 6 = not implemented).
 
 `file` is a path relative to `tests/fixtures/` (both runners find it next to
 the scenario directory). It may contain letters, digits, `.`, `_`, `-` and `/`

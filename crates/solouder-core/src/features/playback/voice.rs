@@ -6,6 +6,7 @@ use std::f64::consts::PI;
 
 use super::bus::BusVoice;
 use super::handle::Handle;
+use super::queue::{self, Queues};
 use super::sound::SoundId;
 use super::source::SourceSettings;
 use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
@@ -43,6 +44,9 @@ pub(crate) enum VoiceSource {
     Pcm { pcm: Pcm, offset: u32 },
     /// The mix of the voices playing through this voice (`BusInstance`).
     Bus(Box<BusVoice>),
+    /// The sounds queued on the queue `sound_id` (`QueueInstance`), kept in
+    /// `Voices::queues`.
+    Queue { channels: u32 },
 }
 
 /// One playing instance of a sound or bus (`AudioSourceInstance`). Fields
@@ -178,7 +182,7 @@ impl Voice {
     pub fn into_pcm(self) -> Option<Pcm> {
         match self.source {
             VoiceSource::Pcm { pcm, .. } => Some(pcm),
-            VoiceSource::Bus(_) => None,
+            VoiceSource::Bus(_) | VoiceSource::Queue { .. } => None,
         }
     }
 
@@ -186,17 +190,18 @@ impl Voice {
     pub fn as_bus(&self) -> Option<&BusVoice> {
         match &self.source {
             VoiceSource::Bus(bus) => Some(bus),
-            VoiceSource::Pcm { .. } => None,
+            VoiceSource::Pcm { .. } | VoiceSource::Queue { .. } => None,
         }
     }
 
     /// `hasEnded`: a looping voice never ends, nor does a bus.
-    pub fn has_ended(&self) -> bool {
+    pub fn has_ended(&self, queues: &Queues) -> bool {
         match &self.source {
             VoiceSource::Pcm { pcm, offset } => {
                 !self.has_flag(flags::LOOPING) && *offset >= pcm.frames()
             }
             VoiceSource::Bus(_) => false,
+            VoiceSource::Queue { .. } => queue::has_ended(self, queues),
         }
     }
 
@@ -308,6 +313,7 @@ fn channels_of(source: &VoiceSource) -> usize {
     match source {
         VoiceSource::Pcm { pcm, .. } => pcm.channels() as usize,
         VoiceSource::Bus(bus) => bus.channels(),
+        VoiceSource::Queue { channels } => *channels as usize,
     }
 }
 
@@ -324,7 +330,7 @@ mod tests {
     fn offset(v: &Voice) -> u32 {
         match v.source {
             VoiceSource::Pcm { offset, .. } => offset,
-            VoiceSource::Bus(_) => unreachable!(),
+            _ => unreachable!(),
         }
     }
 
@@ -336,9 +342,9 @@ mod tests {
         assert_eq!(v.read(&mut block, 2, 5), 1);
         assert_eq!(block[..3], [0.0, 1.0, 2.0]);
         assert_eq!(block[BLOCK..BLOCK + 3], [3.0, 4.0, 5.0]);
-        assert!(v.has_ended());
+        assert!(v.has_ended(&Queues::default()));
         v.set_flag(flags::LOOPING, true);
-        assert!(!v.has_ended());
+        assert!(!v.has_ended(&Queues::default()));
     }
 
     #[test]
@@ -352,7 +358,7 @@ mod tests {
         v.seek(0.1);
         assert_eq!(offset(&v), 4410);
         v.seek(5.0);
-        assert!(v.has_ended());
+        assert!(v.has_ended(&Queues::default()));
         assert_eq!(v.stream_position, 5.0);
         v.seek(f64::NAN);
         assert_eq!(offset(&v), 44100);

@@ -26,6 +26,7 @@ mod private {
     pub trait Sealed {}
     impl Sealed for super::super::Sound {}
     impl Sealed for super::super::Bus {}
+    impl Sealed for super::super::Queue {}
 }
 
 /// Playback defaults every source has (`AudioSource`).

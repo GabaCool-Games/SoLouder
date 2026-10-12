@@ -19,7 +19,8 @@ every scenario (bit for bit, except the documented 8-bit WAV conversion).
 The mixer runs on the audio thread behind bounded, wait-free queues
 (`solouder_core::realtime`), `solouder-cpal` plays it on the default device,
 and `bevy_solouder` plays `.wav` assets from entities that stop when
-despawned. Buses, filters, 3D audio and streaming are still to come; see
+despawned. Milestone D (fades, voice controls and groups, filters, buses and
+queues) is in progress; 3D audio and streaming are still to come; see
 [port-status.md](port-status.md).
 
 [ARCHITECTURE.md](ARCHITECTURE.md) owns the target workspace, Vertical Slice
@@ -391,6 +392,8 @@ unpatched reference, and each needs a matching Rust test.
 | 0046 | — (found porting milestone D) | `Soloud::seek` on a bus discards audio through the generic seek, which calls `BusInstance::getAudio` with passes of the engine's scratch size divided by the bus's channels and uses that as the channel stride. `panAndExpand` then asserted (a breakpoint in MSVC builds) or faulted in its aligned SSE loads for strides that are not a multiple of 16, and voices with more channels than the bus were written past its one-block scratch. Such calls are now mixed one block at a time. | `bus_seek_mixes_in_blocks` |
 | 0047 | — (found porting milestone D) | `Bus::getApproximateVolume` checked the channel with `>` instead of `>=`, so channel 8 of an 8-channel bus read past the volume array. | `bus_volume_channel_in_range` |
 | 0048 | — (found porting milestone D) | The active voice list is only recomputed when a mix starts, so a bus seek after a voice was stopped and another played into its slot mixed the new voice, whose resample buffers are not assigned yet, through a null pointer. `mixBus_internal` skips voices without resample buffers. | `bus_seek_skips_voices_without_buffers` |
+| 0049 | — (found porting milestone D) | `QueueInstance::getAudio` moved to the next queued sound only when the current one reported `hasEnded`. A looping sound never does, and once read to its end gives no audio, so the audio thread spun forever holding the engine mutex. A sound that gives no audio is now dropped like one that ended. | `queue_looping_source_does_not_hang` |
+| 0050 | — (found porting milestone D) | A queued sound with fewer channels than the queue left the queue's other channels of the resample block as they were, which two blocks back held the previous sound's audio. Those channels are now silent. | `queue_silences_missing_channels` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the `goregrind` branch). Its README lists every fix with
@@ -398,7 +401,7 @@ credits. Commits after 0017 on `goregrind` add build scripts and that README,
 so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto `goregrind`. Patches 0018 to
-0025 were pushed on 2026-10-12 (public `master` at `9318875`); 0026 to 0048 are
+0025 were pushed on 2026-10-12 (public `master` at `9318875`); 0026 to 0050 are
 on `goregrind` but not pushed yet.
 
 GoreGrind's native libraries are built from the same branch: Windows with
@@ -417,6 +420,7 @@ fixes are welcome as new patches.
 | #314 (reported) | `Soloud::mixBus_internal` block read | Fixed 512-frame source reads with a non-integer rate ratio reportedly accumulate drift (about 0.1 s over 3 minutes for 44.1 → 48 kHz). | **High priority.** Exact fractional playhead; long-duration drift test against an analytic position. Reproduce in the reference before changing it. |
 | #396 (reported), #156 | `WavStreamInstance::seek` fallback | Non-Ogg streams seek by rewind + decode-and-discard, which is O(seek distance). Upstream reports seeking a stream handle silently kills it. | Per-codec seek with defined accuracy; test seek while playing and while paused. PR #336 is a native-seek reference. |
 | — (found 2026-10-12) | `Soloud::mix`, `Soloud::mixSigned16` | No bound on the frame count: a request for more frames than the scratch buffer holds (at least 4096, or the buffer size rounded up to 16) writes past `mScratch`. Parity scenarios stay at or below 4096 frames. | Done: `Mixer::mix_interleaved` renders long requests in passes of at most the scratch size (`mix_without_sources_is_silent`, `split_mixes_match_one_mix`). |
+| — (found 2026-10-12) | `Queue::play`, `QueueInstance::getAudio` | A queued sound is an instance that reads its `Wav`'s samples; destroying the `Wav` while it is queued stops only its own voices, so the queue later reads freed memory. Queued instances are also never freed: `QueueInstance::getAudio` deletes the ones it finishes, but `Queue` has no destructor, so whatever is still queued leaks. | Done: a queued `Sound` holds its `Pcm`, and dropped queue entries go through retirement like ended voices (scenario `queues`). |
 | #307, #241 | `Soloud::deinit`, `Soloud::~Soloud` | `SOLOUD_ASSERT(!mInsideAudioThreadMutex)` in `deinit` can fire at shutdown; ordering of `stopAll` versus backend teardown. | `Drop` is safe in every state; test repeated init/teardown. See the GoreGrind shutdown lesson below. |
 
 Also reported upstream and worth a test once the feature is ported: #274
@@ -442,7 +446,7 @@ or has not decided, with a test either way.
 | #117 | `getFilterParameter` returns error codes in the value channel; Rust uses `Result`/`Option`. |
 | #318 | WAV `smpl` loop points are ignored. |
 | #276 | Intro-then-loop scheduling via `setDelaySamples` leaves gaps; Rust scheduling should be frame-accurate. |
-| #291, #286 | A second `stop` on a queue is ignored; no API empties a queue. |
+| #291, #286 | A second `stop` on a queue is ignored; no API empties a queue. Rust: stopping a queue's voice keeps its queued sounds, which continue when it plays again, as in the reference (scenario `queues`); emptying is not added. |
 | #252 | A finished handle cannot be restarted. |
 | #177 | Single listener only (matches [ARCHITECTURE.md](ARCHITECTURE.md#spatial-audio)). |
 | — (dr_wav) | 8-bit WAV maps 0..255 linearly onto -1..1 (`x * 2/255 - 1`), so silence (128) decodes as +1/255. Rust centers on 128: changed (`wav_decode_u8`). |
@@ -563,7 +567,9 @@ scenarios, ledger rows and a commit.
    channels and resampler, `annexSound`, active voice counts, visualization
    and bus seeking. Patches 0046 to 0048. Scenarios `buses`, `bus_seek`.
    `Bus::play3d` and `play3dClocked` come with 3D audio in milestone E.
-6. **Queues.**
+6. **Queues** (done): queues as playable sources, gapless queued sounds,
+   the 32-sound limit, parameters, seeking forward and looping queues.
+   Patches 0049 and 0050. Scenario `queues`.
 7. **Real-time control and review:** controller commands for the new
    controls, documentation, ledger and the milestone review.
 

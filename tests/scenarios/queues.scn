@@ -1,0 +1,168 @@
+# Queues: sounds queued on a playing queue play back to back as one voice, at
+# the queue's rate on its first channels, without their own volume. Covers
+# Queue::play needing a playing queue and failing at 32 sounds, a looping
+# sound being dropped once read (patch 0049), sounds with fewer channels than
+# the queue (patch 0050) and with more, sounds waiting while the queue is
+# stopped, the queue voice stopping once it runs dry, seeking forward only,
+# setParams and setParamsFromAudioSource, a queue on a bus, a looping queue,
+# speed changes, the queue's volume and filters, and replacing a queue.
+init channels=2 rate=48000
+filter name=lp kind=biquad type=lowpass freq=2000 res=3
+sound name=a frames=1000 pattern=saw period=37 amp=0.6 volume=0.2
+sound name=b frames=1500 pattern=noise seed=5 amp=0.4
+sound name=loop frames=900 pattern=saw period=90 amp=0.5 looping=1
+sound name=st channels=2 frames=700 pattern=saw period=55 amp=0.5 rate=22050
+sound name=long frames=30000 pattern=saw period=200 amp=0.3
+queue name=q
+queue_add queue=q sound=a
+queue_query queue=q sound=a
+play sound=q as=q
+queue_add queue=q sound=a
+queue_add queue=q sound=b
+queue_add queue=q sound=loop
+queue_add queue=q sound=st
+queue_add queue=q sound=a
+queue_query queue=q sound=a
+queue_query queue=q sound=b
+query h=q
+mix frames=700
+queue_query queue=q sound=a
+mix frames=700
+queue_query queue=q sound=b
+set h=q speed=1.25 pan=0.3
+mix frames=1111
+queue_query queue=q sound=loop
+query h=q
+set h=q seek=0.07
+query h=q
+mix frames=2048
+queue_query queue=q sound=a
+query h=q
+mix frames=512
+query h=q
+queue_add queue=q sound=b
+# Parameters.
+queue name=bad channels=9
+queue name=bad channels=0
+queue name=stereo channels=2 rate=22050
+queue name=from from=st volume=0.6
+sound_filter sound=from slot=1 filter=lp
+queue name=rate rate=32000
+bus name=music channels=2
+play sound=music as=mu
+play sound=stereo as=s bus=music volume=0.8
+queue_add queue=stereo sound=st
+queue_add queue=stereo sound=a
+queue_add queue=stereo sound=st
+play sound=from as=f pan=-0.5
+queue_add queue=from sound=st
+queue_add queue=from sound=b
+play sound=rate as=r volume=0.5
+queue_add queue=rate sound=b
+query h=s
+query h=f
+mix frames=1500
+queue_query queue=stereo sound=a
+queue_query queue=from sound=b
+query h=f
+mix frames=1500
+query h=s
+query h=f
+query h=r
+# Stopped before its filter decays into subnormals, which the reference
+# flushes to zero.
+stop h=f
+# An empty queue plays silence until something is queued.
+queue name=idle
+play sound=idle as=i
+mix frames=600
+query h=i
+queue_add queue=idle sound=b
+mix frames=600
+queue_query queue=idle
+# Sounds wait while the queue is stopped, and continue on the next play.
+stop h=i
+queue_query queue=idle sound=b
+queue_add queue=idle sound=a
+play sound=idle as=i2
+queue_add queue=idle sound=a
+queue_query queue=idle sound=b
+mix frames=900
+query h=i2
+stop_sound name=idle
+query h=i2
+queue_query queue=idle
+# Full at 32.
+queue name=full
+play sound=full as=fl volume=0.3
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=a
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_add queue=full sound=b
+queue_query queue=full
+queue_add queue=full sound=b
+mix frames=1200
+queue_query queue=full
+queue_add queue=full sound=long
+# Seeking: forward skips queued sounds, back fails.
+set h=fl seek=0.2
+query h=fl
+queue_query queue=full sound=b
+set h=fl seek=0.1
+mix frames=700
+queue_query queue=full
+query h=fl
+# Playing the queue again stops its earlier voice.
+play sound=full as=fl2
+query h=fl
+query h=fl2
+mix frames=1000
+query h=fl2
+# Replacing a queue stops its voices.
+queue name=full
+query h=fl2
+# A looping queue: the loop wrap can only seek forward.
+queue name=lq
+play sound=lq as=lq
+set h=lq looping=1 loop_point=0.5
+queue_add queue=lq sound=a
+queue_add queue=lq sound=b
+mix frames=2000
+query h=lq
+queue_query queue=lq
+mix frames=1000
+query h=lq
+queue_add queue=lq sound=a
+mix frames=1500
+query h=lq
+stop h=mu
+query h=s
+mix frames=500

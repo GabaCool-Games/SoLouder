@@ -13,6 +13,7 @@ mod filter_kinds;
 mod filter_ops;
 mod ops;
 pub mod pattern;
+mod queue_ops;
 pub mod run;
 pub mod scenario;
 mod voice_ops;

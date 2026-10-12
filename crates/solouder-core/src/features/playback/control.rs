@@ -7,8 +7,9 @@ use std::fmt;
 use super::bus;
 use super::handle::{Handle, next_play_index};
 use super::mixer::Mixer;
+use super::queue;
 use super::source::Playable;
-use super::voice::{Voice, flags};
+use super::voice::{Voice, VoiceSource, flags};
 use crate::dsp::Resampler;
 use crate::dsp::fader::FaderState;
 
@@ -55,9 +56,9 @@ pub enum ControlError {
     InvalidVoiceCount,
     /// The handle does not name an existing voice group.
     InvalidVoiceGroup,
-    /// Buses have 1, 2, 4, 6 or 8 channels.
+    /// Buses have 1, 2, 4, 6 or 8 channels, queues 1 to 8.
     InvalidChannels,
-    /// A bus cannot seek backwards (`NOT_IMPLEMENTED`).
+    /// A bus or queue cannot seek backwards (`NOT_IMPLEMENTED`).
     CannotSeekBack,
 }
 
@@ -67,8 +68,8 @@ impl fmt::Display for ControlError {
             Self::InvalidSpeed => write!(f, "play speed must be greater than 0"),
             Self::InvalidVoiceCount => write!(f, "active voice limit must be 1 to 1023"),
             Self::InvalidVoiceGroup => write!(f, "not a voice group"),
-            Self::InvalidChannels => write!(f, "a bus has 1, 2, 4, 6 or 8 channels"),
-            Self::CannotSeekBack => write!(f, "a bus cannot seek backwards"),
+            Self::InvalidChannels => write!(f, "unsupported channel count"),
+            Self::CannotSeekBack => write!(f, "a bus or queue cannot seek backwards"),
         }
     }
 }
@@ -274,8 +275,8 @@ impl Mixer {
     /// Moves a voice to `seconds` into its sound (`Soloud::seek`). Seeking
     /// back restarts the sound and skips forward from there. Audio already
     /// read ahead (up to one 512-frame block) plays before the new position.
-    /// A bus cannot seek back; seeking it forward mixes its voices over the
-    /// time skipped. For a group, the error is that of any voice that failed.
+    /// A bus or queue cannot seek back; seeking a bus forward mixes its
+    /// voices over the time skipped, and a queue skips its queued sounds. For a group, the error is that of any voice that failed.
     pub fn seek(&mut self, handle: Handle, seconds: f64) -> Result<(), ControlError> {
         let (scratch_frames, time) = (self.scratch_frames, self.stream_time);
         let mut result = Ok(());
@@ -283,9 +284,18 @@ impl Mixer {
             let Some(mut voice) = voices.slots[slot].take() else {
                 return;
             };
-            if voice.as_bus().is_none() {
-                voice.seek(seconds);
-            } else if !bus::seek(&mut voice, voices, seconds, scratch_frames, time) {
+            let sought = match voice.source {
+                VoiceSource::Pcm { .. } => {
+                    voice.seek(seconds);
+                    true
+                }
+                VoiceSource::Bus(_) => bus::seek(&mut voice, voices, seconds, scratch_frames, time),
+                VoiceSource::Queue { .. } => {
+                    let (queues, retired) = (&mut voices.queues, &mut voices.retired);
+                    queue::seek(&mut voice, queues, retired, seconds, scratch_frames)
+                }
+            };
+            if !sought {
                 result = Err(ControlError::CannotSeekBack);
             }
             voices.slots[slot] = Some(voice);

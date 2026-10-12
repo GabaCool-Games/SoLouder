@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 20:03:13 +0300
+Subject: [PATCH] QueueInstance::getAudio: silence channels the source does not
+ have
+
+A queued sound with fewer channels than the queue left the queue's other
+channels of the voice's resample buffer as they were, which two blocks
+back held the previous sound's audio. Those channels are now silent.
+---
+ src/core/soloud_queue.cpp | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/soloud_queue.cpp b/src/core/soloud_queue.cpp
+index bce528a..dca3a3f 100644
+--- a/src/core/soloud_queue.cpp
++++ b/src/core/soloud_queue.cpp
+@@ -22,6 +22,7 @@ freely, subject to the following restrictions:
+    distribution.
+ */
+ 
++#include <string.h>
+ #include "soloud.h"
+ 
+ namespace SoLoud
+@@ -42,7 +43,13 @@ namespace SoLoud
+ 		unsigned int copyofs = 0;
+ 		while (copycount && mParent->mCount)
+ 		{
+-			int readcount = mParent->mSource[mParent->mReadIndex]->getAudio(aBuffer + copyofs, copycount, aBufferSize);
++			AudioSourceInstance *source = mParent->mSource[mParent->mReadIndex];
++			int readcount = source->getAudio(aBuffer + copyofs, copycount, aBufferSize);
++			// The queue's channels the source does not have would otherwise
++			// keep whatever the buffer held, such as an earlier block's audio.
++			unsigned int k;
++			for (k = source->mChannels; k < mChannels; k++)
++				memset(aBuffer + copyofs + k * aBufferSize, 0, sizeof(float) * readcount);
+ 			copyofs += readcount;
+ 			copycount -= readcount;
+ 			// A source that gives no audio without ending (a looping sound at its
