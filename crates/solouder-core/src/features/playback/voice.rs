@@ -58,6 +58,8 @@ pub(crate) struct Voice {
     pub src_offset: u32,
     /// Output frames still to render from the current block.
     pub leftover_samples: u32,
+    /// Source frames read into the current block; the rest is silence.
+    pub block_samples: u32,
     /// Output frames of silence before the voice starts.
     pub delay_samples: u32,
     pub resample: Option<ResampleBlocks>,
@@ -87,6 +89,7 @@ impl Voice {
             loop_count: 0,
             src_offset: 0,
             leftover_samples: 0,
+            block_samples: 0,
             delay_samples: 0,
             resample: None,
         }

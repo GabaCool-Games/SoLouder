@@ -55,6 +55,7 @@ stays `in-progress` until its remaining flags are done.
 | `clipping_and_global` | Sums past full scale through both clippers, global volume, post-clip scale | 4,012 |
 | `active_voices` | Protected and loudest voices win the active slots; protecting a voice takes effect at once (patch 0023); changing and invalid limits | 3,212 |
 | `delay_samples` | Delayed starts spanning mix calls | 1,666 |
+| `sound_tails` | Sounds play out when mixes of 256, 441 or 480 frames end partway through their last block, with every resampler, slow and fast speeds, a resampled stereo sound and a sound of whole blocks (patch 0024) | 25,758 |
 | `sound_replace` | Reloading a sound name stops the old sound's voices and keeps other sounds playing; a failed reload keeps the old sound | 2,600 |
 | `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV (every code); extensible 5.1, 7.1, 24-in-32-bit, A-law and mu-law headers; channel masks with a high bit or none; extra and odd-sized chunks; six files both sides reject (9, 33 and 65535 channels, no frames, sample rate 0, a header cut short) | 15,562 |
 | `wav_decode_u8` | 8-bit WAV (tolerance 1/128, see below) | 1,000 |
@@ -120,9 +121,10 @@ Rust 1.98.1, no device).
 | Lost device | Backend-specific | `Output::state` reports `Disconnected` or `Failed` and plays nothing; there is no automatic reconnection yet | Reopening is an application decision for now |
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
-Known reference defects fixed on both sides by patches 0018 to 0023 (pan ramp
+Known reference defects fixed on both sides by patches 0018 to 0024 (pan ramp
 leftovers, surround fold-down volumes, no-free-voice handling, raw layout
-validation, the #343 hang, protection not recomputing the active voices) are listed in
+validation, the #343 hang, protection not recomputing the active voices,
+sound endings dropped when a mix ends mid-block) are listed in
 [PORTING.md](PORTING.md#reference-patch-ledger).
 
 ## Not yet covered

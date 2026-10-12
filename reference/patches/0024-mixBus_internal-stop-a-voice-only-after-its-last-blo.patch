@@ -1,0 +1,106 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Mon, 12 Oct 2026 16:15:37 +0300
+Subject: [PATCH] mixBus_internal: stop a voice only after its last block has
+ played
+
+A non-looping voice was stopped at the end of the mix call in which its
+source reported the end, which happens as soon as the last block is read.
+When the call ended partway through that block (device buffers that are not
+a multiple of 512 frames, or any resampling) the rest of the sound was
+dropped, ending it with a click: up to a block of source audio, 600 frames
+for a 1000-frame sound at speed 0.73 in 256-frame calls.
+
+Each voice now records how many real samples its newest block holds, and is
+stopped once the playhead has passed them by the resamplers' two-sample
+history. A voice that cannot advance still stops when its source ends.
+---
+ include/soloud_audiosource.h    |  2 ++
+ src/core/soloud.cpp             | 20 ++++++++++++++++++--
+ src/core/soloud_audiosource.cpp |  1 +
+ 3 files changed, 21 insertions(+), 2 deletions(-)
+
+diff --git a/include/soloud_audiosource.h b/include/soloud_audiosource.h
+index c155705..a218448 100644
+--- a/include/soloud_audiosource.h
++++ b/include/soloud_audiosource.h
+@@ -183,6 +183,8 @@ namespace SoLoud
+ 		unsigned int mSrcOffset;
+ 		// Samples left over from earlier pass
+ 		unsigned int mLeftoverSamples;
++		// Source samples read into the newest resample block; the rest of the block is silence
++		unsigned int mBlockSamples;
+ 		// Number of samples to delay streaming
+ 		unsigned int mDelaySamples;
+ 		// When looping, start playing from this time
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 80c6779..ae9c7e5 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1053,6 +1053,20 @@ namespace SoLoud
+ 
+ 
+ 
++	// Whether a voice has played all of its sound and can be stopped. The source
++	// reports its end as soon as the last block is read, but a mix call may end
++	// before that block has been played; the resamplers also lag the playhead
++	// by up to two samples (catmull-rom). A voice that cannot advance stops as
++	// soon as its source ends.
++	static bool voiceHasFinished(AudioSourceInstance *aVoice, int aStepFixed)
++	{
++		if (aVoice->mFlags & (AudioSourceInstance::LOOPING | AudioSourceInstance::DISABLE_AUTOSTOP))
++			return false;
++		if (!aVoice->hasEnded())
++			return false;
++		return aStepFixed == 0 || aVoice->mSrcOffset >= (aVoice->mBlockSamples + 2) * FIXPOINT_FRAC_MUL;
++	}
++
+ 	void panAndExpand(AudioSourceInstance *aVoice, float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize, float *aScratch, unsigned int aChannels)
+ 	{
+ #ifdef SOLOUD_SSE_INTRINSICS
+@@ -1686,6 +1700,7 @@ namespace SoLoud
+ 								}
+ 							}
+ 						}
++						voice->mBlockSamples = readcount;
+ 
+                         // Clear remaining of the resample data if the full scratch wasn't used
+ 						if (readcount < SAMPLE_GRANULARITY)
+@@ -1814,7 +1829,7 @@ namespace SoLoud
+ 				panAndExpand(voice, aBuffer, aSamplesToRead, aBufferSize, aScratch, aChannels);
+ 
+ 				// clear voice if the sound is over
+-				if (!(voice->mFlags & (AudioSourceInstance::LOOPING | AudioSourceInstance::DISABLE_AUTOSTOP)) && voice->hasEnded())
++				if (voiceHasFinished(voice, step_fixed))
+ 				{
+ 					stopVoice_internal(mActiveVoice[i]);
+ 				}
+@@ -1874,6 +1889,7 @@ namespace SoLoud
+ 								}
+ 							}
+ 						}
++						voice->mBlockSamples = readcount;
+ 
+ 						// If we go past zero, crop to zero (a bit of a kludge)
+ 						if (voice->mSrcOffset < SAMPLE_GRANULARITY * FIXPOINT_FRAC_MUL)
+@@ -1925,7 +1941,7 @@ namespace SoLoud
+ 				}
+ 
+ 				// clear voice if the sound is over
+-				if (!(voice->mFlags & (AudioSourceInstance::LOOPING | AudioSourceInstance::DISABLE_AUTOSTOP)) && voice->hasEnded())
++				if (voiceHasFinished(voice, step_fixed))
+ 				{
+ 					stopVoice_internal(mActiveVoice[i]);
+ 				}
+diff --git a/src/core/soloud_audiosource.cpp b/src/core/soloud_audiosource.cpp
+index 1421d64..bf75f32 100644
+--- a/src/core/soloud_audiosource.cpp
++++ b/src/core/soloud_audiosource.cpp
+@@ -106,6 +106,7 @@ namespace SoLoud
+ 		mResampleData[1] = 0;
+ 		mSrcOffset = 0;
+ 		mLeftoverSamples = 0;
++		mBlockSamples = 0;
+ 		mDelaySamples = 0;
+ 		mOverallVolume = 0;
+ 		mOverallRelativePlaySpeed = 1;

@@ -45,6 +45,7 @@ set(REFERENCE_TESTS
   inaudible_tick_over_active_cap
   protected_voice_stays_active
   protecting_a_voice_makes_it_active
+  sound_tail_survives_unaligned_mix_calls
   zero_step_voice_no_stale_scratch
   extreme_speed_makes_progress
   generic_seek_small_scratch

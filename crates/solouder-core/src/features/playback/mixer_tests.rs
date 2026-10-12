@@ -1,6 +1,6 @@
 use super::*;
 use crate::contracts::Pcm;
-use crate::dsp::Clipper;
+use crate::dsp::{Clipper, Resampler};
 use crate::features::playback::{ConfigError, Handle, PlayOptions, Sound};
 
 fn mixer() -> Mixer {
@@ -185,4 +185,42 @@ fn more_than_255_voices_can_be_active() {
     }
     render(&mut mixer, 1024);
     assert_eq!(mixer.active_voice_count(), 300);
+}
+
+fn audible_frames(out: &[f32]) -> usize {
+    out.chunks(2).filter(|frame| frame[0] != 0.0).count()
+}
+
+#[test]
+fn sound_tails_play_out_when_mixes_end_mid_block() {
+    // Reference patch 0024: the last block used to be dropped when a mix
+    // ended partway through it.
+    let sound = dc(0.5, 1000);
+    for resampler in [Resampler::Point, Resampler::Linear, Resampler::CatmullRom] {
+        for speed in [1.0, 0.73] {
+            let mut whole = mixer();
+            whole.set_resampler(resampler);
+            let handle = whole.play(&sound);
+            whole.set_relative_play_speed(handle, speed).unwrap();
+            let mut expected = vec![0.0; 2 * 4096];
+            whole.mix_interleaved(&mut expected);
+
+            for chunk in [256, 441, 480] {
+                let mut parts = mixer();
+                parts.set_resampler(resampler);
+                let handle = parts.play(&sound);
+                parts.set_relative_play_speed(handle, speed).unwrap();
+                let mut out = vec![0.0; 2 * 4096];
+                for part in out.chunks_exact_mut(2 * chunk) {
+                    parts.mix_interleaved(part);
+                }
+                assert_eq!(
+                    audible_frames(&out),
+                    audible_frames(&expected),
+                    "{resampler:?} at speed {speed} in {chunk}-frame mixes"
+                );
+                assert!(!parts.is_valid_voice_handle(handle));
+            }
+        }
+    }
 }

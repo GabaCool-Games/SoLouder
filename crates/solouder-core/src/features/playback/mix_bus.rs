@@ -41,7 +41,7 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
         if voice.has_flag(flags::PAUSED) {
             continue;
         }
-        resample_voice(voice, &mut voices.pool.data, scratch, bus);
+        let step_fixed = resample_voice(voice, &mut voices.pool.data, scratch, bus);
         let source_channels = voice.channels();
         let gains = Gains {
             current: &mut voice.current_channel_volume,
@@ -57,16 +57,28 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
             scratch,
             bus.channels,
         );
-        let keeps_playing = voice.has_flag(flags::LOOPING | flags::DISABLE_AUTOSTOP);
-        if !keeps_playing && voice.has_ended() {
+        if has_finished(voice, step_fixed) {
             voices.stop(slot);
         }
     }
 }
 
+/// Whether a voice has played all of its sound and can be stopped. The source
+/// reports its end as soon as the last block is read, but a mix may end
+/// before that block has been played, and the resamplers lag the position by
+/// up to two frames (Catmull-Rom). A voice that cannot advance stops as soon
+/// as its source ends (reference patch 0024).
+fn has_finished(voice: &Voice, step_fixed: u32) -> bool {
+    if voice.has_flag(flags::LOOPING | flags::DISABLE_AUTOSTOP) || !voice.has_ended() {
+        return false;
+    }
+    step_fixed == 0 || voice.src_offset >= (voice.block_samples + 2) * FRAC_MUL
+}
+
 /// Renders `bus.frames` frames of `voice` at the bus rate into `scratch`,
 /// pulling 512-frame source blocks into the voice's resample blocks as needed.
-fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus: Layout) {
+/// Returns the fixed-point step it used.
+fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus: Layout) -> u32 {
     let (frames, stride) = (bus.frames, bus.stride);
     let channels = voice.channels();
     let mut step = voice.sample_rate / bus.sample_rate;
@@ -77,7 +89,8 @@ fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus:
     let step_fixed = (step * FRAC_MUL as f32).floor() as u32;
     let Some(mut blocks) = voice.resample else {
         // Not reachable: active voices always have blocks. Render silence.
-        return clear_tail(scratch, channels, stride, 0, frames);
+        clear_tail(scratch, channels, stride, 0, frames);
+        return step_fixed;
     };
 
     let mut written = 0;
@@ -92,6 +105,7 @@ fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus:
             std::mem::swap(&mut blocks.current, &mut blocks.previous);
             let block = &mut pool[blocks.current * BLOCK_LEN..][..BLOCK_LEN];
             let read = fill_block(voice, block);
+            voice.block_samples = read;
             if read < SAMPLE_GRANULARITY {
                 for c in 0..channels {
                     block[c * BLOCK + read as usize..(c + 1) * BLOCK].fill(0.0);
@@ -133,6 +147,7 @@ fn resample_voice(voice: &mut Voice, pool: &mut [f32], scratch: &mut [f32], bus:
     }
     voice.resample = Some(blocks);
     clear_tail(scratch, channels, stride, written, frames);
+    step_fixed
 }
 
 /// Reads the next source block, wrapping to the loop point as often as needed

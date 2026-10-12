@@ -1,0 +1,119 @@
+# Patch 0024: a voice plays its last block to the end even when a mix call
+# ends partway through it, and stops only once the playhead has passed the
+# last real sample by the resamplers' two-sample history. Covers 256-, 441-
+# and 480-frame calls, every resampler, slow and fast speeds, a resampled
+# 22050 Hz stereo sound and a sound that is a whole number of blocks.
+init channels=2 buffer=512
+global resampler=point
+sound name=short frames=1000 pattern=saw period=37 amp=0.5
+sound name=blocks frames=1024 pattern=noise seed=9 amp=0.4
+sound name=low channels=2 frames=700 rate=22050 pattern=saw period=23 amp=0.3
+play sound=short as=a pan=-0.4
+play sound=blocks as=b pan=0.4
+play sound=low as=c
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+mix frames=256
+counts
+query h=a
+query h=b
+query h=c
+init channels=2 buffer=512
+global resampler=linear
+sound name=short frames=1000 pattern=saw period=37 amp=0.5
+sound name=blocks frames=1024 pattern=noise seed=9 amp=0.4
+sound name=low channels=2 frames=700 rate=22050 pattern=saw period=23 amp=0.3
+play sound=short as=a pan=-0.4
+play sound=blocks as=b pan=0.4
+play sound=low as=c
+set h=a speed=0.73
+set h=b speed=0.73
+mix frames=441
+counts
+mix frames=441
+counts
+mix frames=441
+counts
+mix frames=441
+counts
+mix frames=441
+counts
+mix frames=441
+counts
+mix frames=441
+counts
+query h=a
+query h=b
+query h=c
+init channels=2 buffer=512
+global resampler=catmullrom
+sound name=short frames=1000 pattern=saw period=37 amp=0.5
+sound name=blocks frames=1024 pattern=noise seed=9 amp=0.4
+sound name=low channels=2 frames=700 rate=22050 pattern=saw period=23 amp=0.3
+play sound=short as=a pan=-0.4
+play sound=blocks as=b pan=0.4
+play sound=low as=c
+set h=a speed=1.31
+set h=b speed=1.31
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+query h=a
+query h=b
+query h=c
+init channels=2 buffer=512
+global resampler=linear
+sound name=short frames=1000 pattern=saw period=37 amp=0.5
+sound name=blocks frames=1024 pattern=noise seed=9 amp=0.4
+sound name=low channels=2 frames=700 rate=22050 pattern=saw period=23 amp=0.3
+play sound=short as=a pan=-0.4
+play sound=blocks as=b pan=0.4
+play sound=low as=c
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+mix frames=480
+counts
+query h=a
+query h=b
+query h=c

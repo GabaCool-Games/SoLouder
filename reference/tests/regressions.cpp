@@ -216,6 +216,61 @@ namespace
 		check(maxAbsChannel(out, 0) > 0.01f, "the protected voice is mixed in the next render");
 	}
 
+	// Frames of the left channel that are not silent.
+	unsigned int audibleFrames(const std::vector<float> &aOut)
+	{
+		unsigned int count = 0;
+		for (size_t i = 0; i < aOut.size(); i += 2)
+		{
+			if (aOut[i] != 0.0f)
+				count++;
+		}
+		return count;
+	}
+
+	// Patch 0024: a voice was stopped at the end of the mix call in which its
+	// last block was read, so when a call ended partway through that block (any
+	// device buffer not aligned to 512 frames, or any resampling) the rest of
+	// the sound was dropped with a click.
+	void sound_tail_survives_unaligned_mix_calls()
+	{
+		Wav dc;
+		check(loadWav(dc, makeConstantWav(1, 1000, 0.5f)) == SO_NO_ERROR, "wav loads");
+		const unsigned int resamplers[] = { Soloud::RESAMPLER_POINT, Soloud::RESAMPLER_LINEAR, Soloud::RESAMPLER_CATMULLROM };
+		const unsigned int chunks[] = { 256, 441, 480 };
+		const float speeds[] = { 1.0f, 0.73f };
+		for (unsigned int resampler : resamplers)
+		{
+			for (float speed : speeds)
+			{
+				Soloud whole;
+				check(initNull(whole), "null driver init");
+				whole.setMainResampler(resampler);
+				whole.setRelativePlaySpeed(whole.play(dc), speed);
+				std::vector<float> reference(4096 * 2, 0.0f);
+				whole.mix(reference.data(), 4096);
+				unsigned int expected = audibleFrames(reference);
+
+				for (unsigned int chunk : chunks)
+				{
+					Soloud soloud;
+					check(initNull(soloud), "null driver init");
+					soloud.setMainResampler(resampler);
+					handle h = soloud.play(dc);
+					soloud.setRelativePlaySpeed(h, speed);
+					std::vector<float> out(4096 * 2, 0.0f);
+					for (unsigned int f = 0; f + chunk <= 4096; f += chunk)
+						soloud.mix(&out[f * 2], chunk);
+					unsigned int played = audibleFrames(out);
+					if (played != expected)
+						std::printf("  resampler %u, speed %g, %u-frame calls: %u of %u frames\n", resampler, speed, chunk, played, expected);
+					check(played == expected, "the whole sound plays");
+					check(!soloud.isValidVoiceHandle(h), "the voice stops after the sound");
+				}
+			}
+		}
+	}
+
 	// A voice whose fixed-point step rounds to zero skipped resampling but was
 	// still panned, mixing the previous voice's scratch data into the output.
 	void zero_step_voice_no_stale_scratch()
@@ -503,6 +558,7 @@ namespace
 		{ "inaudible_tick_over_active_cap", inaudible_tick_over_active_cap },
 		{ "protected_voice_stays_active", protected_voice_stays_active },
 		{ "protecting_a_voice_makes_it_active", protecting_a_voice_makes_it_active },
+		{ "sound_tail_survives_unaligned_mix_calls", sound_tail_survives_unaligned_mix_calls },
 		{ "zero_step_voice_no_stale_scratch", zero_step_voice_no_stale_scratch },
 		{ "extreme_speed_makes_progress", extreme_speed_makes_progress },
 		{ "generic_seek_small_scratch", generic_seek_small_scratch },

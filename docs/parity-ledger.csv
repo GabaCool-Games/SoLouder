@@ -47,7 +47,7 @@ Soloud::isValidVoiceHandle,engine,Soloud_isValidVoiceHandle,playback,B,ported,pa
 Soloud::isVoiceGroup,engine,Soloud_isVoiceGroup,routing,D,todo,,
 Soloud::isVoiceGroupEmpty,engine,Soloud_isVoiceGroupEmpty,routing,D,todo,,
 Soloud::lifecycle,engine,Soloud_create Soloud_destroy,playback,B,todo,,
-Soloud::mix,engine,Soloud_mix,playback,B,ported,silence_block_sizes play_basic volume_pan_ramps looping pause_stop speed_and_resamplers channel_layouts clipping_and_global active_voices delay_samples,Bit-identical to the SSE reference path. Calls longer than the scratch buffer are rendered in passes instead of overflowing.
+Soloud::mix,engine,Soloud_mix,playback,B,ported,silence_block_sizes play_basic volume_pan_ramps looping pause_stop speed_and_resamplers channel_layouts clipping_and_global active_voices delay_samples sound_tails,Bit-identical to the SSE reference path. Calls longer than the scratch buffer are rendered in passes instead of overflowing.
 Soloud::mixSigned16,engine,Soloud_mixSigned16,playback,B,todo,,
 Soloud::oscillateFilterParameter,engine,Soloud_oscillateFilterParameter,filters,D,todo,,
 Soloud::oscillateGlobalVolume,engine,Soloud_oscillateGlobalVolume,playback,D,todo,,
