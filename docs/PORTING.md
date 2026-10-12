@@ -375,7 +375,7 @@ credits. Commits after 0017 on `goregrind` add build scripts and that README,
 so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto `goregrind`. Patches 0018 to
-0022 were pushed on 2026-10-12 (public `master` at `1a1aa40`).
+0025 were pushed on 2026-10-12 (public `master` at `9318875`).
 
 GoreGrind's native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
