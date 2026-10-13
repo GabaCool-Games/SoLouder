@@ -401,6 +401,7 @@ unpatched reference, and each needs a matching Rust test.
 | 0053 | — (found porting milestone E) | Every `WavStream` instance reopens the file `load` named, and ignored `DiskFile::open`'s result: a file deleted or locked after loading left the instance reading a null `FILE`, and `fread` crashed. The instance now has no file, and `hasEnded` reports an instance without one (also when its decoder failed to start) as ended. | `wavstream_missing_file_ends` |
 | 0054 | — (found porting milestone E) | WAV, FLAC and MP3 streams take their length from the header, and `hasEnded` waits for the read position to reach it. A file whose data ends early read fewer frames, so the position never got there and a voice that does not loop played silence forever. A short read now moves the position to the end. | `wavstream_truncated_data_ends` |
 | 0055 | — (found reviewing milestone E) | After 0053 a stream without a file reported itself ended, but the mixer never stops a looping voice, so a looping `WavStream` whose file was gone played silence forever. `hasEnded` now also clears the instance's looping flag, so the voice ends. | `wavstream_missing_file_ends` |
+| 0056 | — (found reviewing milestone E) | `voiceHasFinished` checked the looping flag before asking the source, so 0055's flag clearing only happened when a block was read; a voice that cannot advance (a step of a whole block or more) never reads one and stayed alive. The source is now asked first; for every other source the result is unchanged. | `wavstream_missing_file_ends` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -409,7 +410,7 @@ so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto the working branch. Patches 0018 to
 0050 were pushed on 2026-10-12 (public `master` at `7b91e3b`), and 0051 after
-them (`1784537`). 0052 to 0055 are not pushed yet.
+them (`1784537`). 0052 to 0056 are not pushed yet.
 
 The shipped native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
@@ -706,8 +707,9 @@ last); each ends with passing scenarios, ledger rows and a commit:
    - **3c, Bevy** (done): streamed assets play through the worker, which the
      plugin runs on its own thread.
 
-   A review of unit 3 led to patch 0055 (a looping stream without its file
-   never ended, in both) and these changes: `split` moves streams the mixer
+   A review of unit 3 led to patches 0055 and 0056 (a looping stream without
+   its file never ended, in both, also when the voice could not advance) and
+   these changes: `split` moves streams the mixer
    was already reading (voices and queued) onto feeds; a seek publishes its
    request before handing back stale chunks, and both that and each worker
    pass stop after a pool's worth of chunks; a queue skipping audio not
@@ -715,7 +717,10 @@ last); each ends with passing scenarios, ledger rows and a commit:
    counts from the audio, not the voice's position; feeds start with the
    voice's looping, so short loops are decoded past their end at once; a
    dropped worker ends its voices once their audio is played, and the
-   controller then refuses streams with `NoStreamWorker`.
+   controller then refuses streams with `NoStreamWorker`; a looping reader
+   moved by `split` at its end wraps at once. A seek after waiting counts
+   from the block read ahead, as the reference's generic seek does, so it
+   lands where it would have had the audio arrived.
 4. **FLAC**, resident and streamed: Symphonia's decoder, bit-exact against
    dr_flac; malformed-input fuzzing; more than 8 channels rejected (patch
    0012).

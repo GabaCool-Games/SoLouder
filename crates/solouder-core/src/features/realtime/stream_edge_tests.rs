@@ -57,6 +57,24 @@ fn streams_playing_when_split_continue_on_the_worker() {
 }
 
 #[test]
+fn a_looping_stream_split_at_its_end_wraps_on_the_worker() {
+    let mut looped = stream(512, 44100.0);
+    looped.set_looping(true);
+    let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
+    mixer.play(&looped);
+    let expected = mix(&mut mixer, &[512, 512]);
+
+    let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
+    mixer.play(&looped);
+    let mut rendered = mix(&mut mixer, &[512]);
+    let (mut controller, mut renderer) = split(mixer, RealtimeConfig::default());
+    let mut worker = controller.take_stream_worker().unwrap();
+    serve(&mut worker);
+    rendered.extend(render(&mut renderer, 512));
+    assert_eq!(rendered, expected);
+}
+
+#[test]
 fn a_short_loop_is_decoded_past_its_end_from_the_start() {
     let mut looped = stream(300, 44100.0);
     looped.set_looping(true);
@@ -111,6 +129,28 @@ fn a_seek_after_waiting_for_audio_counts_from_the_audio() {
 }
 
 #[test]
+fn a_seek_after_waiting_mid_block_lands_where_the_mixer_lands() {
+    // The generic seek counts from the block read ahead, not from the frame
+    // playing; a voice that waited lands where it would have with its audio.
+    let tone = stream(20000, 44100.0);
+    let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
+    let handle = mixer.play(&tone);
+    mix(&mut mixer, &[700]);
+    mixer.seek(handle, 0.1).unwrap();
+    let expected = mix(&mut mixer, &[324, 1536]);
+
+    let (mut controller, mut renderer, mut worker) = runtime(RealtimeConfig::default());
+    let id = controller.play(&tone).unwrap();
+    render(&mut renderer, 700);
+    controller.seek(id, 0.1).unwrap();
+    render(&mut renderer, 324);
+    serve(&mut worker);
+    let rendered = render(&mut renderer, 1536);
+    // The linear resampler blends in one frame of the block before.
+    assert_eq!(rendered[2..], expected[324 * 2 + 2..]);
+}
+
+#[test]
 fn a_looping_stream_without_its_file_ends() {
     let mut missing = Stream::new(Arc::new(Memory {
         planes: Arc::new(vec![vec![0.0; 100]]),
@@ -121,16 +161,27 @@ fn a_looping_stream_without_its_file_ends() {
     missing.set_looping(true);
     let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
     let handle = mixer.play(&missing);
+    // A step of a whole block or more: the voice never fills a block.
+    let stuck = mixer.play(&missing);
+    mixer.set_relative_play_speed(stuck, 600.0).unwrap();
     mix(&mut mixer, &[2048]);
     assert!(!mixer.is_valid_voice_handle(handle));
+    assert!(!mixer.is_valid_voice_handle(stuck));
 
     let (mut controller, mut renderer, mut worker) = runtime(RealtimeConfig::default());
     let id = controller.play(&missing).unwrap();
+    let options = crate::PlayOptions {
+        speed: 600.0,
+        ..Default::default()
+    };
+    let stuck = controller.play_with(&missing, options).unwrap();
     for _ in 0..4 {
         serve(&mut worker);
         render(&mut renderer, 512);
     }
-    assert!(finished(&mut controller).contains(&Event::Finished(id, FinishReason::Ended)));
+    let finished = finished(&mut controller);
+    assert!(finished.contains(&Event::Finished(id, FinishReason::Ended)));
+    assert!(finished.contains(&Event::Finished(stuck, FinishReason::Ended)));
 }
 
 #[test]

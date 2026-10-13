@@ -77,7 +77,7 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
             scratch,
             bus.channels,
         );
-        let finished = has_finished(&voice, &voices.queues, step_fixed);
+        let finished = has_finished(&mut voice, &voices.queues, step_fixed);
         voices.slots[slot] = Some(voice);
         if finished {
             voices.stop(slot);
@@ -89,9 +89,17 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
 /// reports its end as soon as the last block is read, but a mix may end
 /// before that block has been played, and the resamplers lag the position by
 /// up to two frames (Catmull-Rom). A voice that cannot advance stops as soon
-/// as its source ends (reference patch 0024).
-fn has_finished(voice: &Voice, queues: &Queues, step_fixed: u32) -> bool {
-    if voice.has_flag(flags::LOOPING | flags::DISABLE_AUTOSTOP) || !voice.has_ended(queues) {
+/// as its source ends (reference patch 0024). The source is asked before the
+/// looping flag, which a stream without audio clears, also for a voice that
+/// cannot advance and so never fills a block (patches 0055 and 0056).
+fn has_finished(voice: &mut Voice, queues: &Queues, step_fixed: u32) -> bool {
+    if voice.has_flag(flags::DISABLE_AUTOSTOP) || !voice.has_ended(queues) {
+        return false;
+    }
+    if stream::lost(&voice.source) {
+        voice.set_flag(flags::LOOPING, false);
+    }
+    if voice.has_flag(flags::LOOPING) {
         return false;
     }
     step_fixed == 0 || voice.src_offset >= (voice.block_samples + 2) * FRAC_MUL

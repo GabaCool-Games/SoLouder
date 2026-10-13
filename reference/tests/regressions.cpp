@@ -215,6 +215,12 @@ namespace
 		out = render(soloud, 2048);
 		check(maxAbsChannel(out, 0) == 0, "nothing plays when looping");
 		check(!soloud.isValidVoiceHandle(looping), "the looping voice ends");
+
+		// Also when the voice cannot advance (a step of a whole block or more).
+		handle stuck = soloud.play(stream);
+		soloud.setRelativePlaySpeed(stuck, 600);
+		render(soloud, 2048);
+		check(!soloud.isValidVoiceHandle(stuck), "the looping voice that cannot advance ends");
 	}
 
 	// #279/#205/#327: inaudible-tick voices filling the active cap made

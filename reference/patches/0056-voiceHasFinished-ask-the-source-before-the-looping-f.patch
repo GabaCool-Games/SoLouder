@@ -1,0 +1,33 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 12:03:55 +0300
+Subject: [PATCH] voiceHasFinished: ask the source before the looping flag
+
+---
+ src/core/soloud.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 058f405..5459915 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1092,13 +1092,17 @@ namespace SoLoud
+ 	// reports its end as soon as the last block is read, but a mix call may end
+ 	// before that block has been played; the resamplers also lag the playhead
+ 	// by up to two samples (catmull-rom). A voice that cannot advance stops as
+-	// soon as its source ends.
++	// soon as its source ends. The source is asked before the looping flag is
++	// checked: a stream that lost its file clears the flag in hasEnded, and a
++	// voice that cannot advance never reads a block that would ask it.
+ 	static bool voiceHasFinished(AudioSourceInstance *aVoice, int aStepFixed)
+ 	{
+-		if (aVoice->mFlags & (AudioSourceInstance::LOOPING | AudioSourceInstance::DISABLE_AUTOSTOP))
++		if (aVoice->mFlags & AudioSourceInstance::DISABLE_AUTOSTOP)
+ 			return false;
+ 		if (!aVoice->hasEnded())
+ 			return false;
++		if (aVoice->mFlags & AudioSourceInstance::LOOPING)
++			return false;
+ 		return aStepFixed == 0 || aVoice->mSrcOffset >= (aVoice->mBlockSamples + 2) * FIXPOINT_FRAC_MUL;
+ 	}
+ 

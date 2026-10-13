@@ -52,7 +52,8 @@ impl WorkerFeed {
             epoch: 0,
             position,
             ended: false,
-            pass_frames: 0,
+            // A reader that played before it moved here may loop at once.
+            pass_frames: position,
         }
     }
 

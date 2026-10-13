@@ -152,8 +152,10 @@ pub(crate) fn build(app: &mut App, mode: &OutputMode) {
             if matches!(mode, OutputMode::Headless(_)) {
                 app.insert_resource(HeadlessStreamWorker(Mutex::new(worker)));
             } else {
-                // Without the thread, streamed clips stay silent; decoded
-                // clips do not need it.
+                // Decoded clips do not need the thread. If it cannot start,
+                // streamed clips fail with `OutputUnavailable`. It ends by
+                // itself once the controller and renderer are gone, so it is
+                // not joined: exiting would otherwise wait on file reads.
                 let _ = worker.spawn();
             }
         }
