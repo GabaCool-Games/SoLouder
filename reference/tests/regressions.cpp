@@ -208,6 +208,13 @@ namespace
 		std::vector<float> out = render(soloud, 2048);
 		check(maxAbsChannel(out, 0) == 0, "nothing plays");
 		check(!soloud.isValidVoiceHandle(h), "the voice ends");
+
+		// Looping must not keep the voice alive playing silence.
+		stream.setLooping(true);
+		handle looping = soloud.play(stream);
+		out = render(soloud, 2048);
+		check(maxAbsChannel(out, 0) == 0, "nothing plays when looping");
+		check(!soloud.isValidVoiceHandle(looping), "the looping voice ends");
 	}
 
 	// #279/#205/#327: inaudible-tick voices filling the active cap made

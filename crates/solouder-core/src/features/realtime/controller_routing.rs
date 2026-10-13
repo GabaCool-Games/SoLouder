@@ -169,8 +169,8 @@ impl Controller {
         queue: &Queue,
         sound: &impl Queueable,
     ) -> Result<(), ControllerError> {
-        if sound.stream().is_some() && self.feeds.is_full() {
-            return Err(ControllerError::StreamsFull);
+        if sound.stream().is_some() {
+            self.stream_room()?;
         }
         let underflow = Arc::clone(&self.underflow);
         let (item, feed) = sound.queued_fed(self.stream_chunks, underflow);

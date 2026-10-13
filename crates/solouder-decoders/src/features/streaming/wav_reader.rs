@@ -96,9 +96,12 @@ impl<R: Input> StreamReader for WavReader<R> {
             if whole < block {
                 // A partial frame leaves the input mid-frame; go back to the
                 // frame boundary for the next read.
+                // If that fails, the reader stays at the end.
                 if !got.is_multiple_of(frame_bytes) {
                     let at = self.frame_offset(self.position);
-                    let _ = self.input.seek(SeekFrom::Start(at));
+                    if self.input.seek(SeekFrom::Start(at)).is_err() {
+                        self.position = self.frames;
+                    }
                 }
                 break;
             }

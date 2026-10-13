@@ -3,14 +3,19 @@
 //! mixer keeps, and retires the voice in, when the voice ends.
 
 use std::collections::VecDeque;
+use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
 use super::control::PlayOptions;
+use super::feed;
+use super::feed_worker::WorkerFeed;
 use super::handle::Handle;
 use super::mixer::Mixer;
 use super::queue_control::QueueError;
 use super::queued::Queued;
 use super::sound::SoundId;
 use super::source::private::Prepared;
+use super::stream;
 use super::voice::Voice;
 use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
 
@@ -126,6 +131,30 @@ impl Mixer {
     pub(crate) fn pending_retirements(&self) -> usize {
         let voices = &self.voices;
         voices.count() + voices.queues.queued() + voices.retired.kept_len()
+    }
+
+    /// Moves every stream the mixer reads itself, playing or queued, onto
+    /// a feed of `chunks` chunks, and returns the worker's ends: the
+    /// real-time renderer never reads a file.
+    pub(crate) fn feed_streams(
+        &mut self,
+        chunks: usize,
+        underflow: &Arc<AtomicU64>,
+    ) -> Vec<WorkerFeed> {
+        let mut feeds = Vec::new();
+        for voice in self.voices.slots.iter_mut().flatten() {
+            let looping = stream::loop_target(voice);
+            feeds.extend(feed::feed_direct(
+                &mut voice.source,
+                chunks,
+                underflow,
+                looping,
+            ));
+        }
+        for item in self.voices.queues.items_mut() {
+            feeds.extend(item.feed_direct(chunks, underflow));
+        }
+        feeds
     }
 
     /// The queues the mixer already has storage for.

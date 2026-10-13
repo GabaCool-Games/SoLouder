@@ -15,44 +15,54 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 
 use rtrb::{Consumer, Producer, RingBuffer};
 
-use super::stream::{StreamReader, StreamSource};
+use super::feed_worker::WorkerFeed;
+use super::stream::{StreamInput, StreamReader, StreamSource};
+use super::voice::VoiceSource;
 use crate::contracts::SAMPLE_GRANULARITY;
 
-const BLOCK: usize = SAMPLE_GRANULARITY as usize;
-const LOOPING: u64 = 1 << 63;
+pub(super) const BLOCK: usize = SAMPLE_GRANULARITY as usize;
+pub(super) const LOOPING: u64 = 1 << 63;
 
 /// One block of decoded frames, channel `c` at `c * BLOCK`.
 #[derive(Debug)]
-pub(crate) struct Chunk {
-    epoch: u32,
+pub(super) struct Chunk {
+    pub epoch: u32,
     /// The source frame of the first frame.
-    start: u32,
-    frames: u32,
+    pub start: u32,
+    pub frames: u32,
     /// The audio ended after these frames.
-    end: bool,
-    data: Box<[f32]>,
+    pub end: bool,
+    pub data: Box<[f32]>,
 }
 
 /// What the two sides of a feed share.
 #[derive(Debug)]
-struct FeedShared {
+pub(super) struct FeedShared {
     /// `epoch << 32 | frame`: where the audio thread wants the audio to
     /// continue.
-    request: AtomicU64,
+    pub request: AtomicU64,
     /// [`LOOPING`] when the voice loops, with the frame a loop wrap
     /// continues from.
-    looping: AtomicU64,
+    pub looping: AtomicU64,
     /// The source could not be opened, or stopped seeking.
-    failed: AtomicBool,
+    pub failed: AtomicBool,
     /// Frames of silence played because a feed ran dry, for every feed of
     /// one worker.
-    underflow: Arc<AtomicU64>,
+    pub underflow: Arc<AtomicU64>,
+}
+
+/// Where a feed's worker gets its audio.
+pub(super) enum Origin {
+    /// Opened on the worker.
+    Source(Arc<dyn StreamSource>),
+    /// Already open, at this frame.
+    Reader(Box<dyn StreamReader>, u32),
 }
 
 /// Makes a feed of `chunks` chunks for a stream of `channels` channels:
 /// the audio thread's end and the worker's.
-pub(crate) fn feed(
-    source: Arc<dyn StreamSource>,
+pub(super) fn feed(
+    origin: Origin,
     channels: u32,
     chunks: usize,
     underflow: Arc<AtomicU64>,
@@ -77,28 +87,56 @@ pub(crate) fn feed(
         // Cannot fail: the ring holds every chunk.
         let _ = empty_tx.push(Box::new(chunk));
     }
+    let position = match &origin {
+        Origin::Source(_) => 0,
+        Origin::Reader(_, at) => *at,
+    };
     let reader = FeedReader {
         shared: Arc::clone(&shared),
         full: full_rx,
         empty: empty_tx,
+        chunks,
         current: None,
         cursor: 0,
         epoch: 0,
+        position,
+        padded: 0,
         primed: false,
     };
-    let worker = WorkerFeed {
-        source,
-        reader: None,
-        opened: false,
-        shared,
-        full: full_tx,
-        empty: empty_rx,
-        epoch: 0,
-        position: 0,
-        ended: false,
-        pass_frames: 0,
-    };
+    let worker = WorkerFeed::new(origin, shared, full_tx, empty_rx, chunks);
     (reader, worker)
+}
+
+/// Moves a stream voice that reads on the mixing thread onto a feed,
+/// keeping its reader and place, and returns the worker's end. `looping` is
+/// the frame a loop wrap continues from, if the voice loops.
+pub(crate) fn feed_direct(
+    source: &mut VoiceSource,
+    chunks: usize,
+    underflow: &Arc<AtomicU64>,
+    looping: Option<u32>,
+) -> Option<WorkerFeed> {
+    let VoiceSource::Stream {
+        input,
+        channels,
+        offset,
+        ..
+    } = source
+    else {
+        return None;
+    };
+    let reader = match std::mem::replace(input, StreamInput::Missing) {
+        StreamInput::Direct(reader) => reader,
+        other => {
+            *input = other;
+            return None;
+        }
+    };
+    let origin = Origin::Reader(reader, *offset);
+    let (reader, worker) = feed(origin, *channels, chunks, Arc::clone(underflow));
+    reader.set_looping(looping);
+    *input = StreamInput::Feed(Box::new(reader));
+    Some(worker)
 }
 
 /// The audio thread's end of a feed. Nothing here allocates, frees or
@@ -108,19 +146,34 @@ pub(crate) struct FeedReader {
     shared: Arc<FeedShared>,
     full: Consumer<Box<Chunk>>,
     empty: Producer<Box<Chunk>>,
+    /// Chunks in the pool.
+    chunks: usize,
     current: Option<Box<Chunk>>,
     /// Frames of `current` already read.
     cursor: u32,
     epoch: u32,
+    /// The source frame read next.
+    position: u32,
+    /// Frames of silence played since the last seek because the audio had
+    /// not arrived.
+    padded: u64,
     /// A chunk of this epoch has arrived: silence from now on is underflow,
     /// not prebuffering.
     primed: bool,
 }
 
 impl FeedReader {
-    /// The source could not be opened (or seeked): the voice has ended.
+    /// The source could not be opened (or seeked), or the worker is gone
+    /// and its audio has been played: the voice has ended.
     pub fn failed(&self) -> bool {
-        self.shared.failed.load(Ordering::Acquire)
+        if self.shared.failed.load(Ordering::Acquire) {
+            return true;
+        }
+        let drained = self
+            .current
+            .as_ref()
+            .is_none_or(|c| self.cursor >= c.frames);
+        self.full.is_abandoned() && self.full.is_empty() && drained
     }
 
     /// Tells the worker whether the voice loops, and from which frame.
@@ -129,15 +182,26 @@ impl FeedReader {
         self.shared.looping.store(value, Ordering::Relaxed);
     }
 
+    /// Frames of silence played since the last seek while the audio had not
+    /// arrived: the voice's stream position ran ahead of its audio by this
+    /// much.
+    pub fn padded(&self) -> u64 {
+        self.padded
+    }
+
     fn recycle(&mut self, chunk: Box<Chunk>) {
         // Cannot fail: the ring has room for every chunk of the pool.
         let _ = self.empty.push(chunk);
     }
 
     /// Hands back chunks of older epochs; true if a chunk of this one is
-    /// next.
+    /// next. Gives up after a pool's worth: the worker may still be making
+    /// chunks of an older epoch.
     fn drop_stale(&mut self) -> bool {
-        while let Ok(chunk) = self.full.peek() {
+        for _ in 0..self.chunks {
+            let Ok(chunk) = self.full.peek() else {
+                return false;
+            };
             if chunk.epoch == self.epoch {
                 return true;
             }
@@ -160,9 +224,8 @@ impl FeedReader {
         let Ok(chunk) = self.full.pop() else {
             return false;
         };
-        if let Some(old) = self.current.replace(chunk) {
-            self.recycle(old);
-        }
+        self.position = chunk.start;
+        self.current = Some(chunk);
         self.cursor = 0;
         self.primed = true;
         true
@@ -170,8 +233,9 @@ impl FeedReader {
 
     /// Copies up to `frames` frames into `out` (`(samples, start, stride)`:
     /// channel `c` at `c * stride + start`), or skips them without `out`.
-    /// Returns the frames read and whether the audio ended there; frames the
-    /// feed did not have yet are silent.
+    /// Returns the frames read and whether the audio ended there. Frames
+    /// the feed does not have yet are silent; skipping past them asks the
+    /// worker for the frame after them.
     pub fn read(
         &mut self,
         mut out: Option<(&mut [f32], usize, usize)>,
@@ -205,18 +269,27 @@ impl FeedReader {
                 }
             }
             self.cursor += count;
+            self.position = self.position.saturating_add(count);
             done += count;
         }
         if !ended && done < frames {
-            if let Some((block, start, stride)) = out {
-                for c in 0..channels as usize {
-                    let to = c * stride + start;
-                    block[to + done as usize..to + frames as usize].fill(0.0);
+            let missing = frames - done;
+            match out {
+                Some((block, start, stride)) => {
+                    for c in 0..channels as usize {
+                        let to = c * stride + start;
+                        block[to + done as usize..to + frames as usize].fill(0.0);
+                    }
+                    self.padded += u64::from(missing);
+                    if self.primed {
+                        let underflow = &self.shared.underflow;
+                        underflow.fetch_add(u64::from(missing), Ordering::Relaxed);
+                    }
                 }
-            }
-            if self.primed {
-                let missing = u64::from(frames - done);
-                self.shared.underflow.fetch_add(missing, Ordering::Relaxed);
+                None => {
+                    self.seek_to(self.position.saturating_add(missing));
+                    done = frames;
+                }
             }
         }
         (done, ended)
@@ -225,6 +298,7 @@ impl FeedReader {
     /// Continues from source frame `target`: keeps the queued audio if it
     /// continues there, and asks the worker for the frame otherwise.
     pub fn seek_to(&mut self, target: u32) {
+        self.padded = 0;
         let next = match &self.current {
             Some(chunk) if self.cursor < chunk.frames => {
                 Some(chunk.start.saturating_add(self.cursor))
@@ -240,105 +314,15 @@ impl FeedReader {
             return;
         }
         self.epoch = self.epoch.wrapping_add(1);
+        self.position = target;
+        self.primed = false;
         if let Some(chunk) = self.current.take() {
             self.recycle(chunk);
         }
-        self.drop_stale();
-        self.primed = false;
+        // Published before the stale chunks are handed back, so the worker
+        // stops making them.
         let request = u64::from(self.epoch) << 32 | u64::from(target);
         self.shared.request.store(request, Ordering::Release);
-    }
-}
-
-/// The worker's end of a feed: the source, opened on the worker, and the
-/// reader it decodes with.
-#[derive(Debug)]
-pub struct WorkerFeed {
-    source: Arc<dyn StreamSource>,
-    reader: Option<Box<dyn StreamReader>>,
-    opened: bool,
-    shared: Arc<FeedShared>,
-    full: Producer<Box<Chunk>>,
-    empty: Consumer<Box<Chunk>>,
-    epoch: u32,
-    /// The next frame the reader decodes.
-    position: u64,
-    /// The reader reached the end of the audio.
-    ended: bool,
-    /// Frames decoded since the last seek, so a loop that yields nothing is
-    /// not repeated forever.
-    pass_frames: u64,
-}
-
-impl WorkerFeed {
-    /// Whether the voice is gone, so the feed (and its file) can be dropped.
-    pub fn is_closed(&self) -> bool {
-        self.full.is_abandoned()
-    }
-
-    /// Opens the source, follows seeks and fills empty chunks. Returns
-    /// whether it did anything.
-    pub fn service(&mut self) -> bool {
-        let mut worked = false;
-        if !self.opened {
-            self.opened = true;
-            self.reader = self.source.open();
-            if self.reader.is_none() {
-                self.shared.failed.store(true, Ordering::Release);
-            }
-            worked = true;
-        }
-        if self.reader.is_none() {
-            return worked;
-        }
-        let request = self.shared.request.load(Ordering::Acquire);
-        let epoch = (request >> 32) as u32;
-        if epoch != self.epoch {
-            self.epoch = epoch;
-            self.seek(u64::from(request as u32));
-            worked = true;
-        }
-        while !self.empty.is_empty() {
-            if self.ended {
-                let looping = self.shared.looping.load(Ordering::Relaxed);
-                if looping & LOOPING == 0 || self.pass_frames == 0 {
-                    break;
-                }
-                self.seek(u64::from(looping as u32));
-            }
-            let Ok(mut chunk) = self.empty.pop() else {
-                break;
-            };
-            let Some(reader) = self.reader.as_mut() else {
-                break;
-            };
-            let frames = reader.read(&mut chunk.data, BLOCK, BLOCK).min(BLOCK);
-            chunk.epoch = self.epoch;
-            chunk.start = u32::try_from(self.position).unwrap_or(u32::MAX);
-            chunk.frames = frames as u32;
-            chunk.end = frames < BLOCK;
-            self.position += frames as u64;
-            self.pass_frames += frames as u64;
-            self.ended = chunk.end;
-            // Cannot fail: the ring holds every chunk of the pool.
-            let _ = self.full.push(chunk);
-            worked = true;
-        }
-        worked
-    }
-
-    /// Rewinds, then skips to `target`; a source that cannot rewind fails.
-    fn seek(&mut self, target: u64) {
-        let Some(reader) = self.reader.as_mut() else {
-            return;
-        };
-        self.ended = false;
-        self.pass_frames = 0;
-        if !reader.rewind() {
-            self.reader = None;
-            self.shared.failed.store(true, Ordering::Release);
-            return;
-        }
-        self.position = if target > 0 { reader.skip(target) } else { 0 };
+        self.drop_stale();
     }
 }

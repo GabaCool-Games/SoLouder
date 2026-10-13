@@ -272,7 +272,9 @@ fn start(
         Ok(voice) => Ok(Some((voice, sent))),
         Err(ControllerError::QueueFull | ControllerError::StreamsFull) => Ok(None),
         Err(ControllerError::NoFreeVoiceId) => Err(PlaybackError::NoFreeVoice),
-        Err(ControllerError::Disconnected) => Err(PlaybackError::OutputUnavailable),
+        Err(ControllerError::Disconnected | ControllerError::NoStreamWorker) => {
+            Err(PlaybackError::OutputUnavailable)
+        }
         Err(_) => Err(PlaybackError::Rejected),
     }
 }

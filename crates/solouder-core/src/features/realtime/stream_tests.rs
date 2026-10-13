@@ -8,10 +8,10 @@ use crate::{Mixer, MixerConfig, Stream, StreamFormat, StreamReader, StreamSource
 
 /// Planar samples in memory, read like a file.
 #[derive(Debug)]
-struct Memory {
-    planes: Arc<Vec<Vec<f32>>>,
-    rate: f32,
-    missing: bool,
+pub(super) struct Memory {
+    pub planes: Arc<Vec<Vec<f32>>>,
+    pub rate: f32,
+    pub missing: bool,
 }
 
 #[derive(Debug)]
@@ -54,7 +54,7 @@ impl StreamReader for MemoryReader {
     }
 }
 
-fn stream(frames: usize, rate: f32) -> Stream {
+pub(super) fn stream(frames: usize, rate: f32) -> Stream {
     let ramp = |c: usize| {
         (0..frames)
             .map(|i| ((i * (c + 3)) % 97) as f32 / 97.0 - 0.5)
@@ -68,23 +68,23 @@ fn stream(frames: usize, rate: f32) -> Stream {
     Stream::new(Arc::new(source)).unwrap()
 }
 
-fn runtime(config: RealtimeConfig) -> (Controller, Renderer, StreamWorker) {
+pub(super) fn runtime(config: RealtimeConfig) -> (Controller, Renderer, StreamWorker) {
     let (mut controller, renderer) = split(Mixer::new(MixerConfig::default()).unwrap(), config);
     let worker = controller.take_stream_worker().unwrap();
     (controller, renderer, worker)
 }
 
-fn render(renderer: &mut Renderer, frames: usize) -> Vec<f32> {
+pub(super) fn render(renderer: &mut Renderer, frames: usize) -> Vec<f32> {
     let mut out = vec![0.0; frames * 2];
     renderer.render(&mut out);
     out
 }
 
-fn serve(worker: &mut StreamWorker) {
+pub(super) fn serve(worker: &mut StreamWorker) {
     while worker.service() {}
 }
 
-const CALLS: [usize; 6] = [700, 1023, 1500, 256, 4096, 2000];
+pub(super) const CALLS: [usize; 6] = [700, 1023, 1500, 256, 4096, 2000];
 
 #[test]
 fn prebuffered_streams_render_like_the_mixer() {

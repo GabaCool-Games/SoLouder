@@ -40,6 +40,8 @@ pub enum ControllerError {
     /// ([`RealtimeConfig::pending_streams`](super::RealtimeConfig::pending_streams)):
     /// it is not running, or has fallen behind.
     StreamsFull,
+    /// The [`StreamWorker`] was dropped: streams cannot play.
+    NoStreamWorker,
 }
 
 impl fmt::Display for ControllerError {
@@ -51,6 +53,7 @@ impl fmt::Display for ControllerError {
             Self::TooManyQueues => write!(f, "too many queues"),
             Self::Disconnected => write!(f, "the audio renderer is gone"),
             Self::StreamsFull => write!(f, "the stream worker has not taken the streams played"),
+            Self::NoStreamWorker => write!(f, "the stream worker is gone"),
         }
     }
 }
@@ -201,8 +204,8 @@ impl Controller {
         if self.commands.is_abandoned() {
             return Err(ControllerError::Disconnected);
         }
-        if source.stream().is_some() && self.feeds.is_full() {
-            return Err(ControllerError::StreamsFull);
+        if source.stream().is_some() {
+            self.stream_room()?;
         }
         let queue = source.queue_id().filter(|id| !self.queues.contains(id));
         let needed = 1 + usize::from(queue.is_some());
@@ -253,6 +256,17 @@ impl Controller {
                 .started(bus, id, layout.0, layout.1, options.speed);
         }
         Ok(id)
+    }
+
+    /// Whether one more stream can be handed to the worker.
+    pub(super) fn stream_room(&self) -> Result<(), ControllerError> {
+        if self.feeds.is_abandoned() {
+            return Err(ControllerError::NoStreamWorker);
+        }
+        if self.feeds.is_full() {
+            return Err(ControllerError::StreamsFull);
+        }
+        Ok(())
     }
 
     /// Whether the renderer still exists. Once it is dropped every request

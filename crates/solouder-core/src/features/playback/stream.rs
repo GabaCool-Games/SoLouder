@@ -9,7 +9,8 @@ use std::fmt;
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-use super::feed::{self, FeedReader, WorkerFeed};
+use super::feed::{self, FeedReader, Origin};
+use super::feed_worker::WorkerFeed;
 use super::sound::SoundId;
 use super::source::private::{Prepared, Sealed};
 use super::source::{Playable, SourceSettings, source_settings_api};
@@ -47,7 +48,8 @@ pub trait StreamSource: Send + Sync + fmt::Debug {
 pub trait StreamReader: Send + fmt::Debug {
     /// Decodes up to `frames` frames, channel `c` into
     /// `out[c * stride..][..frames]`, and returns how many it decoded:
-    /// fewer only at the end of the audio or when reading fails.
+    /// fewer only at the end of the audio or when reading fails. Callers
+    /// pass `frames <= stride` and an `out` holding every channel.
     fn read(&mut self, out: &mut [f32], stride: usize, frames: usize) -> usize;
 
     /// Goes back to the first frame; false if the stream cannot.
@@ -169,8 +171,8 @@ impl Stream {
         chunks: usize,
         underflow: Arc<AtomicU64>,
     ) -> (VoiceSource, WorkerFeed) {
-        let source = Arc::clone(&self.source);
-        let (reader, worker) = feed::feed(source, self.format.channels, chunks, underflow);
+        let origin = Origin::Source(Arc::clone(&self.source));
+        let (reader, worker) = feed::feed(origin, self.format.channels, chunks, underflow);
         (
             self.source_reading(StreamInput::Feed(Box::new(reader))),
             worker,
@@ -184,8 +186,17 @@ impl Stream {
         underflow: Arc<AtomicU64>,
     ) -> (Prepared, WorkerFeed) {
         let (source, feed) = self.fed_source(chunks, underflow);
+        let voice = self.voice_of(source);
+        // The worker continues a short loop before the voice first reads.
+        if let VoiceSource::Stream {
+            input: StreamInput::Feed(reader),
+            ..
+        } = &voice.source
+        {
+            reader.set_looping(loop_target(&voice));
+        }
         let prepared = Prepared {
-            voice: self.voice_of(source),
+            voice,
             stop_others: self.settings.single_instance,
             default_volume: self.settings.volume,
         };
@@ -291,8 +302,15 @@ pub(crate) fn read(
         }
         StreamInput::Feed(feed) => {
             feed.set_looping(looping);
-            let out = out.map(|out| (out, start, stride));
-            let (read, ended) = feed.read(out, frames, *channels);
+            let (read, ended) = match out {
+                Some(out) => feed.read(Some((out, start, stride)), frames, *channels),
+                // A skip can pass audio not decoded yet, but not the end.
+                None => {
+                    let want = frames.min(total.saturating_sub(*offset));
+                    let (read, ended) = feed.read(None, want, *channels);
+                    (read, ended || want < frames)
+                }
+            };
             // Silence while the feed catches up keeps the voice going.
             (if ended { read } else { frames }, read)
         }
@@ -304,18 +322,24 @@ pub(crate) fn read(
     count
 }
 
+/// Whether a stream voice has no audio left to read: its source could not
+/// be opened, or its feed failed.
+pub(crate) fn lost(source: &VoiceSource) -> bool {
+    match source {
+        VoiceSource::Stream { input, .. } => match input {
+            StreamInput::Missing => true,
+            StreamInput::Feed(feed) => feed.failed(),
+            StreamInput::Direct(_) => false,
+        },
+        _ => false,
+    }
+}
+
 /// `hasEnded`: a voice without a reader has ended even when looping
 /// (reference patch 0053).
 pub(crate) fn has_ended(source: &VoiceSource, looping: bool) -> bool {
     match source {
-        VoiceSource::Stream {
-            input: StreamInput::Missing,
-            ..
-        } => true,
-        VoiceSource::Stream {
-            input: StreamInput::Feed(feed),
-            ..
-        } if feed.failed() => true,
+        VoiceSource::Stream { .. } if lost(source) => true,
         VoiceSource::Stream { frames, offset, .. } => !looping && offset >= frames,
         _ => false,
     }
@@ -333,6 +357,11 @@ pub(crate) fn seek(source: &mut VoiceSource, position: f64, seconds: f64, base_r
     } = source
     else {
         return false;
+    };
+    // Silence played while a feed caught up did not move through the audio.
+    let position = match input {
+        StreamInput::Feed(feed) => position - feed.padded() as f64 / f64::from(base_rate),
+        _ => position,
     };
     let mut offset = seconds - position;
     if offset <= 0.0 {

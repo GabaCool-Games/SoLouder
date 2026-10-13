@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 11:34:10 +0300
+Subject: [PATCH] WavStreamInstance::hasEnded: a looping stream without a file
+ ends
+
+---
+ src/audiosource/wav/soloud_wavstream.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/audiosource/wav/soloud_wavstream.cpp b/src/audiosource/wav/soloud_wavstream.cpp
+index 9de8313..a05f7e2 100644
+--- a/src/audiosource/wav/soloud_wavstream.cpp
++++ b/src/audiosource/wav/soloud_wavstream.cpp
+@@ -416,9 +416,11 @@ namespace SoLoud
+ 
+ 	bool WavStreamInstance::hasEnded()
+ 	{
+-		// Without a file (it could not be opened or decoded) nothing plays.
++		// Without a file (it could not be opened or decoded) nothing plays,
++		// and a looping voice would otherwise live on playing silence.
+ 		if (mFile == NULL)
+ 		{
++			mFlags &= ~AudioSourceInstance::LOOPING;
+ 			return 1;
+ 		}
+ 		if (!(mFlags & AudioSourceInstance::LOOPING) && mOffset >= mParent->mSampleCount)

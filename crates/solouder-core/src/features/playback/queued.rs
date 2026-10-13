@@ -6,7 +6,8 @@
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
 
-use super::feed::WorkerFeed;
+use super::feed;
+use super::feed_worker::WorkerFeed;
 use super::sound::{Sound, SoundId};
 use super::source::Playable;
 use super::stream::{self, Stream};
@@ -128,6 +129,12 @@ impl Queued {
             }
         }
         count
+    }
+
+    /// Moves a stream read on the mixing thread onto a feed; returns the
+    /// worker's end.
+    pub fn feed_direct(&mut self, chunks: usize, underflow: &Arc<AtomicU64>) -> Option<WorkerFeed> {
+        feed::feed_direct(&mut self.audio, chunks, underflow, None)
     }
 
     pub fn has_ended(&self) -> bool {

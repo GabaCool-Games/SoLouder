@@ -90,6 +90,8 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
     let retire_credits = 2 * voice_ids;
     mixer.keep_retired(retire_credits + mixer.pending_retirements());
     mixer.prepare_filters();
+    let underflow = Arc::default();
+    let stream_feeds = mixer.feed_streams(config.stream_chunks, &underflow);
     let mut queues = mixer.queue_ids();
     let max_queues = queues.len() + config.queues;
     queues.reserve_exact(config.queues);
@@ -101,7 +103,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
     let (feeds, incoming) = rtrb::RingBuffer::new(config.pending_streams.max(1));
     let worker = StreamWorker {
         incoming,
-        feeds: Vec::new(),
+        feeds: stream_feeds,
     };
     let controller = Controller {
         commands: command_tx,
@@ -116,7 +118,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
         shared: Arc::clone(&shared),
         feeds,
         stream_chunks: config.stream_chunks,
-        underflow: Default::default(),
+        underflow,
         worker: Some(worker),
     };
     let renderer = Renderer {
@@ -147,3 +149,7 @@ mod layout_tests;
 #[cfg(test)]
 #[path = "stream_tests.rs"]
 mod stream_tests;
+
+#[cfg(test)]
+#[path = "stream_edge_tests.rs"]
+mod stream_edge_tests;

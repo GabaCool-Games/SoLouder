@@ -3,6 +3,7 @@
 
 use super::handle::Handle;
 use super::queue::{self, LOOP_SEEK_SCRATCH, Queues};
+use super::stream;
 use super::voice::{Voice, VoiceSource, flags};
 use super::voices::{BLOCK_LEN, Voices};
 use crate::contracts::SAMPLE_GRANULARITY;
@@ -192,6 +193,11 @@ fn fill_block(voice: &mut Voice, voices: &mut Voices, at: usize, time: f64) -> u
         return fill_queue_block(voice, voices, at);
     }
     let block = &mut voices.pool.data[at..][..BLOCK_LEN];
+    // A stream without audio stops looping, so the voice can end (reference
+    // patch 0055).
+    if stream::lost(&voice.source) {
+        voice.set_flag(flags::LOOPING, false);
+    }
     let looping = voice.has_flag(flags::LOOPING);
     if voice.has_ended(&voices.queues) && !looping {
         return 0;

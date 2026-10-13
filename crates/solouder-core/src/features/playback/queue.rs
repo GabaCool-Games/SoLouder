@@ -140,6 +140,11 @@ impl Queues {
         self.0.iter().map(|(id, _)| *id)
     }
 
+    /// Every sound waiting in a queue.
+    pub fn items_mut(&mut self) -> impl Iterator<Item = &mut Queued> {
+        self.0.iter_mut().flat_map(|(_, items)| items.iter_mut())
+    }
+
     /// Sounds waiting in every queue.
     pub fn queued(&self) -> usize {
         self.0.iter().map(|(_, items)| items.len()).sum()
