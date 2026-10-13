@@ -11,7 +11,7 @@ const CHUNK: usize = 64 * 1024;
 
 /// The most a frame may read: far more than any FLAC frame needs, so that a
 /// damaged frame cannot make the reader hold the rest of a long file.
-const FRAME_LIMIT: usize = 16 * 1024 * 1024;
+pub(super) const FRAME_LIMIT: usize = 16 * 1024 * 1024;
 
 /// Reads bits from `source`, most significant first, buffering from the
 /// start of the frame being read (its mark) so that the frame's bytes can be
@@ -86,18 +86,24 @@ impl<R: Read + Seek> Bits<R> {
         true
     }
 
+    /// Bytes from the current byte to the frame limit.
+    #[inline]
+    fn budget(&self) -> usize {
+        (self.mark + FRAME_LIMIT).saturating_sub(self.bit >> 3)
+    }
+
     /// The 64 bits from the current byte, zero past the end of the data.
     #[inline]
     fn word(&mut self) -> u64 {
-        let full = self.fill(8);
+        self.fill(self.budget().min(8));
         let at = self.bit >> 3;
-        if !full {
-            let mut bytes = [0; 8];
-            let have = self.buf.len().saturating_sub(at).min(8);
-            bytes[..have].copy_from_slice(&self.buf[at..at + have]);
-            return u64::from_be_bytes(bytes);
+        if let Some(bytes) = self.buf.get(at..at + 8) {
+            return u64::from_be_bytes(bytes.try_into().unwrap_or_default());
         }
-        u64::from_be_bytes(self.buf[at..at + 8].try_into().unwrap_or_default())
+        let mut bytes = [0; 8];
+        let have = self.buf.len().saturating_sub(at).min(8);
+        bytes[..have].copy_from_slice(&self.buf[at..at + have]);
+        u64::from_be_bytes(bytes)
     }
 
     /// Whether `bits` more bits are in the data and within the frame limit.
@@ -181,7 +187,7 @@ impl<R: Read + Seek> Bits<R> {
     pub fn rice_run(&mut self, param: u32, out: &mut [i32]) -> Option<()> {
         let mut i = 0;
         while i < out.len() {
-            self.fill(4096);
+            self.fill(self.budget().min(4096));
             let end = self.buf.len().min(self.mark + FRAME_LIMIT);
             let mut bit = self.bit;
             while i < out.len() && (bit >> 3) + 8 <= end {

@@ -1,6 +1,6 @@
 use std::io::Cursor;
 
-use super::bits::{Bits, crc8, crc16};
+use super::bits::{Bits, FRAME_LIMIT, crc8, crc16};
 use super::decorrelate::justify;
 use super::frame::{LEFT_SIDE, MID_SIDE, RIGHT_SIDE, coded_number};
 use super::subframe::{predict, wide_prediction};
@@ -211,7 +211,36 @@ fn a_frame_cannot_read_past_its_limit_even_from_the_buffer() {
         bits.unary()
     };
     assert_eq!(one_at(1_000), Some(999 * 8));
-    assert_eq!(one_at(16 * 1024 * 1024 + 101), None);
+    assert_eq!(one_at(FRAME_LIMIT + 101), None);
+}
+
+#[test]
+fn a_frame_reads_up_to_its_last_byte() {
+    // With the mark on byte 1, byte FRAME_LIMIT is the last a frame may read.
+    let mut bytes = vec![0; FRAME_LIMIT + 70_000];
+    for (one_at, ends) in [(FRAME_LIMIT, true), (FRAME_LIMIT + 1, false)] {
+        bytes[one_at] = 0x80;
+        // Reads that end at different bytes leave different bytes buffered.
+        for (offset, first) in [0, 3, 7]
+            .into_iter()
+            .flat_map(|o| [(o, 8), (o, 16), (o, 24)])
+        {
+            let mut bits = Bits::new(Cursor::new(&bytes));
+            bits.read(8);
+            bits.set_mark();
+            let (mut left, mut count) = ((FRAME_LIMIT - 4) * 8 + offset, first);
+            while left > 0 {
+                count = count.min(left);
+                assert_eq!(bits.read(count as u32), Some(0));
+                left -= count;
+                count = 32;
+            }
+            let zeros = (one_at - FRAME_LIMIT + 3) * 8 - offset;
+            let expected = ends.then_some(zeros as u32);
+            assert_eq!(bits.unary(), expected, "one at {one_at}, offset {offset}");
+        }
+        bytes[one_at] = 0;
+    }
 }
 
 /// A mono, 16-bit, 44,100 Hz FLAC file of 512 frames in blocks of 512.
