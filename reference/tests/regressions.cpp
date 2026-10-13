@@ -986,6 +986,53 @@ namespace
 		check(std::fabs(down.get(0.25)) < 1e-6f, "and moves toward to first");
 	}
 
+	// #314: when a source block ran out, the resampler wrote one output frame
+	// too few unless the block's remaining length was a whole number of steps,
+	// and the next block started at its first frame, skipping the rest of the
+	// step. A 44.1 kHz sound on a 48 kHz engine played about 0.09% fast (0.1 s
+	// in 3 minutes, as reported). The playhead must follow the fixed-point
+	// step exactly.
+	void resampled_playhead_does_not_drift()
+	{
+		const unsigned int frames = 44100 * 20;
+		std::vector<float> ramp(frames);
+		for (unsigned int i = 0; i < frames; i++)
+			ramp[i] = (float)i / (1 << 21);
+		Wav wav;
+		check(wav.loadRawWave(ramp.data(), frames, 44100.0f, 1, true) == SO_NO_ERROR, "raw wave loads");
+		const unsigned int chunks[] = { 512, 441 };
+		for (unsigned int chunk : chunks)
+		{
+			Soloud soloud;
+			check(soloud.init(0, Soloud::NULLDRIVER, 48000, 512, 1) == SO_NO_ERROR, "null driver init");
+			soloud.setMainResampler(Soloud::RESAMPLER_POINT);
+			soloud.play(wav);
+			const unsigned int outFrames = 48000 * 19;
+			std::vector<float> out(outFrames, 0.0f);
+			for (unsigned int f = 0; f < outFrames; f += chunk)
+				soloud.mix(&out[f], outFrames - f < chunk ? outFrames - f : chunk);
+
+			// The point resampler plays source frame (n * step) >> 20 at output
+			// frame n; frame 100, in the first block, gives the gain of the pan law.
+			const uint64_t step = (uint64_t)std::floor(44100.0f / 48000.0f * (1 << 20));
+			const double gain = out[100] / (double)((100 * step) >> 20);
+			long long worst = 0;
+			unsigned int worstFrame = 0;
+			for (unsigned int n = 100; n < outFrames; n++)
+			{
+				long long played = std::llround(out[n] / gain);
+				long long expected = (long long)((n * step) >> 20);
+				if (std::llabs(played - expected) > std::llabs(worst))
+				{
+					worst = played - expected;
+					worstFrame = n;
+				}
+			}
+			std::printf("  %u-frame mixes: worst playhead error %lld source frames at output frame %u\n", chunk, worst, worstFrame);
+			check(worst == 0, "every output frame plays the source frame the step reaches");
+		}
+	}
+
 	// The SSE 1->2 and 2->2 pan paths scaled the per-sample volume step by 4
 	// for the quad loop and then reused it, from the starting volume, for the
 	// frames left over when a mix call is not a multiple of 4 frames long.
@@ -1307,6 +1354,7 @@ namespace
 		{ "queue_looping_source_does_not_hang", queue_looping_source_does_not_hang },
 		{ "queue_silences_missing_channels", queue_silences_missing_channels },
 		{ "lfo_from_above_to_stays_in_range", lfo_from_above_to_stays_in_range },
+		{ "resampled_playhead_does_not_drift", resampled_playhead_does_not_drift },
 		{ "play_stop_without_init", play_stop_without_init },
 		{ "play_after_failed_init", play_after_failed_init },
 		{ "wav_rejects_too_many_channels", wav_rejects_too_many_channels },

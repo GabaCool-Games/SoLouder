@@ -397,6 +397,7 @@ unpatched reference, and each needs a matching Rust test.
 | 0049 | — (found porting milestone D) | `QueueInstance::getAudio` moved to the next queued sound only when the current one reported `hasEnded`. A looping sound never does, and once read to its end gives no audio, so the audio thread spun forever holding the engine mutex. A sound that gives no audio is now dropped like one that ended. | `queue_looping_source_does_not_hang` |
 | 0050 | — (found porting milestone D) | A queued sound with fewer channels than the queue left the queue's other channels of the resample block as they were, which two blocks back held the previous sound's audio. Those channels are now silent. | `queue_silences_missing_channels` |
 | 0051 | — (found reviewing milestone D) | `Fader::setLFO` made the half range positive and centred the oscillation on `aFrom` plus it, so `oscillate*` from a higher value to a lower one ran between `aFrom` and `aFrom + abs(aTo - aFrom)`: a volume oscillation from 1 to 0 reached 2. The half range keeps its sign, so the oscillation runs between the two values and moves toward `aTo` first; oscillations upward are unchanged. | `lfo_from_above_to_stays_in_range` |
+| 0052 | #314 | When a source block ran out, `mixBus_internal` tested the frame after the last one it would write to stay inside the block, so it always wrote one frame too few; unless the rest of the block was a whole number of steps, the next block then started at its first sample, skipping up to one step of source per 512 frames. A 44.1 kHz sound on a 48 kHz engine played about 0.09% fast (0.1 s in three minutes, as reported). The check now tests the last frame written, in the mixing and inaudible-tick paths. Every resampled voice's output changes. | `resampled_playhead_does_not_drift` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -405,7 +406,7 @@ so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto the working branch. Patches 0018 to
 0050 were pushed on 2026-10-12 (public `master` at `7b91e3b`), and 0051 after
-them.
+them (`1784537`). 0052 is not pushed yet.
 
 The shipped native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
@@ -420,7 +421,6 @@ fixes are welcome as new patches.
 
 | Upstream | C++ location | Defect | Rust requirement / test |
 |---|---|---|---|
-| #314 (reported) | `Soloud::mixBus_internal` block read | Fixed 512-frame source reads with a non-integer rate ratio reportedly accumulate drift (about 0.1 s over 3 minutes for 44.1 → 48 kHz). | **High priority.** Exact fractional playhead; long-duration drift test against an analytic position. Reproduce in the reference before changing it. |
 | #396 (reported), #156 | `WavStreamInstance::seek` fallback | Non-Ogg streams seek by rewind + decode-and-discard, which is O(seek distance). Upstream reports seeking a stream handle silently kills it. | Per-codec seek with defined accuracy; test seek while playing and while paused. PR #336 is a native-seek reference. |
 | — (found 2026-10-12) | `Soloud::mix`, `Soloud::mixSigned16` | No bound on the frame count: a request for more frames than the scratch buffer holds (at least 4096, or the buffer size rounded up to 16) writes past `mScratch`. Parity scenarios stay at or below 4096 frames. | Done: `Mixer::mix_interleaved` renders long requests in passes of at most the scratch size (`mix_without_sources_is_silent`, `split_mixes_match_one_mix`). |
 | — (found 2026-10-12) | `Queue::play`, `QueueInstance::getAudio` | A queued sound is an instance that reads its `Wav`'s samples; destroying the `Wav` while it is queued stops only its own voices, so the queue later reads freed memory. Queued instances are also never freed: `QueueInstance::getAudio` deletes the ones it finishes, but `Queue` has no destructor, so whatever is still queued leaks. | Done: a queued `Sound` holds its `Pcm`, and dropped queue entries go through retirement like ended voices (scenario `queues`). |
@@ -617,7 +617,8 @@ belong to the milestone that introduces the affected behavior:
   groups are `Vec`s on the mixer's single owner (`voice_groups`).
 - **E:** non-Ogg seek/loop (patch 0002), looping streams not ending (patch
   0005), stream seek (patch 0009, #396), decoder metadata validation and
-  fuzzing (patch 0012), long-duration drift (#314), 3D initialization (patch
+  fuzzing (patch 0012), long-duration drift (#314, patch 0052:
+  `resampled_playhead_does_not_drift`, done), 3D initialization (patch
   0013, #95).
 
 ### Milestone D review
@@ -661,7 +662,7 @@ Checked against the gates below on 2026-10-12:
 Planned 2026-10-13, in mix-pipeline order (the source read first, panning
 last); each ends with passing scenarios, ledger rows and a commit:
 
-1. **Long-playback drift (#314):** measure a voice's position against the
+1. **Long-playback drift (#314)** (done; patch 0052): measure a voice's position against the
    analytic one over minutes of 44.1 → 48 kHz playback in the reference. A
    real drift is fixed by a reference patch before later fixtures exist.
 2. **Streamed WAV, offline:** a streamed sound whose decoder (a Rust enum)

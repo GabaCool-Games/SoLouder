@@ -78,6 +78,7 @@ set(REFERENCE_TESTS
   queue_looping_source_does_not_hang
   queue_silences_missing_channels
   lfo_from_above_to_stays_in_range
+  resampled_playhead_does_not_drift
   play_stop_without_init
   play_after_failed_init
   wav_rejects_too_many_channels

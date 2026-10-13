@@ -1,0 +1,47 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 10:19:32 +0300
+Subject: [PATCH] Soloud::mixBus_internal: resampled voices no longer drift
+ ahead (#314)
+
+When a source block ran out, the check meant to keep the resampler inside
+the block tested the frame after the last one to be written, so it always
+dropped a frame. Unless the rest of the block was a whole number of steps,
+the dropped frame still belonged to that block, and the next block, finding
+the playhead short of it, started at its first sample: up to one step of
+source was skipped every 512 frames. A 44.1 kHz sound on a 48 kHz engine
+played about 0.09% fast, 0.1 s in three minutes as reported in #314. The
+check now tests the last frame written, in the mixing and the inaudible
+ticking paths.
+---
+ src/core/soloud.cpp | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index c7927a7..058f405 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1792,8 +1792,9 @@ namespace SoLoud
+ 					{
+ 						writesamples = ((SAMPLE_GRANULARITY * FIXPOINT_FRAC_MUL) - voice->mSrcOffset) / step_fixed + 1;
+ 
+-						// avoid reading past the current buffer..
+-						if (((writesamples * step_fixed + voice->mSrcOffset) >> FIXPOINT_FRAC_BITS) >= SAMPLE_GRANULARITY)
++						// avoid reading past the current buffer: drop the last frame
++						// only when it lands on the next block's first sample
++						if ((((writesamples - 1) * step_fixed + voice->mSrcOffset) >> FIXPOINT_FRAC_BITS) >= SAMPLE_GRANULARITY)
+ 							writesamples--;
+ 					}
+ 
+@@ -1959,8 +1960,9 @@ namespace SoLoud
+ 					{
+ 						writesamples = ((SAMPLE_GRANULARITY * FIXPOINT_FRAC_MUL) - voice->mSrcOffset) / step_fixed + 1;
+ 
+-						// avoid reading past the current buffer..
+-						if (((writesamples * step_fixed + voice->mSrcOffset) >> FIXPOINT_FRAC_BITS) >= SAMPLE_GRANULARITY)
++						// avoid reading past the current buffer: drop the last frame
++						// only when it lands on the next block's first sample
++						if ((((writesamples - 1) * step_fixed + voice->mSrcOffset) >> FIXPOINT_FRAC_BITS) >= SAMPLE_GRANULARITY)
+ 							writesamples--;
+ 					}
+ 

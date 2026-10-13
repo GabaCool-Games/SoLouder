@@ -144,12 +144,14 @@ fn resample_voice(voice: &mut Voice, voices: &mut Voices, scratch: &mut [f32], b
             voice.leftover_samples = 0;
         }
 
-        // Frames whose position stays inside this block. The position stays
-        // below 2^31: step_fixed < BLOCK_FIXED = 2^29.
+        // Frames whose position stays inside this block: the last one is
+        // dropped only when it lands on the next block's first sample (patch
+        // 0052, #314). The position stays below 2^31: step_fixed < BLOCK_FIXED
+        // = 2^29.
         let mut count = 0;
         if voice.src_offset < BLOCK_FIXED {
             count = (BLOCK_FIXED - voice.src_offset) / step_fixed + 1;
-            if (count * step_fixed + voice.src_offset) >> FRAC_BITS >= SAMPLE_GRANULARITY {
+            if ((count - 1) * step_fixed + voice.src_offset) >> FRAC_BITS >= SAMPLE_GRANULARITY {
                 count -= 1;
             }
         }

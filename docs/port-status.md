@@ -170,7 +170,7 @@ Rust 1.98.1, no device).
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0024 and 0026
-to 0051 (pan ramp leftovers, surround fold-down volumes, no-free-voice
+to 0052 (pan ramp leftovers, surround fold-down volumes, no-free-voice
 handling, raw layout validation, the #343 hang, protection and ticking not
 recomputing the active voices, sound endings dropped when a mix ends
 mid-block, the hang on a negative sample rate, seeks scaled by play speed,
@@ -185,7 +185,8 @@ delays of 0 or past its line, bus seeks with unaligned strides or more voice
 channels than the bus has, a bus volume read past its channels, bus seeks
 mixing voices that have no resample buffers yet, a queue spinning forever on
 a looping sound, queue channels left over from the previous sound, and
-oscillations from a higher value to a lower one running above both) are
+oscillations from a higher value to a lower one running above both, and
+resampled voices skipping part of a step at every block, #314) are
 listed in
 [PORTING.md](PORTING.md#reference-patch-ledger). Patch 0025 (sounds, buses
 and queues that outlive their engine or play on several engines) has no Rust

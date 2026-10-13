@@ -263,3 +263,37 @@ fn ticking_voices_over_the_active_cap_still_get_resample_blocks() {
     assert_eq!(mixer.active_voice_count(), 2);
     assert!(out.iter().any(|&s| s != 0.0));
 }
+
+/// #314, patch 0052: a resampled voice skipped up to one step of source per
+/// block and ran about 0.09% fast at 44.1 -> 48 kHz.
+#[test]
+fn resampled_playhead_does_not_drift() {
+    let frames = 44100 * 20;
+    let ramp = (0..frames).map(|i| i as f32 / (1 << 21) as f32).collect();
+    let sound = Sound::new(Pcm::from_planar(ramp, 1, 44100.0).unwrap());
+    for chunk in [512, 441] {
+        let mut mixer = Mixer::new(MixerConfig {
+            sample_rate: 48000,
+            channels: 1,
+            buffer_size: 512,
+            clipper: Clipper::Hard,
+        })
+        .unwrap();
+        mixer.set_resampler(Resampler::Point);
+        mixer.play(&sound);
+        let mut out = vec![0.0_f32; 48000 * 19];
+        for part in out.chunks_mut(chunk) {
+            mixer.mix_interleaved(part);
+        }
+        let step = (44100.0_f32 / 48000.0 * (1 << 20) as f32).floor() as u64;
+        let gain = f64::from(out[100]) / ((100 * step) >> 20) as f64;
+        for (n, &s) in out.iter().enumerate().skip(100) {
+            let played = (f64::from(s) / gain).round() as u64;
+            assert_eq!(
+                played,
+                (n as u64 * step) >> 20,
+                "frame {n}, {chunk}-frame mixes"
+            );
+        }
+    }
+}
