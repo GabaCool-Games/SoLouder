@@ -10,22 +10,21 @@ use std::collections::VecDeque;
 use std::fmt;
 
 use super::mixer::Mixer;
-use super::queue::Queued;
+use super::queued::Queued;
 use super::voice::Voice;
-use crate::contracts::Pcm;
 use crate::features::filters::FilterInstance;
 
-/// Memory a mixer no longer uses: a sound's samples, an ended voice, or a
+/// Memory a mixer no longer uses: a queued sound or stream, an ended voice, or a
 /// replaced filter instance. Dropping it frees the memory.
 pub struct RetiredItem(Garbage);
 
 impl fmt::Debug for RetiredItem {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let kind = match &self.0 {
-            Garbage::Pcm(_) => "audio",
             Garbage::Voice(_) => "voice",
             Garbage::Filter(_) => "filter instance",
             Garbage::QueueStorage(_) => "queue storage",
+            Garbage::Queued(_) => "queued sound",
         };
         f.debug_tuple("RetiredItem").field(&kind).finish()
     }
@@ -34,11 +33,11 @@ impl fmt::Debug for RetiredItem {
 /// Held only to be dropped later.
 #[allow(dead_code)]
 enum Garbage {
-    Pcm(Pcm),
     /// A voice in the box it arrived in, or that box empty.
     Voice(Box<Option<Voice>>),
     Filter(Option<Box<dyn FilterInstance>>),
     QueueStorage(VecDeque<Queued>),
+    Queued(Queued),
 }
 
 #[derive(Default)]
@@ -70,12 +69,12 @@ impl Retired {
         self.kept.len()
     }
 
-    pub fn put(&mut self, pcm: Pcm) {
-        self.keep_item(Garbage::Pcm(pcm));
-    }
-
     pub fn put_filter(&mut self, instance: Option<Box<dyn FilterInstance>>) {
         self.keep_item(Garbage::Filter(instance));
+    }
+
+    pub fn put_queued(&mut self, item: Queued) {
+        self.keep_item(Garbage::Queued(item));
     }
 
     pub fn put_queue_storage(&mut self, storage: VecDeque<Queued>) {

@@ -21,8 +21,8 @@ pub use dsp::{Clipper, Resampler};
 pub use features::filters;
 pub use features::playback::{
     Bus, ConfigError, ControlError, FilterTarget, Handle, Mixer, MixerConfig, PlayOptions,
-    Playable, QUEUE_MAX, Queue, QueueError, Sound, SoundId, Stream, StreamError, StreamFormat,
-    StreamReader, StreamSource, VOICE_COUNT,
+    Playable, QUEUE_MAX, Queue, QueueError, Queueable, Sound, SoundId, Stream, StreamError,
+    StreamFormat, StreamReader, StreamSource, VOICE_COUNT,
 };
 
 /// The SoLoud release whose behavior this crate reproduces

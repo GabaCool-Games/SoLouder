@@ -4,8 +4,9 @@
 use std::fmt;
 
 use super::mixer::Mixer;
-use super::queue::{QUEUE_MAX, Queue, Queued};
-use super::sound::{Sound, SoundId};
+use super::queue::{QUEUE_MAX, Queue};
+use super::queued::Queueable;
+use super::sound::SoundId;
 use super::source::Playable;
 use super::voice::VoiceSource;
 
@@ -32,18 +33,19 @@ impl std::error::Error for QueueError {}
 
 /// Queues on this mixer.
 impl Mixer {
-    /// Queues `sound` to play after the sounds already queued
+    /// Queues `sound` (a [`Sound`](super::Sound) or a
+    /// [`Stream`](super::Stream)) to play after the sounds already queued
     /// (`Queue::play`). The queue must be playing on this mixer. The sound
     /// plays once even if it loops, at the queue's rate; its volume, filters
-    /// and other settings do not apply.
-    pub fn queue_play(&mut self, queue: &Queue, sound: &Sound) -> Result<(), QueueError> {
+    /// and other settings do not apply. A stream is opened here.
+    pub fn queue_play(&mut self, queue: &Queue, sound: &impl Queueable) -> Result<(), QueueError> {
         if !self.queue_is_playing(queue) {
             return Err(QueueError::NotPlaying);
         }
         if self.voices.queues.count(queue.id()) >= QUEUE_MAX {
             return Err(QueueError::Full);
         }
-        self.voices.queues.push(queue.id(), Queued::new(sound));
+        self.voices.queues.push(queue.id(), sound.queued());
         Ok(())
     }
 

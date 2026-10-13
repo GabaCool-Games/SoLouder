@@ -175,7 +175,7 @@ impl Voice {
     pub fn read(&mut self, block: &mut [f32], start: usize, frames: u32) -> u32 {
         let VoiceSource::Pcm { pcm, offset } = &mut self.source else {
             let looping = stream::loop_target(self);
-            return stream::read(&mut self.source, block, start, frames, looping);
+            return stream::read(&mut self.source, Some(block), start, BLOCK, frames, looping);
         };
         let count = (pcm.frames() - *offset).min(frames);
         let from = *offset as usize;

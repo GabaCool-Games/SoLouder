@@ -364,6 +364,16 @@ namespace
 			return *it->second;
 		}
 
+		// A sound, else a stream, by name: what a queue can hold.
+		SoLoud::AudioSource &queuedArg(const Step &step, const char *key)
+		{
+			const std::string &name = textArg(step, key);
+			std::map<std::string, SoLoud::WavStream *>::iterator stream = streams.find(name);
+			if (!sounds.count(name) && stream != streams.end())
+				return *stream->second;
+			return soundArg(step, key);
+		}
+
 		// A sound, else a stream, else a bus, else a queue, by name.
 		SoLoud::AudioSource &sourceArg(const Step &step, const char *key)
 		{
@@ -688,10 +698,10 @@ namespace
 				static const char *const keys[] = { "queue", "sound" };
 				checkKeys(step, keys, 2);
 				SoLoud::Queue &queue = queueArg(step, "queue");
-				SoLoud::Wav &wav = soundArg(step, "sound");
+				SoLoud::AudioSource &sound = queuedArg(step, "sound");
 				engine(step);
 				std::ostringstream line;
-				line << "queue_add " << textArg(step, "queue") << " " << queue.play(wav);
+				line << "queue_add " << textArg(step, "queue") << " " << queue.play(sound);
 				logLine(line);
 			}
 			else
@@ -699,12 +709,12 @@ namespace
 				static const char *const keys[] = { "queue", "sound" };
 				checkKeys(step, keys, 2);
 				SoLoud::Queue &queue = queueArg(step, "queue");
-				SoLoud::Wav *wav = step.get("sound") ? &soundArg(step, "sound") : 0;
+				SoLoud::AudioSource *sound = step.get("sound") ? &queuedArg(step, "sound") : 0;
 				engine(step);
 				std::ostringstream line;
 				line << "queue_query " << textArg(step, "queue") << " count=" << queue.getQueueCount();
-				if (wav)
-					line << " current=" << (queue.isCurrentlyPlaying(*wav) ? 1 : 0);
+				if (sound)
+					line << " current=" << (queue.isCurrentlyPlaying(*sound) ? 1 : 0);
 				logLine(line);
 			}
 		}

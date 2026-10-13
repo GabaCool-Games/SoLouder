@@ -255,3 +255,46 @@ fn a_worker_that_does_not_run_fills_the_pending_streams() {
     serve(&mut worker);
     controller.play(&tone).unwrap();
 }
+
+#[test]
+fn queued_streams_render_like_the_mixer() {
+    let first = stream(1300, 44100.0);
+    let mut looping = stream(700, 44100.0);
+    looping.set_looping(true);
+    let tone = crate::Sound::new(crate::Pcm::from_planar(vec![0.25; 900], 1, 44100.0).unwrap());
+    let mut queue = crate::Queue::new();
+    queue.set_params(44100.0, 2).unwrap();
+
+    let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
+    mixer.play(&queue);
+    mixer.queue_play(&queue, &first).unwrap();
+    mixer.queue_play(&queue, &tone).unwrap();
+    mixer.queue_play(&queue, &looping).unwrap();
+    mixer.queue_play(&queue, &first).unwrap();
+    let mut expected = Vec::new();
+    for frames in CALLS {
+        let mut out = vec![0.0; frames * 2];
+        mixer.mix_interleaved(&mut out);
+        expected.extend(out);
+    }
+
+    let (mut controller, mut renderer, mut worker) = runtime(RealtimeConfig::default());
+    controller.play(&queue).unwrap();
+    controller.queue_play(&queue, &first).unwrap();
+    controller.queue_play(&queue, &tone).unwrap();
+    controller.queue_play(&queue, &looping).unwrap();
+    controller.queue_play(&queue, &first).unwrap();
+    let mut rendered = Vec::new();
+    for frames in CALLS {
+        serve(&mut worker);
+        rendered.extend(render(&mut renderer, frames));
+    }
+    assert!(expected.iter().any(|&s| s != 0.0));
+    assert_eq!(rendered, expected);
+    assert_eq!(controller.status().stream_underflow_frames, 0);
+    controller.release_retired();
+    while controller.poll_event().is_some() {}
+    controller.release_retired();
+    serve(&mut worker);
+    assert_eq!(worker.streams(), 0);
+}

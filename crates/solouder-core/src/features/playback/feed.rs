@@ -168,13 +168,13 @@ impl FeedReader {
         true
     }
 
-    /// Copies up to `frames` frames into `block` (channel `c` at
-    /// `c * BLOCK + start`). Returns the frames copied and whether the audio
-    /// ended there; frames the feed did not have yet are silent.
+    /// Copies up to `frames` frames into `out` (`(samples, start, stride)`:
+    /// channel `c` at `c * stride + start`), or skips them without `out`.
+    /// Returns the frames read and whether the audio ended there; frames the
+    /// feed did not have yet are silent.
     pub fn read(
         &mut self,
-        block: &mut [f32],
-        start: usize,
+        mut out: Option<(&mut [f32], usize, usize)>,
         frames: u32,
         channels: u32,
     ) -> (u32, bool) {
@@ -196,10 +196,10 @@ impl FeedReader {
                 continue;
             }
             let count = left.min(frames - done);
-            if let Some(chunk) = &self.current {
+            if let (Some(chunk), Some((block, start, stride))) = (&self.current, &mut out) {
                 for c in 0..channels as usize {
                     let from = c * BLOCK + self.cursor as usize;
-                    let to = c * BLOCK + start + done as usize;
+                    let to = c * *stride + *start + done as usize;
                     block[to..to + count as usize]
                         .copy_from_slice(&chunk.data[from..from + count as usize]);
                 }
@@ -208,9 +208,11 @@ impl FeedReader {
             done += count;
         }
         if !ended && done < frames {
-            for c in 0..channels as usize {
-                let to = c * BLOCK + start;
-                block[to + done as usize..to + frames as usize].fill(0.0);
+            if let Some((block, start, stride)) = out {
+                for c in 0..channels as usize {
+                    let to = c * stride + start;
+                    block[to + done as usize..to + frames as usize].fill(0.0);
+                }
             }
             if self.primed {
                 let missing = u64::from(frames - done);
@@ -224,7 +226,9 @@ impl FeedReader {
     /// continues there, and asks the worker for the frame otherwise.
     pub fn seek_to(&mut self, target: u32) {
         let next = match &self.current {
-            Some(chunk) if self.cursor < chunk.frames => Some(chunk.start + self.cursor),
+            Some(chunk) if self.cursor < chunk.frames => {
+                Some(chunk.start.saturating_add(self.cursor))
+            }
             _ => None,
         };
         if next == Some(target) {
@@ -249,7 +253,7 @@ impl FeedReader {
 /// The worker's end of a feed: the source, opened on the worker, and the
 /// reader it decodes with.
 #[derive(Debug)]
-pub(crate) struct WorkerFeed {
+pub struct WorkerFeed {
     source: Arc<dyn StreamSource>,
     reader: Option<Box<dyn StreamReader>>,
     opened: bool,

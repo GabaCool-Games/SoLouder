@@ -5,12 +5,13 @@
 use std::collections::VecDeque;
 
 use super::control::ControlError;
+use super::queued::Queued;
 use super::retire::Retired;
 use super::sound::{Sound, SoundId};
 use super::source::private::{Prepared, Sealed};
 use super::source::{Playable, SourceSettings, source_settings_api};
 use super::voice::{Voice, VoiceSource, flags};
-use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
+use crate::contracts::{MAX_CHANNELS, SAMPLE_GRANULARITY};
 use crate::dsp::c_int;
 
 const BLOCK: usize = SAMPLE_GRANULARITY as usize;
@@ -118,34 +119,6 @@ impl Sealed for Queue {
     }
 }
 
-/// A queued sound: an instance that is read but not mixed on its own.
-#[derive(Debug)]
-pub(crate) struct Queued {
-    pub id: SoundId,
-    pcm: Pcm,
-    offset: u32,
-    looping: bool,
-}
-
-impl Queued {
-    pub fn new(sound: &Sound) -> Self {
-        Self {
-            id: sound.id(),
-            pcm: sound.pcm().clone(),
-            offset: 0,
-            looping: sound.looping(),
-        }
-    }
-
-    fn has_ended(&self) -> bool {
-        !self.looping && self.offset >= self.pcm.frames()
-    }
-
-    pub fn into_pcm(self) -> Pcm {
-        self.pcm
-    }
-}
-
 /// The sounds queued on each queue played on a mixer (`Queue::mSource`).
 #[derive(Debug, Default)]
 pub(crate) struct Queues(Vec<(SoundId, VecDeque<Queued>)>);
@@ -235,25 +208,12 @@ impl Queues {
             let Some(item) = items.front_mut() else {
                 break;
             };
-            let count = (item.pcm.frames() - item.offset).min(frames - copied);
-            if let Some(out) = out.as_deref_mut() {
-                let at = start + copied as usize;
-                let from = item.offset as usize;
-                let source_channels = item.pcm.channels() as usize;
-                for c in 0..source_channels.max(channels) {
-                    let dst = &mut out[c * stride + at..][..count as usize];
-                    if c < source_channels {
-                        dst.copy_from_slice(&item.pcm.channel(c as u32)[from..][..count as usize]);
-                    } else {
-                        dst.fill(0.0);
-                    }
-                }
-            }
-            item.offset += count;
+            let at = start + copied as usize;
+            let count = item.read(out.as_deref_mut(), at, stride, frames - copied, channels);
             copied += count;
             if count == 0 || item.has_ended() {
                 if let Some(item) = items.pop_front() {
-                    retired.put(item.pcm);
+                    retired.put_queued(item);
                 }
                 *loop_count = loop_count.wrapping_add(1);
             }

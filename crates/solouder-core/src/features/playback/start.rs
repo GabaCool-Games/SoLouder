@@ -7,8 +7,8 @@ use std::collections::VecDeque;
 use super::control::PlayOptions;
 use super::handle::Handle;
 use super::mixer::Mixer;
-use super::queue::Queued;
 use super::queue_control::QueueError;
+use super::queued::Queued;
 use super::sound::SoundId;
 use super::source::private::Prepared;
 use super::voice::Voice;
@@ -179,12 +179,12 @@ impl Mixer {
             match self.voices.queues.push_existing(queue, item) {
                 Ok(()) => return Ok(()),
                 Err(item) => {
-                    self.voices.retired.put(item.into_pcm());
+                    self.voices.retired.put_queued(item);
                     return Err(QueueError::NotPlaying);
                 }
             }
         };
-        self.voices.retired.put(item.into_pcm());
+        self.voices.retired.put_queued(item);
         result
     }
 }

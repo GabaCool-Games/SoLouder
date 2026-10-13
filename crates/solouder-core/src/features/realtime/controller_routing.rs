@@ -9,7 +9,7 @@ use super::command::{Command, ParamChange};
 use super::controller::{Controller, ControllerError};
 use crate::dsp::Resampler;
 use crate::features::filters::{FILTERS_PER_STREAM, Filter};
-use crate::features::playback::{BUS_RATE, Bus, Queue, Queued, Sound};
+use crate::features::playback::{BUS_RATE, Bus, Queue, Queueable};
 
 /// Which filters a filter parameter request changes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -156,15 +156,32 @@ impl Controller {
         })
     }
 
-    /// Queues `sound` on `queue` (`Queue::play`). The queue must have been
-    /// played through this controller. A sound the renderer cannot queue,
-    /// because the queue is not playing or holds
-    /// [`QUEUE_MAX`](crate::QUEUE_MAX) sounds, is dropped and counted in
+    /// Queues `sound` (a [`Sound`](crate::Sound) or a
+    /// [`Stream`](crate::Stream), which the
+    /// [`StreamWorker`](super::StreamWorker) decodes) on `queue`
+    /// (`Queue::play`). The queue must have been played through this
+    /// controller. A sound the renderer cannot queue, because the queue is
+    /// not playing or holds [`QUEUE_MAX`](crate::QUEUE_MAX) sounds, is
+    /// dropped and counted in
     /// [`Status::rejected_queue_sounds`](super::Status::rejected_queue_sounds).
-    pub fn queue_play(&mut self, queue: &Queue, sound: &Sound) -> Result<(), ControllerError> {
+    pub fn queue_play(
+        &mut self,
+        queue: &Queue,
+        sound: &impl Queueable,
+    ) -> Result<(), ControllerError> {
+        if sound.stream().is_some() && self.feeds.is_full() {
+            return Err(ControllerError::StreamsFull);
+        }
+        let underflow = Arc::clone(&self.underflow);
+        let (item, feed) = sound.queued_fed(self.stream_chunks, underflow);
         self.send_retiring(Command::QueueAdd {
             queue: queue.id(),
-            item: Queued::new(sound),
-        })
+            item,
+        })?;
+        if let Some(feed) = feed {
+            // Cannot fail: checked above, and only this thread pushes.
+            let _ = self.feeds.push(feed);
+        }
+        Ok(())
     }
 }

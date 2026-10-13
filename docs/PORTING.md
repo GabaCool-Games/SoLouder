@@ -700,7 +700,7 @@ last); each ends with passing scenarios, ledger rows and a commit:
      changes reach the worker through the feed's atomics. An ended voice's
      feed goes back to the controller with the voice, and the worker drops
      the reader (and its file) once it sees the feed closed.
-   - **3b, queued streams:** `Queue::play` and `Controller::queue_play`
+   - **3b, queued streams** (done): `Queue::play` and `Controller::queue_play`
      accept streams, offline and through feeds.
    - **3c, Bevy:** streamed assets play through the worker, which the
      plugin runs on its own thread.

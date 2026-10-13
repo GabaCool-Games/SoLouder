@@ -1,6 +1,6 @@
 //! `Renderer::render` must not allocate or free memory for streaming voices
 //! either: waiting for the worker, playing, wrapping loops, seeking, running
-//! dry, ending, and failing to open. The worker runs between renders,
+//! dry, ending, failing to open, and playing in a queue. The worker runs between renders,
 //! outside the measured regions.
 //!
 //! The counting allocator is global, so this file holds a single test.
@@ -10,8 +10,8 @@ use std::sync::Arc;
 
 use solouder_core::realtime::{RealtimeConfig, split};
 use solouder_core::{
-    Controller, Mixer, MixerConfig, Renderer, Stream, StreamFormat, StreamReader, StreamSource,
-    StreamWorker,
+    Controller, Mixer, MixerConfig, Queue, Renderer, Stream, StreamFormat, StreamReader,
+    StreamSource, StreamWorker,
 };
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
@@ -118,6 +118,17 @@ fn rendering_streams_never_allocates_or_frees() {
         controller.play(&stream(1, 100, 44100.0, true)).unwrap();
     }
     drop(looped);
+    let mut queue = Queue::new();
+    queue.set_params(44100.0, 2).unwrap();
+    controller.play(&queue).unwrap();
+    for channels in [1, 2, 6] {
+        controller
+            .queue_play(&queue, &stream(channels, 900, 44100.0, false))
+            .unwrap();
+    }
+    controller
+        .queue_play(&queue, &stream(2, 100, 44100.0, true))
+        .unwrap();
     for round in 0..12 {
         between(&mut controller, &mut worker);
         if round == 4 {

@@ -92,6 +92,7 @@ the `WavStream` lifecycle, `load`, `loadMem` and `loadToMem` are
 | `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV (every code); extensible 5.1, 7.1, 24-in-32-bit, A-law and mu-law headers; channel masks with a high bit or none; extra and odd-sized chunks; six files both sides reject (9, 33 and 65535 channels, no frames, sample rate 0, a header cut short) | 15,562 |
 | `wav_decode_u8` | 8-bit WAV (tolerance 1/128, see below) | 1,000 |
 | `wav_playback` | Decoded files played at and away from the output rate, a 5.1 fold-down, a looping file | 8,246 |
+| `stream_queue` | Streams queued with a decoded sound on a stereo queue: a mono stream (its missing channel silent), a 5.1 stream (more channels than the queue), a looping stream played once and dropped; `isCurrentlyPlaying` on streams; seeking the queue forward through a stream; a mono queue of streams at 48 kHz | 35,176 |
 | `stream_wav` | Streamed WAV files loaded from a file, into memory and from bytes, at and away from the output rate, 5.1 and quad float files folded down, A-law; a looping stream with a loop point wrapping several times (the loop-wrap seek and channel stride of patches 0002 and 0004, and patch 0005's looping streams not ending); seeks back, forward and past the end; streams ending, counted, replayed and stopped; two files both sides reject | 26,496 |
 
 Samples are compared bit for bit, except that zero and subnormal values all
@@ -113,7 +114,7 @@ harness, so they are checked by Rust tests instead of scenarios:
 | Test | Checks |
 |---|---|
 | `realtime_tests` (core, 14 tests) | Renders match an offline `Mixer` sample for sample, a stop queued before the first render still reports start and finish, commands for finished voices do nothing, full queues and ID pools reject requests, each render applies a bounded number of commands, ended audio is released by the controller, all-protected tables fail the play, a stolen voice finishes with `Stolen` before its replacement starts, uncollected audio blocks plays instead of being freed in the render, a dropped renderer disconnects the controller, play options set speed and protection from the first frame |
-| `stream_tests` (core, 7 tests) and `realtime_no_alloc_streams` | Prebuffered streams (looping with a loop point and resampled, and played once) render the same samples as the offline `Mixer`; a stream waits silently for the worker; a dry feed counts underflow and keeps its place; seeks before and while playing continue from the right frame; ended and missing streams finish and their feeds close; the worker finishes with the controller and renderer; streams the worker has not taken fill `pending_streams`; none of it allocates or frees in the render |
+| `stream_tests` (core, 8 tests) and `realtime_no_alloc_streams` | Prebuffered streams (looping with a loop point and resampled, played once, and queued with a sound) render the same samples as the offline `Mixer`; a stream waits silently for the worker; a dry feed counts underflow and keeps its place; seeks before and while playing continue from the right frame; ended and missing streams finish and their feeds close; the worker finishes with the controller and renderer; streams the worker has not taken fill `pending_streams`; none of it allocates or frees in the render |
 | `routing_tests` (core, 3 tests) | A real-time session with voice and global filters, a filtered bus, a queue, clocked and background plays, fades, filter parameter fades, seeks, a bus filter swap, `annex_sound` and `stop_sound` renders the same samples as the offline `Mixer`, bit for bit; bus and queue plays report their events, and a play through a bus that is not playing fails; queues past `RealtimeConfig::queues` are refused |
 | `layout_tests` (core, 5 tests) | Filters whose delays change before their first block, and a bus whose channel setting changed while it plays, render the same samples as the offline `Mixer`; a mixer split after offline use (queue storage, a queued sound, a playing voice) never overflows its retirement list; `Mixer::keep_retired` keeps voices played after it, and `split` trims the surplus voice boxes left by offline overflow; a voice a bus seek plays out reports `Ended` even when a play in the same render takes its slot |
 | `realtime_no_alloc` (core) | No allocation or free inside any `Renderer::render`, with a fresh sound per play and the smallest retirement queue: playing, every control, stopping, voices ending, voice stealing past the slot count, all-protected failures, `stop_all`, rendering after the controller is dropped, and voices, a bus and a queue using every filter that allocates lazily (echo, DC removal, FFT, bassboost, flanger), with global and bus filter swaps, seeks, and sounds queued past the queue's limit; and filters first running on a bus at double speed whose channel setting changed, after delays were changed, after a failed replay of the bus and during a speed oscillation from 3 to 1, and with a flanger delay growing to its maximum; and a mixer split while it holds global filters and filtered voices that have not played yet |
@@ -151,7 +152,7 @@ Rust 1.98.1, no device).
 | Bus settings | `Bus::setFilter`, `setResampler` and `setVisualizationEnable` change the bus and its playing instance | `Bus` setters affect later plays; `Mixer::set_bus_filter`, `set_bus_resampler` and `set_bus_visualization` change both | A `Bus`, like a `Sound`, holds no pointer to its voices |
 | Bus instances | A bus has one instance: playing it again, on any engine, stops the previous one | Playing a bus again stops its voice on that mixer only | A bus does not know the mixers playing it (as for `Sound`) |
 | Bus wave data | `getWave` and `calcFFT` return the bus's last copy once its voice has stopped | `Mixer::bus_wave` and `bus_fft` return `None` | A stale copy looks like live data |
-| Queued sources | `Queue::play` takes any `AudioSource`, including buses, queues and streams | `Mixer::queue_play` takes a `Sound` | Streams come in milestone E; queuing a bus or a queue mixes nothing useful |
+| Queued sources | `Queue::play` takes any `AudioSource`, including buses and queues | `Mixer::queue_play` takes a `Sound` or a `Stream` (`Queueable`) | Queuing a bus or a queue mixes nothing useful |
 | Queued sounds | One list per `Queue`, shared by every engine it plays on; destroying a queued `Wav` leaves the queue reading freed samples | One list per queue on each mixer; a queued sound holds its samples | A `Queue`, like a `Sound`, holds no pointer to mixers |
 | Queue instances | A queue has one instance: playing it again, on any engine, stops the previous one | Playing a queue again stops its voice on that mixer only | As for buses |
 | Error strings | `getErrorString` names result codes | Error enums implement `Display` | There are no result codes |
@@ -221,7 +222,9 @@ bit for bit (`routing_tests`):
 - Filters: global filter slots, and setting, fading and oscillating the
   parameters of global and voice filters (`FilterTarget`); bus filters,
   resampler and visualization (on the `Bus` and its playing voice);
-  `annex_sound`; `queue_play`.
+  `annex_sound`; `queue_play` (sounds and streams).
+- Streams, played and queued: the `StreamWorker` decodes them ahead of the
+  audio thread (`stream_tests`).
 
 Limits:
 
@@ -243,4 +246,4 @@ Limits:
 - Voice groups, voice getters, bus wave, FFT and voice counts, queue counts,
   and filter parameter reads through the `Controller` (see "Real-time
   coverage").
-- Queued streams and streamed Bevy assets (Milestone E unit 3); Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).
+- Streamed Bevy assets (Milestone E unit 3); Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).

@@ -1,0 +1,41 @@
+# Streams in queues: WAV streams queued with a decoded sound on a stereo
+# queue, a mono stream there (its missing channel silent), a 5.1 stream
+# (more channels than the queue), a looping stream that plays once and is
+# dropped, isCurrentlyPlaying on streams, seeking the queue forward through
+# streams, and a mono queue of streams played on a 48 kHz queue rate.
+init channels=2 rate=44100 buffer=1024
+load name=s file=wav/s16_stereo_44100.wav
+stream name=a file=wav/s16_stereo_44100.wav
+stream name=b file=wav/ext_s16_5.1_48000.wav from=memory
+stream name=m file=wav/s24_mono_48000.wav from=bytes
+stream name=l file=wav/chunks_s16_stereo_11025.wav looping=1
+queue name=q channels=2 rate=44100
+play sound=q as=qv volume=0.5
+queue_add queue=q sound=a
+queue_add queue=q sound=s
+queue_add queue=q sound=m
+queue_add queue=q sound=l
+queue_add queue=q sound=b
+queue_add queue=q sound=a
+queue_query queue=q sound=a
+mix frames=1000
+queue_query queue=q sound=a
+mix frames=2000
+queue_query queue=q sound=m
+set h=qv seek=0.075
+queue_query queue=q sound=l
+mix frames=1500
+queue_query queue=q sound=b
+mix frames=4096
+mix frames=4096
+queue_query queue=q
+counts
+queue name=mono channels=1 rate=48000
+play sound=mono as=mv
+queue_add queue=mono sound=m
+queue_add queue=mono sound=a
+mix frames=800
+queue_query queue=mono sound=a
+mix frames=4096
+queue_query queue=mono
+counts

@@ -151,23 +151,28 @@ impl Stream {
 
     /// A voice at the start of the stream, with a reader of its own.
     pub(crate) fn voice(&self) -> Voice {
+        self.voice_of(self.direct_source())
+    }
+
+    /// Audio read on the thread that mixes, from a reader of its own.
+    pub(crate) fn direct_source(&self) -> VoiceSource {
         let input = match self.source.open() {
             Some(reader) => StreamInput::Direct(reader),
             None => StreamInput::Missing,
         };
-        self.voice_reading(input)
+        self.source_reading(input)
     }
 
-    /// A voice that reads through a feed, and the worker's end of the feed.
-    pub(crate) fn fed_voice(
+    /// Audio read through a feed, and the worker's end of the feed.
+    pub(crate) fn fed_source(
         &self,
         chunks: usize,
         underflow: Arc<AtomicU64>,
-    ) -> (Voice, WorkerFeed) {
+    ) -> (VoiceSource, WorkerFeed) {
         let source = Arc::clone(&self.source);
         let (reader, worker) = feed::feed(source, self.format.channels, chunks, underflow);
         (
-            self.voice_reading(StreamInput::Feed(Box::new(reader))),
+            self.source_reading(StreamInput::Feed(Box::new(reader))),
             worker,
         )
     }
@@ -178,22 +183,25 @@ impl Stream {
         chunks: usize,
         underflow: Arc<AtomicU64>,
     ) -> (Prepared, WorkerFeed) {
-        let (voice, feed) = self.fed_voice(chunks, underflow);
+        let (source, feed) = self.fed_source(chunks, underflow);
         let prepared = Prepared {
-            voice,
+            voice: self.voice_of(source),
             stop_others: self.settings.single_instance,
             default_volume: self.settings.volume,
         };
         (prepared, feed)
     }
 
-    fn voice_reading(&self, input: StreamInput) -> Voice {
-        let source = VoiceSource::Stream {
+    fn source_reading(&self, input: StreamInput) -> VoiceSource {
+        VoiceSource::Stream {
             input,
             channels: self.format.channels,
             frames: self.format.frames,
             offset: 0,
-        };
+        }
+    }
+
+    fn voice_of(&self, source: VoiceSource) -> Voice {
         Voice::new(&self.settings, self.id, source, self.format.sample_rate, 0)
     }
 }
@@ -249,14 +257,16 @@ pub(crate) fn loop_target(voice: &Voice) -> Option<u32> {
     looping.then(|| loop_frame(voice.loop_point, voice.base_sample_rate, frames))
 }
 
-/// `WavStreamInstance::getAudio` for a stream voice: like
-/// [`Voice::read`](super::voice::Voice::read), into `block` at `start`.
-/// A short read is the end of the stream (reference patch 0054). `looping`
-/// is the frame a loop wrap continues from, if the voice loops.
+/// `WavStreamInstance::getAudio` for a stream voice or queued stream:
+/// reads up to `frames` frames into `out` (channel `c` at
+/// `c * stride + start`), or skips them without `out`. A short read is the
+/// end of the stream (reference patch 0054). `looping` is the frame a loop
+/// wrap continues from, if the voice loops.
 pub(crate) fn read(
     source: &mut VoiceSource,
-    block: &mut [f32],
+    out: Option<&mut [f32]>,
     start: usize,
+    stride: usize,
     frames: u32,
     looping: Option<u32>,
 ) -> u32 {
@@ -272,14 +282,17 @@ pub(crate) fn read(
     let (count, read) = match input {
         StreamInput::Missing => return 0,
         StreamInput::Direct(reader) => {
-            let count = reader
-                .read(&mut block[start..], BLOCK, frames as usize)
-                .min(frames as usize) as u32;
+            let count = match out {
+                Some(out) => reader.read(&mut out[start..], stride, frames as usize),
+                None => reader.skip(u64::from(frames)) as usize,
+            };
+            let count = count.min(frames as usize) as u32;
             (count, count)
         }
         StreamInput::Feed(feed) => {
             feed.set_looping(looping);
-            let (read, ended) = feed.read(block, start, frames, *channels);
+            let out = out.map(|out| (out, start, stride));
+            let (read, ended) = feed.read(out, frames, *channels);
             // Silence while the feed catches up keeps the voice going.
             (if ended { read } else { frames }, read)
         }

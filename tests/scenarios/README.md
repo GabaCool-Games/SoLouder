@@ -83,8 +83,8 @@ exactly, and a scenario must render at least one sample.
 | `bus_filter` | `bus`, `slot`, `filter` (absent clears the slot) | `Bus::setFilter`, which also replaces the playing instance's filter. | — |
 | `bus_set` | `bus`, then any of `channels`, `resampler`, `visualization` | Applied in that order: `setChannels`, `setResampler`, `setVisualizationEnable`. | `bus_set <bus> channels <code>` if `channels` is given |
 | `queue` | `name`, `channels`, `rate`, `from`, `volume` (1) | A new `Queue`: `setParams(rate, channels)` if either is given (defaults 44100 and 1), `setParamsFromAudioSource` on the sound `from`, `setVolume`. A queue under an existing name is deleted first, which stops its voices. Play a queue with `play`. | `queue <name> <setParams code>` (0 without `setParams`) |
-| `queue_add` | `queue`, `sound` | `Queue::play` with the sound. Do not replace or reload a sound while it is queued: the reference then reads the deleted `Wav`. | `queue_add <queue> <code>` |
-| `queue_query` | `queue`, `sound` (optional) | `getQueueCount`, and `isCurrentlyPlaying` for `sound`. | `queue_query <queue> count=<n>`, then ` current=<0 or 1>` with `sound` |
+| `queue_add` | `queue`, `sound` (a sound, else a stream) | `Queue::play` with the sound or stream. Do not replace or reload a sound while it is queued: the reference then reads the deleted `Wav`. | `queue_add <queue> <code>` |
+| `queue_query` | `queue`, `sound` (optional; a sound, else a stream) | `getQueueCount`, and `isCurrentlyPlaying` for `sound`. | `queue_query <queue> count=<n>`, then ` current=<0 or 1>` with `sound` |
 
 Every operation except `tolerance`, `init`, `samples` and `fft` needs a
 successful `init`. Unknown sound or handle names are scenario errors. `<code>` is the
