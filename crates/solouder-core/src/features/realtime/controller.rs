@@ -33,6 +33,9 @@ pub enum ControllerError {
     /// The renderer has been dropped: nothing will apply this request, and
     /// voices already queued or playing will not report again.
     Disconnected,
+    /// Streams play on the offline [`Mixer`](crate::Mixer) only for now:
+    /// their reads may wait for I/O, which the audio thread must not.
+    StreamsNotSupported,
 }
 
 impl fmt::Display for ControllerError {
@@ -43,6 +46,7 @@ impl fmt::Display for ControllerError {
             Self::InvalidSpeed => write!(f, "play speed must be greater than 0"),
             Self::TooManyQueues => write!(f, "too many queues"),
             Self::Disconnected => write!(f, "the audio renderer is gone"),
+            Self::StreamsNotSupported => write!(f, "streams cannot play in real time yet"),
         }
     }
 }
@@ -186,6 +190,9 @@ impl Controller {
         }
         if self.commands.is_abandoned() {
             return Err(ControllerError::Disconnected);
+        }
+        if source.is_stream() {
+            return Err(ControllerError::StreamsNotSupported);
         }
         let queue = source.queue_id().filter(|id| !self.queues.contains(id));
         let needed = 1 + usize::from(queue.is_some());

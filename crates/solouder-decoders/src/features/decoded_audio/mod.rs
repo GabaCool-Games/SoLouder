@@ -3,9 +3,9 @@
 //!
 //! [`Pcm`]: solouder_core::Pcm
 
-mod convert;
+pub(crate) mod convert;
 mod error;
-mod riff;
+pub(crate) mod riff;
 mod wav;
 
 pub use error::{DecodeError, DecodeLimits};

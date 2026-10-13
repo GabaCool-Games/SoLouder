@@ -2,16 +2,17 @@
 //! mirrors the operation of the same name in
 //! `reference/tests/parity_runner.cpp`.
 
-use solouder_core::{Bus, Handle, Mixer, PlayOptions, Playable, Queue, Resampler, Sound};
+use solouder_core::{Bus, Handle, Mixer, PlayOptions, Playable, Queue, Resampler, Sound, Stream};
 
 use crate::ops::{code, hex32};
 use crate::run::State;
 use crate::scenario::{ScenarioError, Step};
 
-/// A sound, bus or queue, by scenario name.
+/// A sound, stream, bus or queue, by scenario name.
 #[derive(Clone)]
 pub(crate) enum Source {
     Sound(Sound),
+    Stream(Stream),
     Bus(Bus),
     Queue(Queue),
 }
@@ -56,13 +57,16 @@ impl State {
         if let Some(sound) = self.sounds.get(name) {
             return Ok(Source::Sound(sound.clone()));
         }
+        if let Some(stream) = self.streams.get(name) {
+            return Ok(Source::Stream(stream.clone()));
+        }
         if let Some(bus) = self.buses.get(name) {
             return Ok(Source::Bus(bus.clone()));
         }
         self.queues
             .get(name)
             .map(|queue| Source::Queue(queue.clone()))
-            .ok_or_else(|| step.error(format!("no sound, bus or queue named `{name}`")))
+            .ok_or_else(|| step.error(format!("no sound, stream, bus or queue named `{name}`")))
     }
 
     fn bus_named(&self, step: &Step, key: &str) -> Result<Bus, ScenarioError> {
@@ -139,6 +143,7 @@ impl State {
         let mixer = self.mixer(step)?;
         let handle = match &source {
             Source::Sound(sound) => start(mixer, sound, how),
+            Source::Stream(stream) => start(mixer, stream, how),
             Source::Bus(bus) => start(mixer, bus, how),
             Source::Queue(queue) => start(mixer, queue, how),
         };

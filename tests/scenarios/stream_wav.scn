@@ -1,0 +1,45 @@
+# Streamed WAV files (WavStream), loaded from a file, into memory and from
+# bytes: one at the output rate, one resampled, a 5.1 file folded down to
+# stereo, a quad float file and an A-law file, one looping from a loop point;
+# seeks backwards, forwards and past the end, mixed in calls that cross block
+# and loop boundaries until the non-looping streams end.
+init channels=2 rate=44100 buffer=1024
+stream name=music file=wav/s16_stereo_44100.wav volume=0.5
+stream name=voice file=wav/s24_mono_48000.wav from=memory
+stream name=surround file=wav/ext_s16_5.1_48000.wav from=bytes volume=0.4
+stream name=quad file=wav/f32_quad_48000.wav volume=0.3
+stream name=alaw file=wav/alaw_mono_8000.wav volume=0.5
+stream name=loop file=wav/chunks_s16_stereo_11025.wav looping=1 loop_point=0.01
+stream name=bad file=wav/bad_nine_channels.wav
+stream name=cut file=wav/bad_cut_header.wav
+sound_query name=music
+sound_query name=surround
+sound_query name=loop
+play sound=music as=m
+play sound=voice as=v volume=0.3 pan=-0.5
+mix frames=700
+play sound=surround as=s
+play sound=loop as=l volume=0.25 pan=0.75
+play sound=quad as=q
+mix frames=1023
+set h=m seek=0.01
+play sound=alaw as=a pan=0.25
+mix frames=1500
+set h=v speed=1.5
+set h=l seek=0.02
+set h=s seek=100
+mix frames=900
+query h=l
+query h=m
+sound_query name=music
+counts
+mix frames=4096
+mix frames=4096
+counts
+play sound=music as=m2
+play sound=music as=m3 volume=0.2
+mix frames=333
+sound_query name=music
+stop_sound name=music
+counts
+mix frames=600

@@ -45,6 +45,8 @@ pub enum DecodeError {
     },
     /// Allocating the decoded audio failed.
     OutOfMemory,
+    /// Reading the file failed.
+    Io(std::io::Error),
 }
 
 impl fmt::Display for DecodeError {
@@ -65,11 +67,19 @@ impl fmt::Display for DecodeError {
                 write!(f, "{samples} samples exceed the limit of {limit}")
             }
             Self::OutOfMemory => write!(f, "out of memory while decoding"),
+            Self::Io(error) => write!(f, "reading the audio failed: {error}"),
         }
     }
 }
 
-impl std::error::Error for DecodeError {}
+impl std::error::Error for DecodeError {
+    fn source(&self) -> Option<&(dyn std::error::Error + 'static)> {
+        match self {
+            Self::Io(error) => Some(error),
+            _ => None,
+        }
+    }
+}
 
 impl From<PcmError> for DecodeError {
     fn from(error: PcmError) -> Self {

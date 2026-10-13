@@ -170,6 +170,46 @@ namespace
 		delete instance;
 	}
 
+	// A WAV stream whose data chunk ends before its declared size reads fewer
+	// frames than its length, so its read position never reached the length
+	// and the voice played silence forever instead of ending.
+	void wavstream_truncated_data_ends()
+	{
+		std::vector<unsigned char> bytes = makeConstantWav(1, 44100, 0.25f);
+		bytes.resize(44 + 1000 * 4);
+		WavStream stream;
+		check(loadStream(stream, bytes) == SO_NO_ERROR, "stream loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle h = soloud.play(stream);
+		std::vector<float> out = render(soloud, 4096);
+		check(maxAbsChannel(std::vector<float>(out.begin(), out.begin() + 2 * 900), 0) > 0.1f, "the frames present play");
+		check(!soloud.isValidVoiceHandle(h), "the voice ends after the frames present");
+	}
+
+	// A WAV stream loaded from a file that is gone when it is played: the
+	// instance read through a DiskFile that failed to open.
+	void wavstream_missing_file_ends()
+	{
+		const char *path = "wavstream_missing_file_ends.wav";
+		std::vector<unsigned char> bytes = makeConstantWav(1, 4410, 0.25f);
+		FILE *f = std::fopen(path, "wb");
+		check(f != NULL, "temporary file opens");
+		if (!f)
+			return;
+		std::fwrite(bytes.data(), 1, bytes.size(), f);
+		std::fclose(f);
+		WavStream stream;
+		check(stream.load(path) == SO_NO_ERROR, "stream loads");
+		std::remove(path);
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle h = soloud.play(stream);
+		std::vector<float> out = render(soloud, 2048);
+		check(maxAbsChannel(out, 0) == 0, "nothing plays");
+		check(!soloud.isValidVoiceHandle(h), "the voice ends");
+	}
+
 	// #279/#205/#327: inaudible-tick voices filling the active cap made
 	// calcActiveVoices_internal return before assigning resample buffers.
 	void inaudible_tick_over_active_cap()
@@ -1321,6 +1361,8 @@ namespace
 	const TestCase kTests[] = {
 		{ "wavstream_loop_channel_stride", wavstream_loop_channel_stride },
 		{ "wavstream_looping_not_ended", wavstream_looping_not_ended },
+		{ "wavstream_truncated_data_ends", wavstream_truncated_data_ends },
+		{ "wavstream_missing_file_ends", wavstream_missing_file_ends },
 		{ "inaudible_tick_over_active_cap", inaudible_tick_over_active_cap },
 		{ "protected_voice_stays_active", protected_voice_stays_active },
 		{ "protecting_a_voice_makes_it_active", protecting_a_voice_makes_it_active },

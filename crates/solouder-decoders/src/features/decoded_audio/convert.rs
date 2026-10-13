@@ -71,30 +71,55 @@ pub(crate) fn mulaw(code: u8) -> i16 {
 /// Converts interleaved `data` into `out`, one plane per channel. `out` holds
 /// whole frames; `data` must hold at least as many samples.
 pub(crate) fn deinterleave(encoding: Encoding, data: &[u8], channels: usize, out: &mut [f32]) {
+    let frames = out.len() / channels;
+    deinterleave_into(encoding, data, channels, out, frames);
+}
+
+/// Converts the whole frames in interleaved `data` into planes `stride`
+/// samples apart: channel `c` of frame `i` goes to `out[c * stride + i]`.
+pub(crate) fn deinterleave_into(
+    encoding: Encoding,
+    data: &[u8],
+    channels: usize,
+    out: &mut [f32],
+    stride: usize,
+) {
+    let frames = data.len() / (channels * encoding.width());
     match encoding {
-        Encoding::U8 => planar(data, channels, out, |[s]| from_u8(s)),
-        Encoding::S16 => planar(data, channels, out, |s| from_i16(i16::from_le_bytes(s))),
-        Encoding::S24 => planar(data, channels, out, |[a, b, c]| {
+        Encoding::U8 => planar(data, channels, frames, stride, out, |[s]| from_u8(s)),
+        Encoding::S16 => planar(data, channels, frames, stride, out, |s| {
+            from_i16(i16::from_le_bytes(s))
+        }),
+        Encoding::S24 => planar(data, channels, frames, stride, out, |[a, b, c]| {
             from_i24(i32::from_le_bytes([0, a, b, c]) >> 8)
         }),
-        Encoding::S32 => planar(data, channels, out, |s| from_i32(i32::from_le_bytes(s))),
-        Encoding::F32 => planar(data, channels, out, |s| from_f32(f32::from_le_bytes(s))),
-        Encoding::F64 => planar(data, channels, out, |s| from_f64(f64::from_le_bytes(s))),
-        Encoding::ALaw => planar(data, channels, out, |[s]| from_i16(alaw(s))),
-        Encoding::MuLaw => planar(data, channels, out, |[s]| from_i16(mulaw(s))),
+        Encoding::S32 => planar(data, channels, frames, stride, out, |s| {
+            from_i32(i32::from_le_bytes(s))
+        }),
+        Encoding::F32 => planar(data, channels, frames, stride, out, |s| {
+            from_f32(f32::from_le_bytes(s))
+        }),
+        Encoding::F64 => planar(data, channels, frames, stride, out, |s| {
+            from_f64(f64::from_le_bytes(s))
+        }),
+        Encoding::ALaw => planar(data, channels, frames, stride, out, |[s]| from_i16(alaw(s))),
+        Encoding::MuLaw => planar(data, channels, frames, stride, out, |[s]| {
+            from_i16(mulaw(s))
+        }),
     }
 }
 
 fn planar<const W: usize>(
     data: &[u8],
     channels: usize,
+    frames: usize,
+    stride: usize,
     out: &mut [f32],
     convert: impl Fn([u8; W]) -> f32,
 ) {
-    let frames = out.len() / channels;
     let (samples, _) = data.as_chunks::<W>();
     for (i, &sample) in samples.iter().take(frames * channels).enumerate() {
-        out[(i % channels) * frames + i / channels] = convert(sample);
+        out[(i % channels) * stride + i / channels] = convert(sample);
     }
 }
 

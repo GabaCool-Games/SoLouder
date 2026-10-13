@@ -1,0 +1,49 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 10:27:11 +0300
+Subject: [PATCH] WavStreamInstance: a stream whose file cannot be opened ends
+ instead of crashing
+
+WavStream::load keeps the file name, and every instance opens the file
+again. The result of DiskFile::open was ignored, so a file deleted or
+locked after loading left the instance reading a DiskFile with a null
+FILE: fread crashed. The instance now has no file, and hasEnded reports an
+instance without a file (also after a decoder failed to initialize) as
+ended, so the voice stops instead of playing silence forever.
+---
+ src/audiosource/wav/soloud_wavstream.cpp | 14 +++++++++++++-
+ 1 file changed, 13 insertions(+), 1 deletion(-)
+
+diff --git a/src/audiosource/wav/soloud_wavstream.cpp b/src/audiosource/wav/soloud_wavstream.cpp
+index f25f59f..6577aa8 100644
+--- a/src/audiosource/wav/soloud_wavstream.cpp
++++ b/src/audiosource/wav/soloud_wavstream.cpp
+@@ -98,8 +98,15 @@ namespace SoLoud
+ 		if (aParent->mFilename)
+ 		{
+ 			DiskFile *df = new DiskFile;
++			// A file that is gone or unreadable when the stream is played
++			// leaves the instance without one; reading the closed DiskFile
++			// passed a null FILE to fread.
++			if (df->open(aParent->mFilename) != SO_NO_ERROR)
++			{
++				delete df;
++				return;
++			}
+ 			mFile = df;
+-			df->open(aParent->mFilename);
+ 		}
+ 		else
+ 		if (aParent->mStreamFile)
+@@ -397,6 +404,11 @@ namespace SoLoud
+ 
+ 	bool WavStreamInstance::hasEnded()
+ 	{
++		// Without a file (it could not be opened or decoded) nothing plays.
++		if (mFile == NULL)
++		{
++			return 1;
++		}
+ 		if (!(mFlags & AudioSourceInstance::LOOPING) && mOffset >= mParent->mSampleCount)
+ 		{
+ 			return 1;

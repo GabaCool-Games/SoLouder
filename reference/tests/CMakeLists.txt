@@ -45,6 +45,8 @@ target_link_libraries(parity_runner PRIVATE soloud Threads::Threads)
 set(REFERENCE_TESTS
   wavstream_loop_channel_stride
   wavstream_looping_not_ended
+  wavstream_truncated_data_ends
+  wavstream_missing_file_ends
   inaudible_tick_over_active_cap
   protected_voice_stays_active
   protecting_a_voice_makes_it_active

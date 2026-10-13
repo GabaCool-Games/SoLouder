@@ -11,6 +11,7 @@ use super::queue;
 use super::sound::SoundId;
 use super::source::Playable;
 use super::source::private::Prepared;
+use super::stream;
 use super::voice::{Voice, VoiceSource, flags};
 use crate::dsp::Resampler;
 use crate::dsp::fader::FaderState;
@@ -306,6 +307,14 @@ impl Mixer {
                 VoiceSource::Queue { .. } => {
                     let (queues, retired) = (&mut voices.queues, &mut voices.retired);
                     queue::seek(&mut voice, queues, retired, seconds, scratch_frames)
+                }
+                VoiceSource::Stream { .. } => {
+                    let (position, rate) = (voice.stream_position, voice.base_sample_rate);
+                    let sought = stream::seek(&mut voice.source, position, seconds, rate);
+                    if sought {
+                        voice.stream_position = seconds;
+                    }
+                    sought
                 }
             };
             if !sought {

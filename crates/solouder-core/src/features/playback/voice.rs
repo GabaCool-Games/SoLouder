@@ -9,6 +9,7 @@ use super::handle::Handle;
 use super::queue::{self, Queues};
 use super::sound::SoundId;
 use super::source::SourceSettings;
+use super::stream::{self, StreamReader};
 use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
 use crate::dsp::fader::Fader;
 use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
@@ -47,6 +48,14 @@ pub(crate) enum VoiceSource {
     /// The sounds queued on the queue `sound_id` (`QueueInstance`), kept in
     /// `Voices::queues`.
     Queue { channels: u32 },
+    /// A stream's reader (`WavStreamInstance`): `None` if it could not be
+    /// opened. `offset` counts the frames read, up to `frames`.
+    Stream {
+        reader: Option<Box<dyn StreamReader>>,
+        channels: u32,
+        frames: u32,
+        offset: u32,
+    },
 }
 
 /// One playing instance of a sound or bus (`AudioSourceInstance`). Fields
@@ -165,7 +174,7 @@ impl Voice {
     /// channel, and returns how many were copied (`WavInstance::getAudio`).
     pub fn read(&mut self, block: &mut [f32], start: usize, frames: u32) -> u32 {
         let VoiceSource::Pcm { pcm, offset } = &mut self.source else {
-            return 0;
+            return stream::read(&mut self.source, block, start, frames);
         };
         let count = (pcm.frames() - *offset).min(frames);
         let from = *offset as usize;
@@ -182,7 +191,9 @@ impl Voice {
     pub fn as_bus(&self) -> Option<&BusVoice> {
         match &self.source {
             VoiceSource::Bus(bus) => Some(bus),
-            VoiceSource::Pcm { .. } | VoiceSource::Queue { .. } => None,
+            VoiceSource::Pcm { .. } | VoiceSource::Queue { .. } | VoiceSource::Stream { .. } => {
+                None
+            }
         }
     }
 
@@ -194,6 +205,9 @@ impl Voice {
             }
             VoiceSource::Bus(_) => false,
             VoiceSource::Queue { .. } => queue::has_ended(self, queues),
+            VoiceSource::Stream { .. } => {
+                stream::has_ended(&self.source, self.has_flag(flags::LOOPING))
+            }
         }
     }
 
@@ -203,6 +217,10 @@ impl Voice {
     /// already read still play first. Buses seek in `bus::seek`.
     pub fn seek(&mut self, seconds: f64) {
         let VoiceSource::Pcm { pcm, offset: read } = &mut self.source else {
+            let (position, rate) = (self.stream_position, self.base_sample_rate);
+            if stream::seek(&mut self.source, position, seconds, rate) {
+                self.stream_position = seconds;
+            }
             return;
         };
         let mut offset = seconds - self.stream_position;
@@ -305,7 +323,9 @@ fn channels_of(source: &VoiceSource) -> usize {
     match source {
         VoiceSource::Pcm { pcm, .. } => pcm.channels() as usize,
         VoiceSource::Bus(bus) => bus.channels(),
-        VoiceSource::Queue { channels } => *channels as usize,
+        VoiceSource::Queue { channels } | VoiceSource::Stream { channels, .. } => {
+            *channels as usize
+        }
     }
 }
 

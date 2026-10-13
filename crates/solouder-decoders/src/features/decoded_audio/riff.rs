@@ -7,6 +7,8 @@
 //! extensible header's format is the first two bytes of its sub-format GUID,
 //! and the channel mask is ignored.
 
+use std::io::{Cursor, Read, Seek, SeekFrom};
+
 use solouder_core::MAX_CHANNELS;
 
 use super::DecodeError;
@@ -83,48 +85,112 @@ fn malformed(what: &str) -> DecodeError {
     DecodeError::Malformed(what.to_owned())
 }
 
+/// Where a WAV file's samples are and how they are stored.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) struct Layout {
+    pub encoding: Encoding,
+    /// 1 to `MAX_CHANNELS`.
+    pub channels: u32,
+    /// Nonzero.
+    pub sample_rate: u32,
+    /// Byte offset of the first sample.
+    pub data_start: u64,
+    /// Bytes of the data chunk present in the file; it may end inside a
+    /// frame.
+    pub data_len: u64,
+}
+
+impl Layout {
+    /// Bytes per frame.
+    pub fn frame_bytes(&self) -> usize {
+        self.channels as usize * self.encoding.width()
+    }
+
+    /// Whole frames present.
+    pub fn frames(&self) -> u64 {
+        self.data_len / self.frame_bytes() as u64
+    }
+}
+
 /// Walks the chunks of `bytes` up to the data chunk.
 pub(crate) fn parse(bytes: &[u8]) -> Result<Wav<'_>, DecodeError> {
-    if bytes.len() < 12 || &bytes[..4] != b"RIFF" || &bytes[8..12] != b"WAVE" {
+    let layout = locate(&mut Cursor::new(bytes), bytes.len() as u64)?;
+    // Both fit in `bytes`, so they fit a usize.
+    let start = layout.data_start as usize;
+    Ok(Wav {
+        encoding: layout.encoding,
+        channels: layout.channels,
+        sample_rate: layout.sample_rate,
+        data: &bytes[start..start + layout.data_len as usize],
+    })
+}
+
+/// Walks the chunks of a `len`-byte file up to the data chunk, reading
+/// only chunk headers and the format chunk.
+pub(crate) fn locate<R: Read + Seek>(input: &mut R, len: u64) -> Result<Layout, DecodeError> {
+    let mut riff = [0_u8; 12];
+    if read_full(input, &mut riff)? < 12 || &riff[..4] != b"RIFF" || &riff[8..] != b"WAVE" {
         return Err(DecodeError::NotRecognized);
     }
     let mut format = None;
-    let mut at = 12_usize;
-    while let Some(header) = bytes.get(at..).and_then(|rest| rest.get(..8)) {
-        // Chunk sizes are 32-bit, so this cannot overflow on 64-bit targets;
-        // on 32-bit ones a huge size simply exceeds what is left.
-        let size = usize::try_from(u32_at(header, 4)).unwrap_or(usize::MAX);
-        let body = &bytes[at + 8..];
+    let mut at = 12_u64;
+    loop {
+        let mut header = [0_u8; 8];
+        input.seek(SeekFrom::Start(at)).map_err(DecodeError::Io)?;
+        if at >= len || read_full(input, &mut header)? < 8 {
+            break;
+        }
+        let size = u64::from(u32_at(&header, 4));
+        let body = at + 8;
+        let available = len.saturating_sub(body);
         match &header[..4] {
             b"fmt " => {
-                let chunk = body
-                    .get(..size)
-                    .ok_or_else(|| malformed("the format chunk is cut off"))?;
-                format = Some(parse_format(chunk)?);
+                if size > available {
+                    return Err(malformed("the format chunk is cut off"));
+                }
+                // Only the first EXTENSIBLE_LEN bytes are ever read.
+                let mut chunk = [0_u8; EXTENSIBLE_LEN];
+                let want = size.min(EXTENSIBLE_LEN as u64) as usize;
+                if read_full(input, &mut chunk[..want])? < want {
+                    return Err(malformed("the format chunk is cut off"));
+                }
+                format = Some(parse_format(&chunk[..want])?);
             }
             b"data" => {
                 let (encoding, channels, sample_rate) =
                     format.ok_or_else(|| malformed("data chunk before the format chunk"))?;
-                return Ok(Wav {
+                return Ok(Layout {
                     encoding,
                     channels,
                     sample_rate,
-                    data: &body[..size.min(body.len())],
+                    data_start: body,
+                    data_len: size.min(available),
                 });
             }
             _ => {}
         }
         // Chunk bodies are padded to an even length.
-        at = at
-            .saturating_add(8)
-            .saturating_add(size)
-            .saturating_add(size & 1);
+        at = body.saturating_add(size).saturating_add(size & 1);
     }
     Err(malformed(if format.is_some() {
         "no data chunk"
     } else {
         "no format chunk"
     }))
+}
+
+/// Reads until `buf` is full or the input ends; returns the bytes read.
+fn read_full<R: Read>(input: &mut R, buf: &mut [u8]) -> Result<usize, DecodeError> {
+    let mut filled = 0;
+    while filled < buf.len() {
+        match input.read(&mut buf[filled..]) {
+            Ok(0) => break,
+            Ok(n) => filled += n,
+            Err(e) if e.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(e) => return Err(DecodeError::Io(e)),
+        }
+    }
+    Ok(filled)
 }
 
 /// Reads a `fmt ` chunk into its encoding, channel count and sample rate.

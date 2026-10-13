@@ -398,6 +398,8 @@ unpatched reference, and each needs a matching Rust test.
 | 0050 | — (found porting milestone D) | A queued sound with fewer channels than the queue left the queue's other channels of the resample block as they were, which two blocks back held the previous sound's audio. Those channels are now silent. | `queue_silences_missing_channels` |
 | 0051 | — (found reviewing milestone D) | `Fader::setLFO` made the half range positive and centred the oscillation on `aFrom` plus it, so `oscillate*` from a higher value to a lower one ran between `aFrom` and `aFrom + abs(aTo - aFrom)`: a volume oscillation from 1 to 0 reached 2. The half range keeps its sign, so the oscillation runs between the two values and moves toward `aTo` first; oscillations upward are unchanged. | `lfo_from_above_to_stays_in_range` |
 | 0052 | #314 | When a source block ran out, `mixBus_internal` tested the frame after the last one it would write to stay inside the block, so it always wrote one frame too few; unless the rest of the block was a whole number of steps, the next block then started at its first sample, skipping up to one step of source per 512 frames. A 44.1 kHz sound on a 48 kHz engine played about 0.09% fast (0.1 s in three minutes, as reported). The check now tests the last frame written, in the mixing and inaudible-tick paths. Every resampled voice's output changes. | `resampled_playhead_does_not_drift` |
+| 0053 | — (found porting milestone E) | Every `WavStream` instance reopens the file `load` named, and ignored `DiskFile::open`'s result: a file deleted or locked after loading left the instance reading a null `FILE`, and `fread` crashed. The instance now has no file, and `hasEnded` reports an instance without one (also when its decoder failed to start) as ended. | `wavstream_missing_file_ends` |
+| 0054 | — (found porting milestone E) | WAV, FLAC and MP3 streams take their length from the header, and `hasEnded` waits for the read position to reach it. A file whose data ends early read fewer frames, so the position never got there and a voice that does not loop played silence forever. A short read now moves the position to the end. | `wavstream_truncated_data_ends` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -406,7 +408,7 @@ so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto the working branch. Patches 0018 to
 0050 were pushed on 2026-10-12 (public `master` at `7b91e3b`), and 0051 after
-them (`1784537`). 0052 is not pushed yet.
+them (`1784537`). 0052 to 0054 are not pushed yet.
 
 The shipped native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
@@ -665,13 +667,16 @@ last); each ends with passing scenarios, ledger rows and a commit:
 1. **Long-playback drift (#314)** (done; patch 0052): measure a voice's position against the
    analytic one over minutes of 44.1 → 48 kHz playback in the reference. A
    real drift is fixed by a reference patch before later fixtures exist.
-2. **Streamed WAV, offline:** a streamed sound whose decoder (a Rust enum)
-   belongs to each voice; loading from a file, from memory and into memory,
-   length, seek, rewind, looping and loop points; queues accept streams.
-   Regressions for patches 0002, 0004, 0005 and 0009. The offline mixer
-   decodes inside the mix, as the reference does, so scenarios stay
-   bit-exact.
-3. **Streaming in real time:** decoding moves to a worker (one per output)
+2. **Streamed WAV, offline** (done; patches 0053 and 0054): `Stream` in the
+   core plays any `StreamSource`, and each voice opens its own
+   `StreamReader`; `solouder_decoders::WavStream` implements both for WAV
+   files, from a file, from bytes and read into memory. Length, seek, rewind,
+   looping and loop points match the reference (`stream_wav`, which also
+   covers the loop-wrap defects of patches 0002, 0004 and 0005). The offline
+   mixer decodes inside the mix, as the reference does, so scenarios stay
+   bit-exact; the real-time controller refuses streams until unit 3, and
+   queues accepting streams moved there too.
+3. **Streaming in real time:** queues accept streams; decoding moves to a worker (one per output)
    that fills a bounded PCM ring per streaming voice; prebuffering,
    underflow silence counted in `Status`, seek and loop flushes tagged with
    an epoch, decoders and files dropped on the worker; streamed Bevy assets.

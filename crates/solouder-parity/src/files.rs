@@ -11,7 +11,7 @@ use crate::run::{SO_NO_ERROR, State};
 use crate::scenario::{ScenarioError, Step};
 
 /// SoLoud's `FILE_LOAD_FAILED`.
-const FILE_LOAD_FAILED: i32 = 3;
+pub(crate) const FILE_LOAD_FAILED: i32 = 3;
 /// SoLoud's `OUT_OF_MEMORY`.
 const OUT_OF_MEMORY: i32 = 5;
 
@@ -22,7 +22,7 @@ fn fixture_dir() -> PathBuf {
 
 /// The fixture named by `file=`: letters, digits, `.`, `_`, `-` and `/`
 /// separators, without `..` or a leading `/`.
-fn fixture_path(step: &Step) -> Result<PathBuf, ScenarioError> {
+pub(crate) fn fixture_path(step: &Step) -> Result<PathBuf, ScenarioError> {
     let file = step.text("file")?;
     let allowed = |c: char| c.is_ascii_alphanumeric() || "._-/".contains(c);
     if file.is_empty()
@@ -35,7 +35,7 @@ fn fixture_path(step: &Step) -> Result<PathBuf, ScenarioError> {
     Ok(fixture_dir().join(file))
 }
 
-fn load_code(error: &DecodeError) -> i32 {
+pub(crate) fn load_code(error: &DecodeError) -> i32 {
     match error {
         DecodeError::OutOfMemory => OUT_OF_MEMORY,
         _ => FILE_LOAD_FAILED,

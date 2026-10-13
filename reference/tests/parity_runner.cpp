@@ -12,6 +12,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <fstream>
+#include <iterator>
 #include <map>
 #include <sstream>
 #include <stdexcept>
@@ -34,6 +35,7 @@
 #include "soloud_robotizefilter.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_wav.h"
+#include "soloud_wavstream.h"
 
 namespace
 {
@@ -267,6 +269,7 @@ namespace
 		SoLoud::Soloud *soloud;
 		bool initialized;
 		std::map<std::string, SoLoud::Wav *> sounds;
+		std::map<std::string, SoLoud::WavStream *> streams;
 		std::map<std::string, SoLoud::Bus *> buses;
 		std::map<std::string, SoLoud::Queue *> queues;
 		std::map<std::string, SoLoud::handle> handles;
@@ -300,6 +303,9 @@ namespace
 			for (std::map<std::string, SoLoud::Wav *>::iterator it = sounds.begin(); it != sounds.end(); ++it)
 				delete it->second;
 			sounds.clear();
+			for (std::map<std::string, SoLoud::WavStream *>::iterator it = streams.begin(); it != streams.end(); ++it)
+				delete it->second;
+			streams.clear();
 			for (std::map<std::string, SoLoud::Bus *>::iterator it = buses.begin(); it != buses.end(); ++it)
 				delete it->second;
 			buses.clear();
@@ -358,19 +364,22 @@ namespace
 			return *it->second;
 		}
 
-		// A sound, else a bus, else a queue, by name.
+		// A sound, else a stream, else a bus, else a queue, by name.
 		SoLoud::AudioSource &sourceArg(const Step &step, const char *key)
 		{
 			const std::string &name = textArg(step, key);
 			std::map<std::string, SoLoud::Wav *>::iterator it = sounds.find(name);
 			if (it != sounds.end())
 				return *it->second;
+			std::map<std::string, SoLoud::WavStream *>::iterator stream = streams.find(name);
+			if (stream != streams.end())
+				return *stream->second;
 			std::map<std::string, SoLoud::Bus *>::iterator bus = buses.find(name);
 			if (bus != buses.end())
 				return *bus->second;
 			std::map<std::string, SoLoud::Queue *>::iterator queue = queues.find(name);
 			if (queue == queues.end())
-				throw ScenarioError(step.line, "no sound, bus or queue named `" + name + "`");
+				throw ScenarioError(step.line, "no sound, stream, bus or queue named `" + name + "`");
 			return *queue->second;
 		}
 
@@ -922,6 +931,47 @@ namespace
 				line << "load " << name << " " << code;
 				logLine(line);
 			}
+			else if (step.op == "stream")
+			{
+				static const char *const keys[] = { "name", "file", "from", "volume", "looping", "loop_point" };
+				checkKeys(step, keys, 6);
+				engine(step);
+				std::string name = textArg(step, "name");
+				std::string path = fixtureArg(step);
+				std::string from = step.get("from") ? textArg(step, "from") : "file";
+				SoLoud::WavStream *stream = new SoLoud::WavStream;
+				SoLoud::result code;
+				if (from == "file")
+					code = stream->load(path.c_str());
+				else if (from == "memory")
+					code = stream->loadToMem(path.c_str());
+				else if (from == "bytes")
+				{
+					std::ifstream in(path.c_str(), std::ios::binary);
+					std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+					code = stream->loadMem(bytes.data(), (unsigned int)bytes.size(), true, false);
+				}
+				else
+				{
+					delete stream;
+					throw ScenarioError(step.line, "unknown from `" + from + "`");
+				}
+				if (code != SoLoud::SO_NO_ERROR)
+					delete stream;
+				else
+				{
+					stream->setVolume(floatArg(step, "volume", 1.0f));
+					stream->setLooping(flagArg(step, "looping", false));
+					stream->setLoopPoint(timeArg(step, "loop_point", 0));
+					std::map<std::string, SoLoud::WavStream *>::iterator old = streams.find(name);
+					if (old != streams.end())
+						delete old->second;
+					streams[name] = stream;
+				}
+				std::ostringstream line;
+				line << "stream " << name << " " << code;
+				logLine(line);
+			}
 			else if (step.op == "samples")
 			{
 				static const char *const keys[] = { "name" };
@@ -1118,10 +1168,24 @@ namespace
 			{
 				static const char *const keys[] = { "name" };
 				checkKeys(step, keys, 1);
-				SoLoud::Wav &wav = soundArg(step, "name");
+				const std::string &name = textArg(step, "name");
+				std::map<std::string, SoLoud::WavStream *>::iterator stream = streams.find(name);
+				SoLoud::AudioSource *source;
+				double length;
+				if (!sounds.count(name) && stream != streams.end())
+				{
+					source = stream->second;
+					length = stream->second->getLength();
+				}
+				else
+				{
+					SoLoud::Wav &wav = soundArg(step, "name");
+					source = &wav;
+					length = wav.getLength();
+				}
 				std::ostringstream line;
-				line << "sound_query " << textArg(step, "name") << " length=" << hex64(wav.getLength())
-					<< " count=" << engine(step).countAudioSource(wav);
+				line << "sound_query " << name << " length=" << hex64(length)
+					<< " count=" << engine(step).countAudioSource(*source);
 				logLine(line);
 			}
 			else if (step.op == "stop_sound")

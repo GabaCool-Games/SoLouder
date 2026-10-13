@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use solouder_core::filters::Filter;
-use solouder_core::{Bus, Clipper, Handle, Mixer, MixerConfig, Queue, Sound};
+use solouder_core::{Bus, Clipper, Handle, Mixer, MixerConfig, Queue, Sound, Stream};
 
 use crate::scenario::{Scenario, ScenarioError, Step};
 
@@ -37,6 +37,7 @@ pub fn run(scenario: &Scenario) -> Result<Rendered, ScenarioError> {
     let mut state = State {
         mixer: None,
         sounds: HashMap::new(),
+        streams: HashMap::new(),
         buses: HashMap::new(),
         queues: HashMap::new(),
         played: HashMap::new(),
@@ -58,6 +59,8 @@ pub(crate) struct State {
     pub mixer: Option<Mixer>,
     /// Sounds by scenario name; cleared by `init`.
     pub sounds: HashMap<String, Sound>,
+    /// Streams by scenario name; cleared by `init`.
+    pub streams: HashMap<String, Stream>,
     /// Buses by scenario name; cleared by `init`.
     pub buses: HashMap<String, Bus>,
     /// Queues by scenario name; cleared by `init`.
@@ -80,6 +83,7 @@ impl State {
             "mix" => self.mix(step),
             "sound" => self.sound(step),
             "load" => self.load(step),
+            "stream" => self.stream(step),
             "samples" => self.samples(step),
             "play" => self.play(step),
             "stop" => self.stop(step),
@@ -170,6 +174,7 @@ impl State {
             clipper,
         };
         self.sounds.clear();
+        self.streams.clear();
         self.buses.clear();
         self.queues.clear();
         self.played.clear();

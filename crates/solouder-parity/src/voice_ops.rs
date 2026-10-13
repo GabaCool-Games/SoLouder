@@ -84,12 +84,19 @@ impl State {
 
     pub(crate) fn sound_query(&mut self, step: &Step) -> Result<(), ScenarioError> {
         step.check_keys(&["name"])?;
-        let sound = self.named_sound(step)?;
-        let count = self.mixer(step)?.count_sound(&sound);
         let name = step.text("name")?;
+        let (length, count) = match self.streams.get(name).cloned() {
+            Some(stream) if !self.sounds.contains_key(name) => {
+                (stream.length(), self.mixer(step)?.count_sound(&stream))
+            }
+            _ => {
+                let sound = self.named_sound(step)?;
+                (sound.length(), self.mixer(step)?.count_sound(&sound))
+            }
+        };
         self.log(format!(
             "sound_query {name} length={} count={count}",
-            hex64(sound.length())
+            hex64(length)
         ));
         Ok(())
     }
@@ -103,6 +110,7 @@ impl State {
         let mixer = self.mixer(step)?;
         match &source {
             Source::Sound(sound) => mixer.stop_sound(sound),
+            Source::Stream(stream) => mixer.stop_sound(stream),
             Source::Bus(bus) => mixer.stop_sound(bus),
             Source::Queue(queue) => mixer.stop_sound(queue),
         }

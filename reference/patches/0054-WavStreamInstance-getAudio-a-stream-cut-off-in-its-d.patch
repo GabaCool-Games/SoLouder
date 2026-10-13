@@ -1,0 +1,53 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Tue, 13 Oct 2026 10:27:26 +0300
+Subject: [PATCH] WavStreamInstance::getAudio: a stream cut off in its data
+ ends
+
+WAV, FLAC and MP3 streams take their length from the header, and
+hasEnded waits for the read position to reach it. A file whose data ends
+early (a WAV data chunk cut off, for example) reads fewer frames than
+that, so the position never got there and a voice that does not loop
+played silence forever. A read that comes up short now moves the
+position to the end.
+---
+ src/audiosource/wav/soloud_wavstream.cpp | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/src/audiosource/wav/soloud_wavstream.cpp b/src/audiosource/wav/soloud_wavstream.cpp
+index 6577aa8..9de8313 100644
+--- a/src/audiosource/wav/soloud_wavstream.cpp
++++ b/src/audiosource/wav/soloud_wavstream.cpp
+@@ -270,6 +270,10 @@ namespace SoLoud
+ 					}
+ 				}
+ 				mOffset += offset;
++				// A short read is the end of the data, even when the header
++				// declared more frames (a file cut off in its data chunk).
++				if (offset < aSamplesToRead && mOffset < mParent->mSampleCount)
++					mOffset = mParent->mSampleCount;
+ 				return offset;
+ 			}
+ 			break;
+@@ -291,6 +295,10 @@ namespace SoLoud
+ 					}
+ 				}
+ 				mOffset += offset;
++				// A short read is the end of the data, even when the header
++				// declared more frames (a file cut off in its data chunk).
++				if (offset < aSamplesToRead && mOffset < mParent->mSampleCount)
++					mOffset = mParent->mSampleCount;
+ 				return offset;
+ 			}
+ 		break;
+@@ -339,6 +347,10 @@ namespace SoLoud
+ 					}
+ 				}
+ 				mOffset += offset;
++				// A short read is the end of the data, even when the header
++				// declared more frames (a file cut off in its data chunk).
++				if (offset < aSamplesToRead && mOffset < mParent->mSampleCount)
++					mOffset = mParent->mSampleCount;
+ 				return offset;
+ 			}
+ 			break;

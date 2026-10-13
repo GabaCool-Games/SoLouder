@@ -60,6 +60,11 @@ pub(crate) mod private {
         fn bus_id(&self) -> Option<SoundId> {
             None
         }
+
+        /// Whether the voice reads a stream, which may wait for I/O.
+        fn is_stream(&self) -> bool {
+            false
+        }
     }
 }
 
