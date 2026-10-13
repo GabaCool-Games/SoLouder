@@ -262,7 +262,8 @@ def frame(channels: list[list[int]], start: int, index: int, info: dict, spec: d
     bits.put(assignment, 4)
     bits.put(SIZE_CODES[info["bits"]] if spec.get("size_code") else 0, 3)
     bits.put(0, 1)
-    header = bits.data() + utf8_number(start if info["variable"] else index)
+    number = spec.get("number", start if info["variable"] else index)
+    header = bits.data() + utf8_number(number)
     if size_code == 6:
         header += bytes([block - 1])
     elif size_code == 7:
@@ -409,6 +410,12 @@ def fixtures() -> dict[str, bytes]:
               {"frames": 476, "mode": MID_SIDE, "subframes": [{"type": "fixed", "order": 2, "method": 1}]}]
     files["s28_stereo_44100.flac"] = flac({"rate": 44100, "bits": 28, "variable": False}, [left, right], blocks)
 
+    # Variable block sizes that happen to be equal: STREAMINFO gives one size.
+    equal = signal(3072, 16, 75, "wave")
+    blocks = [{"frames": 1024, "subframes": [{"type": "fixed", "order": 2}]} for _ in range(3)]
+    files["s16_mono_44100_variable_equal.flac"] = flac({"rate": 44100, "bits": 16, "variable": True}, [equal],
+                                                       blocks)
+
     # A long file of small frames without a seek table, for seeking.
     long = signal(32 * 1152, 8, 70, "wave")
     blocks = [{"frames": 1152, "subframes": [{"type": "fixed", "order": 2, "partitions": 2}]} for _ in range(32)]
@@ -429,13 +436,25 @@ def fixtures() -> dict[str, bytes]:
     no_rate = bytearray(whole)
     no_rate[18:21] = bytes([0, 0, no_rate[20] & 0x0F])
     files["bad_zero_rate.flac"] = bytes(no_rate)
-    # Mid and side subframes far beyond 16 bits: decorrelating them overflows
-    # 32-bit arithmetic.
+    # Runs of frames with bad checksums, at the start and in the middle.
+    runs = signal(6144, 16, 61, "wave")
+    blocks = [{"frames": 1024, "subframes": [{"type": "fixed", "order": 2}], "bad_crc": i in (0, 1, 3, 4)}
+              for i in range(6)]
+    files["bad_crc_runs_s16_mono_44100.flac"] = flac({"rate": 44100, "bits": 16, "variable": False}, [runs],
+                                                     blocks)
+    # Two frames that both claim to be the first.
+    blocks = [{"frames": 1024, "subframes": [{"type": "fixed", "order": 2}], "number": 0} for _ in range(2)]
+    files["bad_overlap_s16_mono_44100.flac"] = flac({"rate": 44100, "bits": 16, "variable": False},
+                                                    [signal(2048, 16, 62, "wave")], blocks)
+    # Mid and side subframes far beyond 16 bits, whose decorrelation
+    # overflows 32-bit arithmetic, then a good frame.
     ramp = [i << 20 for i in range(4096)]
+    tail = [signal(4096, 16, 63, "wave"), signal(4096, 16, 64, "wave")]
     blocks = [{"frames": 4096, "mode": MID_SIDE, "raw": [ramp, ramp],
-               "subframes": [{"type": "fixed", "order": 1, "method": 1}]}]
+               "subframes": [{"type": "fixed", "order": 1, "method": 1}]},
+              {"frames": 4096, "mode": MID_SIDE, "subframes": [{"type": "fixed", "order": 2}]}]
     files["bad_overflow_s16_stereo_44100.flac"] = flac({"rate": 44100, "bits": 16, "variable": False},
-                                                       [[0] * 4096, [0] * 4096], blocks)
+                                                       [[0] * 4096 + tail[0], [0] * 4096 + tail[1]], blocks)
     return files
 
 

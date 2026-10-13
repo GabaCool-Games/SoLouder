@@ -346,8 +346,8 @@ pub(crate) fn has_ended(source: &VoiceSource, looping: bool) -> bool {
 }
 
 /// SoLoud's generic seek on a stream voice: rewinds unless `seconds` is
-/// past the stream position (a stream that cannot rewind stays where it
-/// is), then skips frames at `base_rate`. Returns false if it did nothing.
+/// past the stream position, then skips frames at `base_rate`. A stream that
+/// cannot rewind ends, as through a feed. Returns false if it did nothing.
 pub(crate) fn seek(source: &mut VoiceSource, position: f64, seconds: f64, base_rate: f32) -> bool {
     let VoiceSource::Stream {
         input,
@@ -368,6 +368,7 @@ pub(crate) fn seek(source: &mut VoiceSource, position: f64, seconds: f64, base_r
         if let StreamInput::Direct(reader) = input
             && !reader.rewind()
         {
+            *input = StreamInput::Missing;
             return false;
         }
         *read = 0;
@@ -381,16 +382,14 @@ pub(crate) fn seek(source: &mut VoiceSource, position: f64, seconds: f64, base_r
         0
     };
     match input {
-        StreamInput::Missing => {}
-        StreamInput::Direct(reader) => {
-            if skip > 0 {
-                let skipped = reader.skip(skip);
-                *read = read.saturating_add(u32::try_from(skipped).unwrap_or(u32::MAX));
-                if skipped < skip && *read < *total {
-                    *read = *total;
-                }
+        StreamInput::Direct(reader) if skip > 0 => {
+            let skipped = reader.skip(skip);
+            *read = read.saturating_add(u32::try_from(skipped).unwrap_or(u32::MAX));
+            if skipped < skip && *read < *total {
+                *read = *total;
             }
         }
+        StreamInput::Missing | StreamInput::Direct(_) => {}
         StreamInput::Feed(feed) => {
             *read = (u64::from(*read) + skip).min(u64::from(*total)) as u32;
             feed.seek_to(*read);

@@ -203,3 +203,53 @@ fn streams_end_once_the_worker_is_gone() {
     }
     assert!(finished(&mut controller).contains(&Event::Finished(id, FinishReason::Ended)));
 }
+
+/// A source of `frames` frames of 0.5 whose readers cannot rewind.
+#[derive(Debug)]
+struct NoRewind {
+    frames: u32,
+}
+
+#[derive(Debug)]
+struct NoRewindReader {
+    left: u32,
+}
+
+impl crate::StreamSource for NoRewind {
+    fn format(&self) -> crate::StreamFormat {
+        crate::StreamFormat {
+            channels: 1,
+            sample_rate: 44100.0,
+            frames: self.frames,
+        }
+    }
+
+    fn open(&self) -> Option<Box<dyn crate::StreamReader>> {
+        Some(Box::new(NoRewindReader { left: self.frames }))
+    }
+}
+
+impl crate::StreamReader for NoRewindReader {
+    fn read(&mut self, out: &mut [f32], _stride: usize, frames: usize) -> usize {
+        let count = frames.min(self.left as usize);
+        out[..count].fill(0.5);
+        self.left -= count as u32;
+        count
+    }
+
+    fn rewind(&mut self) -> bool {
+        false
+    }
+}
+
+#[test]
+fn a_looping_stream_that_cannot_rewind_ends_offline() {
+    let mut looped = Stream::new(Arc::new(NoRewind { frames: 700 })).unwrap();
+    looped.set_looping(true);
+    let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
+    let h = mixer.play(&looped);
+    let mixed = mix(&mut mixer, &[512, 512, 512]);
+    // The linear resampler blends in one silent frame before the start.
+    assert!(mixed[2..2 * 600].iter().all(|&s| s > 0.1));
+    assert!(!mixer.is_valid_voice_handle(h));
+}

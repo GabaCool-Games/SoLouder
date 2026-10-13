@@ -24,7 +24,7 @@ fn tone() -> Vec<f32> {
 
 #[test]
 fn decodes_every_layout() {
-    let cases: [(&[u8], u32, u32, f32); 8] = [
+    let cases: [(&[u8], u32, u32, f32); 9] = [
         (fixture!("s16_stereo_44100.flac"), 2, 5108, 44100.0),
         (fixture!("s24_mono_48000.flac"), 1, 9192, 48000.0),
         (fixture!("s8_quad_8000.flac"), 4, 1500, 8000.0),
@@ -33,6 +33,12 @@ fn decodes_every_layout() {
         (fixture!("s16_7.1_32000_metadata.flac"), 8, 1200, 32000.0),
         (fixture!("s32_mono_44100.flac"), 1, 1500, 44100.0),
         (fixture!("s28_stereo_44100.flac"), 2, 1500, 44100.0),
+        (
+            fixture!("s16_mono_44100_variable_equal.flac"),
+            1,
+            3072,
+            44100.0,
+        ),
     ];
     for (bytes, channels, frames, rate) in cases {
         let pcm = decode_default(bytes).unwrap();
@@ -75,6 +81,26 @@ fn a_frame_that_fails_its_checksum_is_silent() {
 }
 
 #[test]
+fn runs_of_damaged_frames_keep_their_place() {
+    let pcm = decode_default(fixture!("bad_crc_runs_s16_mono_44100.flac")).unwrap();
+    let samples = pcm.channel(0);
+    assert_eq!(samples.len(), 6144);
+    for (block, good) in [false, false, true, false, false, true]
+        .into_iter()
+        .enumerate()
+    {
+        let frames = &samples[block * 1024..][..1024];
+        assert_eq!(frames.iter().any(|&s| s != 0.0), good, "block {block}");
+    }
+}
+
+#[test]
+fn a_frame_numbered_before_the_end_of_the_last_adds_nothing_twice() {
+    let pcm = decode_default(fixture!("bad_overlap_s16_mono_44100.flac")).unwrap();
+    assert_eq!(pcm.frames(), 1024);
+}
+
+#[test]
 fn data_that_ends_early_keeps_the_frames_present() {
     let tone = tone();
     assert_eq!(tone.len(), 4096);
@@ -108,14 +134,33 @@ fn an_unknown_length_and_bad_headers_are_rejected() {
     assert!(decode_default(b"").is_err());
 }
 
-/// Symphonia overflows on this frame; builds with overflow checks panic,
-/// which counts as a damaged frame, and other builds wrap as dr_flac does.
+/// Symphonia overflows on the first frame; builds with overflow checks
+/// panic, which counts as a damaged frame, and other builds wrap as dr_flac
+/// does. The next frame decodes either way.
 #[test]
 fn arithmetic_overflow_does_not_panic() {
-    let result = decode_default(fixture!("bad_overflow_s16_stereo_44100.flac"));
-    if cfg!(debug_assertions) {
-        assert!(matches!(result, Err(DecodeError::Empty)));
+    let pcm = decode_default(fixture!("bad_overflow_s16_stereo_44100.flac")).unwrap();
+    assert_eq!(pcm.frames(), 8192);
+    for channel in 0..2 {
+        let samples = pcm.channel(channel);
+        if cfg!(debug_assertions) {
+            assert!(samples[..4096].iter().all(|&s| s == 0.0));
+        }
+        assert!(samples[4096..].iter().all(|s| (-1.0..1.0).contains(s)));
+        assert!(samples[4096..].iter().any(|&s| s != 0.0));
     }
+}
+
+#[test]
+fn metadata_longer_than_the_file_is_rejected_before_reading_it() {
+    // STREAMINFO, then an application block claiming 16 MiB.
+    let mut bytes = fixture!("s8_quad_8000.flac")[..42].to_vec();
+    bytes[4] &= 0x7F;
+    bytes.extend_from_slice(&[0x82, 0xFF, 0xFF, 0xFF, b'T', b'E', b'S', b'T']);
+    assert!(matches!(
+        decode_default(&bytes),
+        Err(DecodeError::Malformed(_))
+    ));
 }
 
 #[test]

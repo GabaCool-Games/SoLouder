@@ -10,7 +10,6 @@ use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use solouder_core::{StreamFormat, StreamReader, StreamSource};
-use symphonia::core::io::MediaSource;
 
 use super::flac_reader::{FlacReader, Reopen};
 use super::wav_reader::WavReader;
@@ -44,8 +43,10 @@ enum Kind {
 /// early ends the stream there, and seeking jumps to the frame instead of
 /// decoding up to it. A FLAC stream's length is the one STREAMINFO
 /// declares, and a voice also ends where the data does; with no declared
-/// length, a voice ends after its first block, as in SoLoud. Seeking in a
-/// FLAC stream decodes up to the target, as SoLoud's generic seek does.
+/// length, a voice ends at once, as in SoLoud. Seeking in a FLAC stream
+/// decodes up to the target, as SoLoud's generic seek does, and a voice
+/// keeps the file it opened, so a looping voice plays on when the file is
+/// deleted.
 #[derive(Debug)]
 pub struct WavStream {
     origin: Origin,
@@ -59,7 +60,7 @@ impl WavStream {
     pub fn from_bytes(bytes: impl Into<Arc<[u8]>>) -> Result<Self, DecodeError> {
         let bytes: Arc<[u8]> = bytes.into();
         let (kind, format) = if bytes.starts_with(b"fLaC") {
-            flac_format(FlacFile::open(Box::new(Cursor::new(Arc::clone(&bytes))))?)?
+            flac_format(FlacFile::open(Cursor::new(Arc::clone(&bytes)))?)?
         } else {
             let layout = riff::locate(&mut Cursor::new(&bytes[..]), bytes.len() as u64)?;
             wav_format(layout)?
@@ -78,7 +79,7 @@ impl WavStream {
     pub fn open(path: impl AsRef<Path>) -> Result<Self, DecodeError> {
         let path = path.as_ref().to_path_buf();
         let (kind, format) = match open_file(&path).map_err(DecodeError::Io)? {
-            (file, true) => flac_format(FlacFile::open(Box::new(file))?)?,
+            (file, true) => flac_format(FlacFile::open(file)?)?,
             (mut file, false) => {
                 let len = file.metadata().map_err(DecodeError::Io)?.len();
                 wav_format(riff::locate(&mut file, len)?)?
@@ -154,7 +155,7 @@ impl StreamSource for WavStream {
             (Origin::Memory(bytes), Kind::Flac) => {
                 let bytes = Arc::clone(bytes);
                 self.open_flac(Box::new(move || {
-                    FlacFile::open(Box::new(Cursor::new(Arc::clone(&bytes)))).ok()
+                    FlacFile::open(Cursor::new(Arc::clone(&bytes))).ok()
                 }))
             }
             (Origin::File(path), Kind::Wav(expected)) => {
@@ -170,11 +171,14 @@ impl StreamSource for WavStream {
                 Some(Box::new(reader))
             }
             (Origin::File(path), Kind::Flac) => {
-                let path = path.clone();
+                let (file, flac) = open_file(path).ok()?;
+                if !flac {
+                    return None;
+                }
                 self.open_flac(Box::new(move || {
-                    let (file, flac) = open_file(&path).ok()?;
-                    let source: Box<dyn MediaSource> = Box::new(file);
-                    flac.then(|| FlacFile::open(source).ok()).flatten()
+                    let mut handle = file.try_clone().ok()?;
+                    handle.seek(SeekFrom::Start(0)).ok()?;
+                    FlacFile::open(handle).ok()
                 }))
             }
         }

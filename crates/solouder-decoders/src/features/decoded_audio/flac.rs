@@ -4,20 +4,24 @@
 //! FLAC files to [`Pcm`] (`Wav::loadflac` with dr_flac), and the FLAC reader
 //! that streams share.
 
-use std::io::Cursor;
+use std::io::{Cursor, Read, Seek};
 use std::panic::{AssertUnwindSafe, catch_unwind};
 
 use solouder_core::{MAX_CHANNELS, Pcm};
 use symphonia::core::audio::{Audio, GenericAudioBufferRef};
 use symphonia::core::codecs::audio::{AudioDecoder, AudioDecoderOptions};
 use symphonia::core::formats::{FormatOptions, FormatReader};
-use symphonia::core::io::{MediaSource, MediaSourceStream};
+use symphonia::core::io::MediaSourceStream;
 use symphonia::default::codecs::FlacDecoder;
 use symphonia::default::formats::FlacReader;
 
+use super::flac_source::FlacSource;
 use super::{DecodeError, DecodeLimits, convert};
 
-/// A FLAC file being decoded one FLAC frame at a time.
+/// A FLAC file being decoded one FLAC frame at a time, on one timeline:
+/// each FLAC frame is placed by its number, a frame that starts before the
+/// end of the previous one gives only the audio after it, and frames that
+/// fail to decode leave gaps.
 ///
 /// Symphonia's FLAC code does unchecked integer arithmetic that overflows on
 /// some damaged files. Builds without overflow checks wrap, as dr_flac does;
@@ -32,12 +36,18 @@ pub(crate) struct FlacFile<'s> {
     pub(crate) frames: u64,
     /// The longest FLAC frame STREAMINFO allows, in audio frames.
     pub(crate) max_block: usize,
+    /// The frame after the last one decoded.
+    next: u64,
 }
 
 impl<'s> FlacFile<'s> {
     /// Reads the metadata blocks of the FLAC file in `source`.
-    pub(crate) fn open(source: Box<dyn MediaSource + 's>) -> Result<Self, DecodeError> {
-        let stream = MediaSourceStream::new(source, Default::default());
+    pub(crate) fn open<S>(source: S) -> Result<Self, DecodeError>
+    where
+        S: Read + Seek + Send + Sync + 's,
+    {
+        let source = FlacSource::new(source)?;
+        let stream = MediaSourceStream::new(Box::new(source), Default::default());
         let reader = guarded(|| FlacReader::try_new(stream, FormatOptions::default()))
             .ok_or_else(|| DecodeError::Malformed("damaged FLAC metadata".to_owned()))?
             .map_err(malformed)?;
@@ -73,12 +83,13 @@ impl<'s> FlacFile<'s> {
             sample_rate,
             frames,
             max_block,
+            next: 0,
         })
     }
 
-    /// Decodes the next FLAC frame and hands `use_frame` the number of its
-    /// first audio frame and its channels, left-justified in 32 bits.
-    /// Frames that fail to decode (a bad CRC among them) are skipped.
+    /// Decodes the next FLAC frame and hands `use_frame` the frames missing
+    /// before it (a gap left by frames that failed to decode, a bad
+    /// checksum among them) and its channels, left-justified in 32 bits.
     /// Returns `false` at the end of the data, or once reading it panicked.
     pub(crate) fn next_frame(&mut self, use_frame: impl FnOnce(u64, &[&[i32]])) -> bool {
         loop {
@@ -94,15 +105,23 @@ impl<'s> FlacFile<'s> {
             else {
                 continue;
             };
-            let mut planes: [&[i32]; MAX_CHANNELS as usize] = [&[]; MAX_CHANNELS as usize];
             let channels = self.channels as usize;
             if buffer.num_planes() != channels {
                 continue;
             }
-            for (c, plane) in planes.iter_mut().take(channels).enumerate() {
-                *plane = buffer.plane(c).unwrap_or(&[]);
+            let len = buffer.frames() as u64;
+            let overlap = self.next.saturating_sub(first);
+            if overlap >= len {
+                continue;
             }
-            use_frame(first, &planes[..channels]);
+            let mut planes: [&[i32]; MAX_CHANNELS as usize] = [&[]; MAX_CHANNELS as usize];
+            for (c, plane) in planes.iter_mut().take(channels).enumerate() {
+                let samples = buffer.plane(c).unwrap_or(&[]);
+                *plane = samples.get(overlap as usize..).unwrap_or(&[]);
+            }
+            let gap = first.saturating_sub(self.next);
+            self.next = first + len;
+            use_frame(gap, &planes[..channels]);
             return true;
         }
     }
@@ -115,9 +134,11 @@ impl<'s> FlacFile<'s> {
 /// STREAMINFO declares, which must be known; data that ends early yields the
 /// frames present, and a frame that fails to decode is silent. FLAC can
 /// compress silence a thousandfold, so the one allocation follows the
-/// declared length, within `limits`. No input makes this panic.
+/// declared length, within `limits`. Damaged input gives an error or
+/// damaged audio, not a panic, except as described for builds with overflow
+/// checks and `panic = "abort"` (see `docs/port-status.md`).
 pub fn decode_flac(bytes: &[u8], limits: &DecodeLimits) -> Result<Pcm, DecodeError> {
-    let mut file = FlacFile::open(Box::new(Cursor::new(bytes)))?;
+    let mut file = FlacFile::open(Cursor::new(bytes))?;
     if file.frames == 0 {
         return Err(DecodeError::Unsupported(
             "FLAC without its total frame count".to_owned(),
@@ -137,22 +158,19 @@ pub fn decode_flac(bytes: &[u8], limits: &DecodeLimits) -> Result<Pcm, DecodeErr
     data.try_reserve_exact(len)
         .map_err(|_| DecodeError::OutOfMemory)?;
     data.resize(len, 0.0);
-    let mut end = 0;
-    while file.next_frame(|first, planes| {
-        let Some(room) = usize::try_from(first)
-            .ok()
-            .and_then(|f| total.checked_sub(f))
-        else {
-            return;
-        };
-        let first = total - room;
+    let mut end = 0_usize;
+    while file.next_frame(|gap, planes| {
+        let first = usize::try_from(gap).map_or(total, |gap| end.saturating_add(gap).min(total));
+        let count = planes[0].len().min(total - first);
         for (c, plane) in planes.iter().enumerate() {
-            let out = &mut data[c * total + first..(c + 1) * total];
+            let out = &mut data[c * total + first..][..count];
             for (out, &sample) in out.iter_mut().zip(*plane) {
                 *out = convert::from_i32(sample);
             }
         }
-        end = end.max(first + planes[0].len().min(room));
+        if count > 0 {
+            end = first + count;
+        }
     }) {}
     if end == 0 {
         return Err(DecodeError::Empty);

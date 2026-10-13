@@ -739,6 +739,17 @@ last); each ends with passing scenarios, ledger rows and a commit:
    reference's generic seek does, and a rewind reopens the file), and
    mid/side decorrelation, now caught and treated as a damaged frame
    (fixture `bad_overflow_*`). Both are worth reporting upstream.
+   Review fixes: a run of damaged frames no longer shifts the frames after
+   it in a stream; a frame overlapping audio already decoded is trimmed
+   the same way resident and streamed; variable blocking whose sizes are
+   equal decodes (Symphonia rejected it); metadata blocks are bounded by the
+   file length; a voice rewinds its own file handle, and a direct stream
+   reader that cannot rewind ends the voice, as the worker already did.
+   Known limits: Symphonia panics on 33-bit side subframes (32-bit stereo)
+   with overflow checks on, so debug builds drop those frames, and 32-bit
+   mid/side at high amplitude is wrong in dr_flac and Symphonia alike.
+   dr_flac fixes after 0.12.35 (fuzz fixes, 0.12.43's buffer overflow) are
+   not backported.
 5. **Ogg Vorbis and MP3**, resident and streamed, with `Wav::load`'s format
    detection (WAV, Ogg, FLAC, then MP3), file loading and Bevy loaders for
    `.ogg`, `.flac` and `.mp3`. Lossy decoders differ from stb_vorbis and

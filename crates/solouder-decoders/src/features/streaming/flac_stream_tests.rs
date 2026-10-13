@@ -20,7 +20,7 @@ macro_rules! fixture {
     };
 }
 
-const GOOD: [&[u8]; 9] = [
+const GOOD: [&[u8]; 10] = [
     fixture!("s16_stereo_44100.flac"),
     fixture!("s24_mono_48000.flac"),
     fixture!("s8_quad_8000.flac"),
@@ -30,6 +30,7 @@ const GOOD: [&[u8]; 9] = [
     fixture!("s32_mono_44100.flac"),
     fixture!("s28_stereo_44100.flac"),
     fixture!("s8_mono_8000_long.flac"),
+    fixture!("s16_mono_44100_variable_equal.flac"),
 ];
 
 /// Reads the rest of a stream in calls of `chunk` frames, planar with
@@ -117,16 +118,27 @@ fn skips_land_where_decoding_does() {
 fn damaged_files_stream_like_they_decode() {
     for bytes in [
         fixture!("bad_crc_s16_mono_44100.flac"),
+        fixture!("bad_crc_runs_s16_mono_44100.flac"),
+        fixture!("bad_overlap_s16_mono_44100.flac"),
         fixture!("short_data_s16_mono_44100.flac"),
         fixture!("long_claim_s16_mono_44100.flac"),
+        fixture!("bad_overflow_s16_stereo_44100.flac"),
     ] {
         let pcm = decoded(bytes);
         let stream = WavStream::from_bytes(bytes.to_vec()).unwrap();
+        let (channels, frames) = (pcm.channels() as usize, pcm.frames() as usize);
         let mut reader = stream.open().unwrap();
-        let frames = pcm.frames() as usize;
-        let (read, count) = read_rest(reader.as_mut(), 1, frames, BLOCK);
+        let (read, count) = read_rest(reader.as_mut(), channels, frames, BLOCK);
         assert_eq!(count, frames);
-        assert_eq!(read, pcm.channel(0));
+        for c in 0..channels {
+            assert_eq!(&read[c * frames..][..frames], pcm.channel(c as u32));
+        }
+        // Skipping counts the silent frames as decoding does.
+        let mut reader = stream.open().unwrap();
+        assert_eq!(reader.skip(frames as u64 - 1), frames as u64 - 1);
+        let mut block = vec![0.0; channels * BLOCK];
+        assert_eq!(reader.read(&mut block, BLOCK, BLOCK), 1);
+        assert_eq!(block[0], pcm.channel(0)[frames - 1]);
     }
     let claim = WavStream::from_bytes(fixture!("long_claim_s16_mono_44100.flac").to_vec());
     assert_eq!(claim.unwrap().format().frames, 10_000);
@@ -141,7 +153,7 @@ fn mixer() -> Mixer {
 }
 
 #[test]
-fn a_stream_of_unknown_length_ends_after_its_first_block() {
+fn a_stream_of_unknown_length_ends_at_once() {
     let wav = WavStream::from_bytes(fixture!("unknown_length_s16_mono_44100.flac").to_vec());
     let stream = Stream::new(Arc::new(wav.unwrap())).unwrap();
     assert_eq!(stream.format().frames, 0);
@@ -149,19 +161,8 @@ fn a_stream_of_unknown_length_ends_after_its_first_block() {
     let h = mixer.play(&stream);
     let mut out = vec![0.0; 2 * 2048];
     mixer.mix_interleaved(&mut out);
+    assert!(out.iter().all(|&s| s == 0.0));
     assert!(!mixer.is_valid_voice_handle(h));
-}
-
-#[test]
-fn arithmetic_overflow_does_not_panic() {
-    let bytes = fixture!("bad_overflow_s16_stereo_44100.flac");
-    let stream = WavStream::from_bytes(bytes.to_vec()).unwrap();
-    let mut reader = stream.open().unwrap();
-    let (_, count) = read_rest(reader.as_mut(), 2, 4096, BLOCK);
-    if cfg!(debug_assertions) {
-        assert_eq!(count, 0);
-    }
-    assert!(reader.rewind());
 }
 
 #[test]
@@ -194,10 +195,23 @@ fn a_stream_file_plays_like_its_bytes_until_it_is_gone() {
     let wav = WavStream::open(&path).unwrap();
     let from_file = render(WavStream::open(&path).unwrap());
     let from_memory = render(WavStream::load_to_memory(&path).unwrap());
-    std::fs::remove_file(&path).unwrap();
     assert_eq!(from_file, from_memory);
     assert!(from_file.iter().any(|&s| s != 0.0));
-    assert!(wav.open().is_none());
+
+    // A voice keeps the file it opened: deleted while playing, it loops on.
+    let mut stream = Stream::new(Arc::new(wav)).unwrap();
+    stream.set_looping(true);
+    let mut mixer = mixer();
+    let h = mixer.play(&stream);
+    let mut out = vec![0.0; 2 * 1000];
+    mixer.mix_interleaved(&mut out);
+    std::fs::remove_file(&path).unwrap();
+    mixer.seek(h, 4.5).unwrap();
+    let mut out = vec![0.0; 2 * 8192];
+    mixer.mix_interleaved(&mut out);
+    assert!(mixer.is_valid_voice_handle(h));
+    assert!(out[2 * 4096..].iter().any(|&s| s != 0.0));
+    assert!(WavStream::open(&path).is_err());
 }
 
 #[test]

@@ -10,16 +10,18 @@ use solouder_core::StreamReader;
 use crate::features::decoded_audio::convert;
 use crate::features::decoded_audio::flac::FlacFile;
 
-/// Opens the stream's file again, at its start.
+/// Opens the voice's file again at its start: its bytes in memory, or the
+/// file it opened, through a second handle.
 pub(crate) type Reopen = Box<dyn FnMut() -> Option<FlacFile<'static>> + Send>;
 
 /// Decodes a FLAC file a FLAC frame at a time, converting as
 /// [`decode_flac`](crate::decode_flac) does. Reads continue past the length
 /// STREAMINFO declares, as dr_flac's do; the voice ends at that length.
 ///
-/// Rewinding opens the file again, and skipping decodes and discards, as
-/// SoLoud's generic seek does: Symphonia's FLAC seek panics on some
-/// damaged seek tables.
+/// Rewinding reads the file again from its start, and skipping decodes and
+/// discards, as SoLoud's generic seek does: Symphonia's FLAC seek panics on
+/// some damaged seek tables. Frames that failed to decode are silent, up to
+/// the declared length (or one FLAC frame when no length is declared).
 pub(crate) struct FlacReader {
     file: FlacFile<'static>,
     reopen: Reopen,
@@ -31,10 +33,10 @@ pub(crate) struct FlacReader {
     /// Frames in `block`, and how many of them were read.
     block_len: usize,
     block_read: usize,
-    /// Silent frames owed before `block`: a FLAC frame that failed to
-    /// decode, up to `stride` frames.
-    silence: usize,
-    /// The frame number following the last frame decoded.
+    /// Silent frames owed before `block`, for FLAC frames that failed to
+    /// decode.
+    silence: u64,
+    /// The frame following `block`.
     next: u64,
 }
 
@@ -58,29 +60,28 @@ impl FlacReader {
 
     /// Decodes the next FLAC frame into `block`; false at the end.
     fn refill(&mut self) -> bool {
-        let (block, stride, next) = (&mut self.block, self.stride, self.next);
+        let (block, stride) = (&mut self.block, self.stride);
         let mut decoded = None;
-        let more = self.file.next_frame(|first, planes| {
+        let more = self.file.next_frame(|gap, planes| {
             let len = planes[0].len().min(stride);
             for (c, plane) in planes.iter().enumerate() {
                 for (out, &sample) in block[c * stride..][..len].iter_mut().zip(*plane) {
                     *out = convert::from_i32(sample);
                 }
             }
-            let gap = first.saturating_sub(next);
-            decoded = Some((first.max(next), len, gap));
+            decoded = Some((gap, len));
         });
-        let Some((first, len, gap)) = decoded.filter(|_| more) else {
+        let Some((gap, len)) = decoded.filter(|_| more) else {
             return false;
         };
-        self.silence = if gap <= self.stride as u64 {
-            gap as usize
-        } else {
-            0
+        let room = match self.file.frames {
+            0 => stride as u64,
+            frames => frames.saturating_sub(self.next),
         };
+        self.silence = gap.min(room);
         self.block_len = len;
         self.block_read = 0;
-        self.next = first + len as u64;
+        self.next += self.silence + len as u64;
         true
     }
 
@@ -93,7 +94,7 @@ impl FlacReader {
             }
             let silent = self.silence > 0;
             let left = if silent {
-                self.silence
+                usize::try_from(self.silence).unwrap_or(usize::MAX)
             } else {
                 self.block_len - self.block_read
             };
@@ -109,7 +110,7 @@ impl FlacReader {
                 }
             }
             if silent {
-                self.silence -= n;
+                self.silence -= n as u64;
             } else {
                 self.block_read += n;
             }
@@ -120,7 +121,7 @@ impl FlacReader {
 
     /// The frame the next read starts at.
     fn position(&self) -> u64 {
-        self.next - (self.block_len - self.block_read) as u64 - self.silence as u64
+        self.next - (self.block_len - self.block_read) as u64 - self.silence
     }
 }
 
@@ -138,7 +139,8 @@ impl StreamReader for FlacReader {
         self.take(Some((out, stride)), frames)
     }
 
-    /// Fails if the file is gone or no longer has the same layout.
+    /// Fails if the file cannot be read again or no longer has the same
+    /// layout.
     fn rewind(&mut self) -> bool {
         let Some(file) = (self.reopen)() else {
             return false;
