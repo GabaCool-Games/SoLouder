@@ -4,7 +4,7 @@
 use std::path::PathBuf;
 
 use solouder_core::Sound;
-use solouder_decoders::{DecodeError, DecodeLimits, decode_wav};
+use solouder_decoders::{DecodeError, DecodeLimits, decode};
 
 use crate::ops::hex32;
 use crate::run::{SO_NO_ERROR, State};
@@ -53,7 +53,7 @@ impl State {
         let bytes = std::fs::read(&path)
             .map_err(|error| step.error(format!("cannot read {}: {error}", path.display())))?;
 
-        let code = match decode_wav(&bytes, &DecodeLimits::default()) {
+        let code = match decode(&bytes, &DecodeLimits::default()) {
             Ok(pcm) => {
                 let mut sound = Sound::new(pcm);
                 sound.set_volume(volume);

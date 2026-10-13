@@ -2,11 +2,15 @@
 //! (SoLoud's `WavStream`), through `solouder_core`'s
 //! [`StreamSource`](solouder_core::StreamSource) traits.
 
+mod flac_reader;
 mod wav_reader;
 mod wav_stream;
 
 pub use wav_stream::WavStream;
 
+#[cfg(test)]
+#[path = "flac_stream_tests.rs"]
+mod flac_stream_tests;
 #[cfg(test)]
 #[path = "wav_stream_tests.rs"]
 mod wav_stream_tests;

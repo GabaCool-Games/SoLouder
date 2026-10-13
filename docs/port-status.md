@@ -44,20 +44,20 @@ available on the offline `Mixer` only (see "Real-time coverage" below).
 | `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `Stream` (with the `StreamSource` and `StreamReader` traits), `Bus`, `Queue`, `Playable`, `SoundId`, `Handle`, `PlayOptions`, `FilterTarget`, voice table, active-voice selection, resample-buffer pool, bus mixing (nested bus voices, bus seeking, visualization data), queued sounds, voice control and queries, fades and timers, voice groups, sound, bus and global filter slots and their parameters, `f32` and `i16` output |
 | `solouder-core` | `features/filters` | `Filter` and `FilterInstance` traits, `FilterParams` (live values with fades), `BiquadResonantFilter`, `LofiFilter`, `EchoFilter`, `WaveShaperFilter`, `DcRemovalFilter`, `FftFilter`, `BassboostFilter`, `RobotizeFilter`, `FlangerFilter`, `FreeverbFilter` |
 | `solouder-core` | `features/realtime` | `split`, `Controller` (plays, voice and global controls, fades and schedules, filters and their parameters, bus settings and `annex_sound`, queued sounds), `Renderer`, `StreamWorker` (decodes streams ahead into per-voice feeds), `VoiceId`, `FilterTarget`, `Event`, `Status`, `RealtimeConfig`; voices and filter instances prepared on the game thread, and ended voices, replaced filters and rejected queue sounds retired to it |
-| `solouder-decoders` | `features/decoded_audio` | `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `DecodeLimits`, `DecodeError` |
-| `solouder-decoders` | `features/streaming` | `WavStream` (a file, bytes or a file read into memory; per-voice readers that seek by frame) |
+| `solouder-decoders` | `features/decoded_audio` | `decode` (WAV or FLAC by the first bytes), `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `decode_flac` (Symphonia's FLAC decoder with dr_flac's conversion), `DecodeLimits`, `DecodeError` |
+| `solouder-decoders` | `features/streaming` | `WavStream` for WAV and FLAC (a file, bytes or a file read into memory; per-voice readers: WAV seeks by frame, FLAC decodes up to the target) |
 | `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
 | `bevy_solouder` | `decoded_audio`, `output_lifecycle`, `playback` | `SolouderPlugin`, `AudioClip` (decoded or streamed) and `WavLoader` (`WavSettings::stream`), the stream worker (a thread with a device, `HeadlessStreamWorker` headless), `OutputMode` (device or headless), `AudioOutput`, `SoundPlayer`, `PlaybackSettings`, `SoundStatus`, `SoundFinished`/`SoundFailed` |
-| `solouder-parity` | — | Scenario parser, test patterns, WAV fixture loading, Rust runner, comparison with C++ output |
+| `solouder-parity` | — | Scenario parser, test patterns, WAV and FLAC fixture loading, Rust runner, comparison with C++ output |
 
 Ledger: the Milestone B playback behaviors are `ported`; `Soloud::init`,
 `AudioSource::setVolume` and `AudioSource::setLooping` are `in-progress`
 (init flags and the rest of the source-level defaults remain), as are
-`Wav::load` and `Wav::loadMem` (WAV only; the other codecs come in E).
+`Wav::load` and `Wav::loadMem` (WAV and FLAC; Ogg Vorbis and MP3 come in E5).
 Milestone C ports `Soloud::deinit` and the `getBackend*` queries; `init`
 stays `in-progress` until its remaining flags are done. Milestone E ports `WavStream::getLength`;
 the `WavStream` lifecycle, `load`, `loadMem` and `loadToMem` are
-`in-progress` (WAV only).
+`in-progress` (WAV and FLAC).
 
 ## Verified by scenario
 
@@ -93,7 +93,9 @@ the `WavStream` lifecycle, `load`, `loadMem` and `loadToMem` are
 | `wav_decode` | 16/24/32-bit integer, 32/64-bit float, A-law and mu-law WAV (every code); extensible 5.1, 7.1, 24-in-32-bit, A-law and mu-law headers; channel masks with a high bit or none; extra and odd-sized chunks; six files both sides reject (9, 33 and 65535 channels, no frames, sample rate 0, a header cut short) | 15,562 |
 | `wav_decode_u8` | 8-bit WAV (tolerance 1/128, see below) | 1,000 |
 | `wav_playback` | Decoded files played at and away from the output rate, a 5.1 fold-down, a looping file | 8,246 |
+| `flac_decode` | 8, 12, 16, 20, 24, 28 and 32-bit FLAC, 1 to 8 channels, every subframe type and stereo decorrelation, both residual codings with escaped partitions, wasted bits, variable block sizes, metadata blocks to skip (20-bit side channels need patch 0057); load codes for a bad checksum, short data, an unknown or overstated length, a cut header and a zero rate | 69,994 |
 | `stream_queue` | Streams queued with a decoded sound on a stereo queue: a mono stream (its missing channel silent), a 5.1 stream (more channels than the queue), a looping stream played once and dropped; `isCurrentlyPlaying` on streams; seeking the queue forward through a stream; a mono queue of streams at 48 kHz | 35,176 |
+| `stream_flac` | Streamed FLAC files loaded from a file, into memory and from bytes: resampled, folded down from 5.1, with variable block sizes, a long file looping from a loop point and wrapping; seeks back, forward across many FLAC frames and past the end; data that ends early, an overstated length, an unknown length ending after its first block; two files both sides reject | 26,496 |
 | `stream_wav` | Streamed WAV files loaded from a file, into memory and from bytes, at and away from the output rate, 5.1 and quad float files folded down, A-law; a looping stream with a loop point wrapping several times (the loop-wrap seek and channel stride of patches 0002 and 0004, and patch 0005's looping streams not ending); seeks back, forward and past the end; streams ending, counted, replayed and stopped; two files both sides reject | 26,496 |
 
 Samples are compared bit for bit, except that zero and subnormal values all
@@ -168,8 +170,13 @@ Rust 1.98.1, no device).
 | Changed stream files | Each instance reopens the file and trusts the header read at load | A file reopened with a different encoding, channel count or rate ends the voice, like a missing file (patch 0053); one that got shorter plays what is left | A reader must produce the layout the voice was set up for |
 | Dropping a stream | `~WavStream` stops its voices | Dropping a `Stream` leaves its voices playing; each owns its reader | As for `Sound` |
 | Streams in real time | Played like any source; the audio thread reads the file | A `StreamWorker` thread opens and decodes each voice's stream ahead of it into a bounded buffer (`RealtimeConfig::stream_chunks`). A voice waits silently, without advancing, until its audio arrives at the start and after a seek the worker had not anticipated (loop wraps are anticipated); if the worker falls behind, the voice plays silence without advancing, counted in `Status::stream_underflow_frames`. A source that can no longer rewind ends the voice, and so does losing the worker once the audio it decoded has played (new streams then fail with `ControllerError::NoStreamWorker`). Fades, scheduled events and the stream position keep running while a voice waits; a seek counts from the audio actually played | File reads on the audio thread can stall it |
-| Unknown files | `Wav::load` detects WAV, Ogg, FLAC and MP3, and tries MP3 for anything else | `decode_wav` reads WAV only and reports `NotRecognized` | Other codecs come in milestone E; the caller picks the decoder |
-| Decode limits | Only the `u32` size checks of patch 0012 | `DecodeLimits::max_samples` (default 256 Mi samples); allocation follows decoded data, not header claims | Untrusted files cannot request huge allocations |
+| Unknown files | `Wav::load` and `WavStream` detect Ogg, WAV and FLAC by their first four bytes and try MP3 for anything else | `decode` and `WavStream` read `fLaC` as FLAC and anything else as WAV, which reports `NotRecognized` | Ogg Vorbis and MP3 come in milestone E5 |
+| FLAC frame with a bad checksum | dr_flac does not check frame checksums and plays the frame | The frame is dropped and its frames are silent (resident and streamed) | A damaged frame is more likely noise than audio |
+| FLAC data that ends early | `Wav` keeps the length STREAMINFO declares; the missing frames are silent | Keeps the frames decoded, as for WAV; streams end where the data does in both (patch 0054) | Padding would add a gap to looping sounds |
+| FLAC of unknown length | `Wav` rejects it; `WavStream` loads it with a length of 0, so a voice ends after its first block | The same: `decode_flac` reports `Unsupported`, and a stream ends after its first block | Kept for parity |
+| FLAC arithmetic overflow | dr_flac's integer arithmetic wraps on damaged files | Symphonia's wraps in builds without overflow checks; in builds with them (debug builds) it panics, and the panic is caught and the frame treated as damaged (`panic = "abort"` still aborts) | Symphonia does unchecked arithmetic on file data |
+| FLAC seeking and rewinding | dr_flac seeks with the seek table or a search; `WavStream` uses the generic seek, decoding up to the target | Seeks decode up to the target; a rewind opens the file again | Symphonia's FLAC seek panics on some damaged seek tables |
+| Decode limits | Only the `u32` size checks of patch 0012 | `DecodeLimits::max_samples` (default 256 Mi samples); WAV allocation follows the data present, not header claims; FLAC allocation follows the length STREAMINFO declares, within the limit, since FLAC can legitimately compress silence a thousandfold | Untrusted files cannot request huge allocations |
 | Deleting a sound | `~Wav` stops every voice playing it | Dropping a `Sound` leaves its voices playing; they share its samples and release them when they end | No dangling source; stop voices explicitly (the Bevy plugin stops a player's voice when its component goes away) |
 | Voice end | The audio thread releases the source instance under the engine mutex | Through `Renderer`, an ended or stopped voice's PCM goes back to the controller and is freed on the game thread; an offline `Mixer` drops it in the mix call unless `keep_retired` is set | Freeing memory on the audio thread can block |
 | Control | Every call locks the audio mutex and applies immediately | Controller calls queue a command, applied at the start of the next render; getters read the last published `Status` | The audio thread never waits for the game |
@@ -183,7 +190,7 @@ Rust 1.98.1, no device).
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0024 and 0026
-to 0056 (pan ramp leftovers, surround fold-down volumes, no-free-voice
+to 0057 (pan ramp leftovers, surround fold-down volumes, no-free-voice
 handling, raw layout validation, the #343 hang, protection and ticking not
 recomputing the active voices, sound endings dropped when a mix ends
 mid-block, the hang on a negative sample rate, seeks scaled by play speed,
@@ -248,4 +255,4 @@ Limits:
 - Voice groups, voice getters, bus wave, FFT and voice counts, queue counts,
   and filter parameter reads through the `Controller` (see "Real-time
   coverage").
-- Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).
+- Ogg Vorbis, MP3 and WAV ADPCM (Milestone E).

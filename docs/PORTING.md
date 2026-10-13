@@ -315,9 +315,9 @@ reference (`wav_decode`), and the reference rejects the same malformed files.
 Symphonia 0.6 decoded WAV until review found that it panics on headers whose
 16-bit block size overflows, lets a zero channel mask turn 33 channels into
 one, rejects extensible A-law and mu-law, and reserves memory from metadata
-size claims before reading. It stays pinned in the workspace as the
-candidate for Ogg Vorbis, FLAC and MP3 (milestone E), which will need the
-same malformed-input testing. ADPCM, 12-bit and 64-bit integer WAV, which
+size claims before reading. It decodes FLAC (milestone E unit 4), after
+the same malformed-input testing, and stays the candidate for Ogg Vorbis
+and MP3. ADPCM, 12-bit and 64-bit integer WAV, which
 dr_wav also reads, are not supported (`DecodeError::Unsupported`).
 
 ## Reference patches and upstream tracking
@@ -402,6 +402,7 @@ unpatched reference, and each needs a matching Rust test.
 | 0054 | — (found porting milestone E) | WAV, FLAC and MP3 streams take their length from the header, and `hasEnded` waits for the read position to reach it. A file whose data ends early read fewer frames, so the position never got there and a voice that does not loop played silence forever. A short read now moves the position to the end. | `wavstream_truncated_data_ends` |
 | 0055 | — (found reviewing milestone E) | After 0053 a stream without a file reported itself ended, but the mixer never stops a looping voice, so a looping `WavStream` whose file was gone played silence forever. `hasEnded` now also clears the instance's looping flag, so the voice ends. | `wavstream_missing_file_ends` |
 | 0056 | — (found reviewing milestone E) | `voiceHasFinished` checked the looping flag before asking the source, so 0055's flag clearing only happened when a block was read; a voice that cannot advance (a step of a whole block or more) never reads one and stayed alive. The source is now asked first; for every other source the result is unchanged. | `wavstream_missing_file_ends` |
+| 0057 | dr_libs 713ffe6, a4774b5 (dr_flac 0.12.35) | dr_flac summed an LPC prediction in 32 bits whenever the sample size plus the prediction shift was at most 32, ignoring the coefficient precision and order, so a predictor that overshoots full scale wrapped around and decoded wrong samples (found porting milestone E on a 20-bit stereo file's side channel). Backported upstream's test, `bitsPerSample + precision + ilog2(order) > 32`, in the scalar, SSE4.1 and NEON paths. | `flac_lpc_prediction_uses_64_bits` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -721,9 +722,23 @@ last); each ends with passing scenarios, ledger rows and a commit:
    moved by `split` at its end wraps at once. A seek after waiting counts
    from the block read ahead, as the reference's generic seek does, so it
    lands where it would have had the audio arrived.
-4. **FLAC**, resident and streamed: Symphonia's decoder, bit-exact against
-   dr_flac; malformed-input fuzzing; more than 8 channels rejected (patch
-   0012).
+4. **FLAC**, resident and streamed (done): Symphonia's decoder, bit-exact
+   against dr_flac in scenarios `flac_decode` and `stream_flac`, from 8 to
+   32 bits and 1 to 8 channels; malformed-input fuzzing; more than 8
+   channels rejected (patch 0012). `decode` and `WavStream` pick FLAC by its
+   `fLaC` tag, as the reference does, and the Bevy loader takes `.flac`.
+   Generated fixtures (`scripts/gen_flac_fixtures.py`) cover every subframe
+   type, both residual codings, stereo decorrelation and damaged files.
+   dr_flac 0.12.31 summed some LPC predictions in 32 bits and wrapped
+   around (20-bit and wider side channels, for example); patch 0057
+   backports dr_flac 0.12.35's fix. A frame with a bad checksum, data that
+   ends early and an unknown length are handled differently on purpose
+   (port-status.md). Fuzzing found two Symphonia panics on damaged files,
+   both integer overflows that only debug builds check: its seek, which
+   SoLouder no longer uses (a seek decodes up to the target, as the
+   reference's generic seek does, and a rewind reopens the file), and
+   mid/side decorrelation, now caught and treated as a damaged frame
+   (fixture `bad_overflow_*`). Both are worth reporting upstream.
 5. **Ogg Vorbis and MP3**, resident and streamed, with `Wav::load`'s format
    detection (WAV, Ogg, FLAC, then MP3), file loading and Bevy loaders for
    `.ogg`, `.flac` and `.mp3`. Lossy decoders differ from stb_vorbis and

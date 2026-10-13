@@ -8,7 +8,7 @@ use bevy::asset::{Asset, AssetApp, AssetLoader, LoadContext};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use solouder_core::{Pcm, Stream};
-use solouder_decoders::{DecodeError, DecodeLimits, WavStream, decode_wav};
+use solouder_decoders::{DecodeError, DecodeLimits, WavStream, decode};
 
 /// Immutable audio, shared by every entity that plays it: decoded samples,
 /// or a stream that each voice decodes as it plays.
@@ -98,9 +98,10 @@ pub struct WavSettings {
     pub stream: bool,
 }
 
-/// Loads `.wav` files into [`AudioClip`]s, decoding on the asset task pool,
-/// or with [`WavSettings::stream`] checking the header there and decoding
-/// while the clip plays.
+/// Loads `.wav` and `.flac` files into [`AudioClip`]s, decoding on the asset
+/// task pool, or with [`WavSettings::stream`] checking the header there and
+/// decoding while the clip plays. As in SoLoud's `Wav`, the format is chosen
+/// by the file's first bytes, not its extension.
 #[derive(TypePath, Clone, Copy, Debug, Default)]
 pub struct WavLoader {
     limits: DecodeLimits,
@@ -140,13 +141,13 @@ impl AssetLoader for WavLoader {
         let clip = if settings.stream {
             streamed(bytes)
         } else {
-            decode_wav(&bytes, &self.limits).map(AudioClip::new)
+            decode(&bytes, &self.limits).map(AudioClip::new)
         };
         clip.map_err(AudioLoadError::Decode)
     }
 
     fn extensions(&self) -> &[&str] {
-        &["wav"]
+        &["wav", "flac"]
     }
 }
 

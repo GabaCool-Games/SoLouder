@@ -1,0 +1,54 @@
+# Streamed FLAC files (WavStream with dr_flac), loaded from a file, into
+# memory and from bytes: 16-bit stereo, resampled 24-bit mono, 5.1 folded
+# down to stereo, 20-bit stereo with variable block sizes, a long 8-bit file
+# looping from a loop point, files whose data ends early or whose length is
+# overstated or unknown; seeks backwards, forwards across many FLAC frames
+# and past the end, mixed in calls that cross block and loop boundaries
+# until the non-looping streams end.
+init channels=2 rate=44100 buffer=1024
+stream name=music file=flac/s16_stereo_44100.flac volume=0.5
+stream name=voice file=flac/s24_mono_48000.flac from=memory
+stream name=surround file=flac/s12_5.1_22050.flac from=bytes volume=0.4
+stream name=wide file=flac/s20_stereo_96000_variable.flac volume=0.3
+stream name=loop file=flac/s8_mono_8000_long.flac looping=1 loop_point=0.5
+stream name=short file=flac/short_data_s16_mono_44100.flac from=memory volume=0.5
+stream name=claim file=flac/long_claim_s16_mono_44100.flac volume=0.5
+stream name=unknown file=flac/unknown_length_s16_mono_44100.flac volume=0.5
+stream name=cut file=flac/bad_cut_header.flac
+stream name=norate file=flac/bad_zero_rate.flac
+sound_query name=music
+sound_query name=loop
+sound_query name=claim
+sound_query name=unknown
+play sound=music as=m
+play sound=voice as=v volume=0.3 pan=-0.5
+mix frames=700
+play sound=surround as=s
+play sound=loop as=l volume=0.25 pan=0.75
+play sound=wide as=w
+play sound=unknown as=u
+mix frames=1023
+set h=m seek=0.01
+play sound=short as=sh pan=0.25
+play sound=claim as=c pan=-0.25
+mix frames=1500
+set h=v speed=1.5
+set h=l seek=3.9
+set h=s seek=100
+mix frames=900
+query h=l
+query h=m
+query h=u
+counts
+set h=l seek=4.55
+mix frames=4096
+set h=w seek=0.002
+mix frames=4096
+counts
+query h=l
+play sound=music as=m2
+play sound=music as=m3 volume=0.2
+mix frames=333
+stop_sound name=music
+counts
+mix frames=600

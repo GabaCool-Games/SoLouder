@@ -100,6 +100,7 @@ set(REFERENCE_TESTS
   queue_outlives_its_engine
   bus_moved_to_another_engine
   sources_and_engines_on_two_threads
+  flac_lpc_prediction_uses_64_bits
 )
 
 enable_testing()

@@ -35,7 +35,6 @@ are MIT, Apache-2.0, Zlib, Unicode-3.0 or CC0 variants; check again with `cargo 
 | `rtrb` 0.4 | `solouder-core`, `solouder-cpal` | MIT OR Apache-2.0 | Wait-free ring buffers between game and audio thread. |
 | `bevy` 0.20 (`std`, `bevy_asset`) | `bevy_solouder` | MIT OR Apache-2.0 | |
 | `stats_alloc` 0.1 | `solouder-core` tests only | MIT | Counts allocations in `realtime_no_alloc`. |
+| `symphonia` 0.6 (`flac`) | `solouder-decoders` | MPL-2.0 | FLAC demuxer and decoder, used unmodified as a library; MPL-2.0's copyleft covers changes to its own files only. |
 
-Symphonia 0.6 (MPL-2.0, file-level copyleft) is pinned in the workspace for
-the milestone E codecs but no crate depends on it now; WAV is decoded by
-first-party code.
+WAV is decoded by first-party code; Symphonia decodes FLAC.

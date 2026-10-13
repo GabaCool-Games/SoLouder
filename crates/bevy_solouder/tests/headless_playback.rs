@@ -216,6 +216,40 @@ fn streamed_wav_files_play_through_the_worker() {
 }
 
 #[test]
+fn flac_files_load_and_stream_through_the_asset_server() {
+    let mut app = headless_app();
+    let server = app.world().resource::<AssetServer>().clone();
+    let decoded = server.load("flac/s16_stereo_44100.flac");
+    let streamed: Handle<AudioClip> = server
+        .load_builder()
+        .with_settings(|settings: &mut WavSettings| settings.stream = true)
+        .load("flac/s32_mono_44100.flac");
+    let first = app.world_mut().spawn(SoundPlayer(decoded)).id();
+    let second = app.world_mut().spawn(SoundPlayer(streamed.clone())).id();
+    update_until(&mut app, |app| {
+        state(app, first) != PlaybackState::Loading && state(app, second) != PlaybackState::Loading
+    });
+    let clips = app.world().resource::<Assets<AudioClip>>();
+    assert_eq!(
+        clips.get(&streamed).unwrap().duration_seconds(),
+        1500.0 / 44100.0
+    );
+    for _ in 0..8 {
+        app.world_mut()
+            .resource_mut::<HeadlessStreamWorker>()
+            .service();
+        render(&mut app, 1024);
+    }
+    app.update();
+    for entity in [first, second] {
+        assert_eq!(
+            state(&app, entity),
+            PlaybackState::Finished(FinishReason::Ended)
+        );
+    }
+}
+
+#[test]
 fn a_bad_file_fails_the_player() {
     let mut app = headless_app();
     let clip = app
