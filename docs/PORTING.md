@@ -656,6 +656,52 @@ Checked against the gates below on 2026-10-12:
   400-line limit, the ledger check and the C++ regression tests pass
   (`check_all.py --reference --parity`).
 
+### Milestone E units
+
+Planned 2026-10-13, in mix-pipeline order (the source read first, panning
+last); each ends with passing scenarios, ledger rows and a commit:
+
+1. **Long-playback drift (#314):** measure a voice's position against the
+   analytic one over minutes of 44.1 → 48 kHz playback in the reference. A
+   real drift is fixed by a reference patch before later fixtures exist.
+2. **Streamed WAV, offline:** a streamed sound whose decoder (a Rust enum)
+   belongs to each voice; loading from a file, from memory and into memory,
+   length, seek, rewind, looping and loop points; queues accept streams.
+   Regressions for patches 0002, 0004, 0005 and 0009. The offline mixer
+   decodes inside the mix, as the reference does, so scenarios stay
+   bit-exact.
+3. **Streaming in real time:** decoding moves to a worker (one per output)
+   that fills a bounded PCM ring per streaming voice; prebuffering,
+   underflow silence counted in `Status`, seek and loop flushes tagged with
+   an epoch, decoders and files dropped on the worker; streamed Bevy assets.
+   Prebuffered renders match the offline mixer and do not allocate.
+4. **FLAC**, resident and streamed: Symphonia's decoder, bit-exact against
+   dr_flac; malformed-input fuzzing; more than 8 channels rejected (patch
+   0012).
+5. **Ogg Vorbis and MP3**, resident and streamed, with `Wav::load`'s format
+   detection (WAV, Ogg, FLAC, then MP3), file loading and Bevy loaders for
+   `.ogg`, `.flac` and `.mp3`. Lossy decoders differ from stb_vorbis and
+   dr_mp3, so these scenarios declare a measured tolerance; MP3 encoder
+   delay and padding must line up with dr_mp3.
+6. **3D core, offline:** listener and source state, attenuation models with
+   min/max distance and rolloff, listener-relative sources, speaker positions
+   and per-speaker gains for 1 to 8 channels, `update3dAudio` and its 0.001
+   inaudibility threshold, and `play3d` (first frame attenuated, #95; its
+   0.01 threshold; slot reuse, patch 0013).
+7. **Doppler, distance delay and the rest:** sound speed and Doppler factors,
+   Doppler composed with play speed (#98) and at extreme velocities (#97),
+   distance delay, `play3dClocked`, `Bus::play3d`, colliders and attenuators
+   (Rust traits; test subclasses in the C++ runner), and `LEFT_HANDED_3D`
+   (#94, #105; a reference patch only with the maintainer's agreement, since
+   a shipping game uses the flag).
+8. **3D in real time and in Bevy, then the review:** the controller runs the
+   3D math on the game thread, as the reference does outside its mixer, and
+   sends each voice's result in one batched command, so colliders never run
+   on the audio thread. Bevy listener and emitter components from
+   `GlobalTransform`, one listener, tested axes and handedness, and
+   velocities that survive zero time steps and teleports. An independent
+   review closes the milestone.
+
 Each milestone requires a compiling enabled feature set, passing tests, VSA
 review, Rust files at or below 400 lines, an updated ledger, and documented
 limitations. This plan is not a claim of existing support. Web/mobile need
