@@ -52,21 +52,22 @@ enum Parsed {
 /// Finds the next frame header, leaving the mark on its first byte. A
 /// header with a reserved value is passed over, as dr_flac does, and so is
 /// one whose checksum is wrong, which dr_flac as SoLoud builds it does not
-/// check. `None` at the end of the data.
+/// check; unlike dr_flac, the search resumes inside a rejected header, so
+/// that a frame starting there is still found. `None` at the end of the data.
 pub(super) fn next_header<R: Read + Seek>(bits: &mut Bits<R>, stream_bits: u32) -> Option<Header> {
+    bits.align();
     loop {
-        bits.align();
-        loop {
-            bits.set_mark();
-            if bits.read(8)? == 0xFF {
-                if bits.read(6)? == 0x3E {
-                    break;
-                }
-                bits.align();
-            }
+        bits.set_mark();
+        if bits.read(8)? != 0xFF {
+            continue;
         }
-        if let Parsed::Header(header) = parse(bits, stream_bits)? {
-            return Some(header);
+        if bits.read(6)? == 0x3E {
+            if let Some(Parsed::Header(header)) = parse(bits, stream_bits) {
+                return Some(header);
+            }
+            bits.back_to_mark(2);
+        } else {
+            bits.back_to_mark(1);
         }
     }
 }

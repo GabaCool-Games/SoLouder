@@ -52,10 +52,13 @@ impl<R: Read + Seek> Bits<R> {
     /// source has them.
     fn fill(&mut self, bytes: usize) -> bool {
         let want = (self.bit >> 3) + bytes;
+        if want - self.mark > FRAME_LIMIT {
+            return false;
+        }
         if want <= self.buf.len() {
             return true;
         }
-        if self.ended || want - self.mark > FRAME_LIMIT {
+        if self.ended {
             return false;
         }
         if self.mark > 0 {
@@ -97,11 +100,10 @@ impl<R: Read + Seek> Bits<R> {
         u64::from_be_bytes(self.buf[at..at + 8].try_into().unwrap_or_default())
     }
 
-    /// Whether `bits` more bits are in the data.
+    /// Whether `bits` more bits are in the data and within the frame limit.
     #[inline]
     fn has(&mut self, bits: usize) -> bool {
-        self.fill(((self.bit & 7) + bits + 7) >> 3);
-        self.bit + bits <= self.buf.len() << 3
+        self.fill(((self.bit & 7) + bits + 7) >> 3)
     }
 
     /// Reads `count` bits, 0 to 32, as an unsigned number.
@@ -180,8 +182,9 @@ impl<R: Read + Seek> Bits<R> {
         let mut i = 0;
         while i < out.len() {
             self.fill(4096);
+            let end = self.buf.len().min(self.mark + FRAME_LIMIT);
             let mut bit = self.bit;
-            while i < out.len() && (bit >> 3) + 8 <= self.buf.len() {
+            while i < out.len() && (bit >> 3) + 8 <= end {
                 let at = bit >> 3;
                 let bytes = self.buf[at..at + 8].try_into().unwrap_or_default();
                 // At least 57 bits of the word are left after the shift.

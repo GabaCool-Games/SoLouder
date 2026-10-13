@@ -177,6 +177,69 @@ fn stereo_decorrelation_follows_dr_flac() {
     );
 }
 
+#[test]
+fn rice_runs_match_single_rice_codes() {
+    let bytes = noise(20_000, 5);
+    for param in 0..=30 {
+        for offset in 0..8 {
+            let mut single = Bits::new(Cursor::new(bytes.clone()));
+            let mut run = Bits::new(Cursor::new(bytes.clone()));
+            single.read(offset);
+            run.read(offset);
+            let mut out = vec![0; 1000];
+            let ran = run.rice_run(param, &mut out);
+            let expected: Option<Vec<i32>> = (0..out.len())
+                .map(|_| single.rice(param).map(|v| v as i32))
+                .collect();
+            assert_eq!(
+                ran.map(|()| out),
+                expected,
+                "param {param}, offset {offset}"
+            );
+        }
+    }
+}
+
+#[test]
+fn a_frame_cannot_read_past_its_limit_even_from_the_buffer() {
+    let one_at = |at: usize| {
+        let mut bytes = vec![0; at + 1];
+        bytes[at] = 0x80;
+        let mut bits = Bits::new(Cursor::new(bytes));
+        bits.read(8);
+        bits.set_mark();
+        bits.unary()
+    };
+    assert_eq!(one_at(1_000), Some(999 * 8));
+    assert_eq!(one_at(16 * 1024 * 1024 + 101), None);
+}
+
+/// A mono, 16-bit, 44,100 Hz FLAC file of 512 frames in blocks of 512.
+fn mono_file(frames: &[u8]) -> Vec<u8> {
+    let mut bytes = b"fLaC\x80\x00\x00\x22\x02\x00\x02\x00".to_vec();
+    bytes.extend_from_slice(&[0; 6]);
+    bytes.extend_from_slice(&[0x0A, 0xC4, 0x40, 0xF0, 0x00, 0x00, 0x02, 0x00]);
+    bytes.extend_from_slice(&[0; 16]);
+    bytes.extend_from_slice(frames);
+    bytes
+}
+
+#[test]
+fn a_frame_starting_inside_a_rejected_header_is_found() {
+    // A constant frame of 1234, alone and after a header that fails its CRC-8.
+    let frame = [
+        0xFF, 0xF8, 0x90, 0x00, 0x00, 0x23, 0x00, 0x04, 0xD2, 0x9F, 0xFE,
+    ];
+    let rejected = [0xFF, 0xF8, 0x60, 0x00, 0xFE];
+    for prefix in [&[][..], &rejected, &[0xFF], &[0xFF, 0xFF]] {
+        let file = mono_file(&[prefix, &frame[..]].concat());
+        let mut file = FlacFile::open(Cursor::new(file)).unwrap();
+        let mut planes = Vec::new();
+        assert!(file.next_frame(|gap, p| planes.push((gap, p[0].to_vec()))));
+        assert_eq!(planes, [(0, vec![1234 << 16; 512])], "after {prefix:02X?}");
+    }
+}
+
 macro_rules! fixture {
     ($name:literal) => {
         include_bytes!(concat!(
