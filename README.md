@@ -2,7 +2,7 @@
 
 SoLouder is a native Rust port of the [SoLoud](https://github.com/jarikomppa/soloud)
 audio engine, with a Bevy plugin, carrying the fixes and extensions developed
-for the game GoreGrind.
+while shipping SoLoud in a Unity game.
 
 **SoLouder is an altered version of SoLoud. It is not the original SoLoud and
 is not affiliated with or endorsed by SoLoud's authors.** SoLoud was created by

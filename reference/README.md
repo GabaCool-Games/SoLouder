@@ -14,7 +14,7 @@ GitHub.
 ## Changing the reference
 
 1. Commit the change on a SoLoud branch that starts at the pinned commit
-   (currently the `goregrind` branch of the GoreGrind SoLoud fork, published as
+   (currently the working branch of the maintainer's SoLoud fork, published as
    `master` of [kelo221/soloud](https://github.com/kelo221/soloud)). Keep one
    fix per commit, and name the upstream issue or PR in the message. That
    branch also carries build scripts and a README after the code commits; pass

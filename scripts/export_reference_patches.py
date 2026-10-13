@@ -2,7 +2,7 @@
 """Regenerate reference/patches/ from a patched SoLoud git branch.
 
 Use this after committing a C++ reference fix in a SoLoud fork (for example
-the GoreGrind fork's `goregrind` branch). Every commit between the pinned
+the working branch of kelo221/soloud). Every commit between the pinned
 upstream commit and --ref becomes one patch file. Afterwards, run
 `python scripts/fetch_reference.py --force` and the reference tests.
 """

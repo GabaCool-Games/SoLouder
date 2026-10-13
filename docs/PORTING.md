@@ -5,7 +5,8 @@
 SoLouder ports the SoLoud audio engine to **native Rust**, with an idiomatic
 **Bevy plugin** for assets, playback, buses, filters, and spatial audio. It
 keeps SoLoud's mixing behavior without requiring the C++ library in the normal
-Rust build, and adds the fixes and extensions developed for GoreGrind.
+Rust build, and adds the fixes and extensions developed while shipping SoLoud
+in a Unity game.
 
 **Current status:** milestone D is done. This repository contains the
 patched C++ reference tooling (pinned upstream commit, patch series, fetch
@@ -61,7 +62,7 @@ it was exported from. Every path in this guide that starts with `include/`,
 `src/`, `contrib/` or `docsrc/` is relative to `reference/soloud/`.
 
 Change the reference only through patches. Make the change as a commit on a
-SoLoud branch (the GoreGrind fork's `goregrind` branch is the current source),
+SoLoud branch (the working branch of the kelo221/soloud fork is the current source),
 then run `python scripts/export_reference_patches.py <fork>` and the commands
 above. Each patch states its upstream issue or PR. C++ regression tests for
 reference fixes live in `reference/tests/regressions.cpp`, one test per fix,
@@ -345,8 +346,8 @@ unpatched reference, and each needs a matching Rust test.
 
 | Patch | Upstream | Fix | C++ test |
 |---|---|---|---|
-| 0001 | — (GoreGrind) | CoreAudio `AudioQueueRef` moved from a file-level static into per-engine `mBackendData`; deiniting one engine no longer stops every engine (macOS co-op mute). | — (macOS only) |
-| 0002 | #405, PR #379 | `WavStreamInstance::seek` tested the codec union member `mCodec.mOgg`, which is non-null for every live WAV/FLAC/MP3 decoder, so `stb_vorbis_seek` ran on a `drwav*`/`drflac*`/`drmp3*` and corrupted the heap at every loop wrap of a looping non-Ogg stream (GoreGrind crash). Gated on `mFiletype == WAVSTREAM_OGG`; other formats use generic seek. | covered by `wavstream_loop_channel_stride` |
+| 0001 | — (found in production) | CoreAudio `AudioQueueRef` moved from a file-level static into per-engine `mBackendData`; deiniting one engine no longer stops every engine (on macOS, every engine went silent). | — (macOS only) |
+| 0002 | #405, PR #379 | `WavStreamInstance::seek` tested the codec union member `mCodec.mOgg`, which is non-null for every live WAV/FLAC/MP3 decoder, so `stb_vorbis_seek` ran on a `drwav*`/`drflac*`/`drmp3*` and corrupted the heap at every loop wrap of a looping non-Ogg stream (a crash seen in production). Gated on `mFiletype == WAVSTREAM_OGG`; other formats use generic seek. | covered by `wavstream_loop_channel_stride` |
 | 0003 | — | Build only: CMake ≥ 3.5 (CMake 4 requires it), static MSVC runtime, `speech/Elements.def` header-only. | — |
 | 0004 | PR #379 | `WavStreamInstance::getAudio` wrote FLAC/MP3/WAV channels at stride `aSamplesToRead` instead of `aBufferSize`; the loop-wrap refill reads fewer frames than the stride, so channels ≥ 1 landed at the wrong offset. | `wavstream_loop_channel_stride` |
 | 0005 | PR #379 | `WavStreamInstance::hasEnded` ignored `LOOPING`. | `wavstream_looping_not_ended` |
@@ -355,12 +356,12 @@ unpatched reference, and each needs a matching Rust test.
 | 0008 | (found auditing #343) | A voice whose fixed-point step is zero (speed near zero, or a step beyond the fixed-point range) skipped resampling but was still panned, mixing the previous voice's scratch data into the output. Unwritten scratch is now zeroed. | `zero_step_voice_no_stale_scratch` |
 | 0009 | #392 | `AudioSourceInstance::seek` looped forever with less than one frame of scratch; it now rejects undersized scratch and stops on a non-positive count. | `generic_seek_small_scratch` |
 | 0010 | #345, #404, #324 | Stopping a voice before a successful init (or after init failed) walked a null `mResampleDataOwner`. The readers are guarded instead of resetting the cap (PR #345 resets it to 16 on every init, discarding a pre-init `setMaxActiveVoiceCount`). `postinit_internal` no longer leaks the previous arrays. | `play_stop_without_init`, `play_after_failed_init` |
-| 0011 | — (GoreGrind) | `mapResampleBuffers_internal` used `char live[256]` guarded by `SOLOUD_ASSERT(mMaxActiveVoices < 256)`, while `setMaxActiveVoiceCount` accepts up to 1023. On MSVC the assert is a `__debugbreak` even in release builds (why GoreGrind capped at 255); without asserts it overran the stack. Sized by `VOICE_COUNT`. | `active_voice_cap_above_255` |
+| 0011 | — (found in production) | `mapResampleBuffers_internal` used `char live[256]` guarded by `SOLOUD_ASSERT(mMaxActiveVoices < 256)`, while `setMaxActiveVoiceCount` accepts up to 1023. On MSVC the assert is a `__debugbreak` even in release builds (why the shipping game capped at 255); without asserts it overran the stack. Sized by `VOICE_COUNT`. | `active_voice_cap_above_255` |
 | 0012 | #401, #317 | Decoder metadata validation: `Wav` WAV/FLAC/MP3 overflowed `float tmp[512 * MAX_CHANNELS]` with more than 8 channels and truncated 64-bit frame counts when allocating; `Wav::loadogg` accepted length 0 and could copy past the reported length; `WavStream` FLAC/MP3/WAV clamped `mChannels` but still decoded every channel into the fixed block. Invalid layouts are rejected, allocation is `nothrow`, short reads are zero-filled. | `wav_rejects_too_many_channels`, `wavstream_rejects_too_many_channels` |
 | 0013 | #361 | `AudioSourceInstance3dData::init` kept the previous voice's 3D flags; `play3d` in a slot last used by a listener-relative voice started at volume 1.0 instead of 1/99 at 99 units. | `play3d_reused_slot_flags` |
 | 0014 | PR #375 | `Wav` and `WavStream` are non-copyable (implicit copies double-freed owned buffers). | compile-time |
-| 0015 | — | Build only: `SOLOUD_BACKEND_MINIAUDIO` CMake option (GoreGrind's Linux library uses MiniAudio, which loads ALSA/PulseAudio/JACK at run time). | — |
-| 0016 | — (GoreGrind) | The MiniAudio backend kept one global `ma_device`: a second engine re-initialized the device the first was playing on, and deiniting any engine stopped all of them. The device is now per engine in `mBackendData`, as in 0001. | — (device only; checked with two engines on a PulseAudio null sink) |
+| 0015 | — | Build only: `SOLOUD_BACKEND_MINIAUDIO` CMake option (the shipped Linux library uses MiniAudio, which loads ALSA/PulseAudio/JACK at run time). | — |
+| 0016 | — (found in production) | The MiniAudio backend kept one global `ma_device`: a second engine re-initialized the device the first was playing on, and deiniting any engine stopped all of them. The device is now per engine in `mBackendData`, as in 0001. | — (device only; checked with two engines on a PulseAudio null sink) |
 | 0017 | — | Build only: the static MSVC runtime (from 0003) is opt-in through `SOLOUD_MSVC_STATIC_RUNTIME`, so static-library users keep upstream's `/MD`. | — |
 | 0018 | — (found porting milestone B) | The SSE 1→2 and 2→2 paths in `panAndExpand` multiplied the per-frame gain step by 4 for the four-frame loop and reused it, restarting from the initial gain, for the frames left over when a mix call is not a multiple of 4 frames. A volume or pan change then overshot at the end of the call (4/3 of the target in a 6-frame call). | `pan_ramp_leftover_frames` |
 | 0019 | — (found porting milestone B) | `panAndExpand` 6→4 and 8→4 added the center/LFE fold-down to the front pair without the speaker gain, so a voice at volume 0 was audible; 4→8 scaled the rear pair by the side speakers' gains (different under 3D). | `surround_to_quad_center_follows_volume`, `quad_to_7_1_rear_uses_rear_volume` |
@@ -369,13 +370,13 @@ unpatched reference, and each needs a matching Rust test.
 | 0022 | #343 | With a step of 512 source frames or more per output frame (for example speed 600 at equal rates), no output frame fits in a block, so the resampling loop loaded block after block forever and `mix` never returned. The old guard only caught steps above 4096, and the inaudible-tick branch had none. Such steps (and NaN) now take the stopped-voice path (step 0) in both branches. | `extreme_speed_makes_progress` |
 | 0023 | — (found in the milestone C review) | `setProtectVoice` changed the flag without marking the active voice set dirty, so a newly protected voice stayed unmixed (and an unprotected one kept its place) until an unrelated play, stop, pause or volume change recomputed the set. | `protecting_a_voice_makes_it_active` |
 | 0024 | — (related to #76) | A non-looping voice was stopped at the end of the mix call in which its source reported the end, which happens once the last block is read, not played. When the call ended partway through that block (any device buffer not a multiple of 512 frames, such as WASAPI's, or any resampling) the rest was dropped with a click: up to one source block, 600 frames of a 1000-frame sound at speed 0.73 in 256-frame calls. A voice now records the real samples in its newest block and stops once the position has passed them by the resamplers' two-frame history; a voice that cannot advance still stops when its source ends. | `sound_tail_survives_unaligned_mix_calls` |
-| 0025 | — (found testing GoreGrind's libraries) | `AudioSource::mSoloud` kept pointing at the last engine a sound was played on. Stopping or destroying the sound after that engine was destroyed used freed memory (it hung on the freed mutex); a sound played on two engines was stopped only on one, so destroying it left the other voice reading freed samples; sound IDs were counted per engine, so stopping one sound could stop another first played on a different engine. Engines are now in a process-wide list: `AudioSource::stop` stops the sound on every live engine, `~Soloud` leaves the list first, and IDs are process-wide. `BusInstance` keeps its own engine, and bus and queue instances clear their parent's pointer and handle when destroyed, so `Bus` and `Queue` calls after their engine is gone do nothing; playing one again on any engine moves it. An engine's audio mutex lives as long as the engine and `postinit_internal` holds it, since another thread may stop a sound on an engine being initialized. `SINGLE_INSTANCE` stops only on the engine playing the sound. Still open upstream: a sound destroyed while queued in a `Queue`, and `DuckFilter`'s engine pointer. | `source_outlives_its_engine`, `source_stops_on_every_engine`, `source_ids_unique_across_engines`, `bus_outlives_its_engine`, `queue_outlives_its_engine`, `bus_moved_to_another_engine`, `sources_and_engines_on_two_threads` |
+| 0025 | — (found testing the shipped libraries) | `AudioSource::mSoloud` kept pointing at the last engine a sound was played on. Stopping or destroying the sound after that engine was destroyed used freed memory (it hung on the freed mutex); a sound played on two engines was stopped only on one, so destroying it left the other voice reading freed samples; sound IDs were counted per engine, so stopping one sound could stop another first played on a different engine. Engines are now in a process-wide list: `AudioSource::stop` stops the sound on every live engine, `~Soloud` leaves the list first, and IDs are process-wide. `BusInstance` keeps its own engine, and bus and queue instances clear their parent's pointer and handle when destroyed, so `Bus` and `Queue` calls after their engine is gone do nothing; playing one again on any engine moves it. An engine's audio mutex lives as long as the engine and `postinit_internal` holds it, since another thread may stop a sound on an engine being initialized. `SINGLE_INSTANCE` stops only on the engine playing the sound. Still open upstream: a sound destroyed while queued in a `Queue`, and `DuckFilter`'s engine pointer. | `source_outlives_its_engine`, `source_stops_on_every_engine`, `source_ids_unique_across_engines`, `bus_outlives_its_engine`, `queue_outlives_its_engine`, `bus_moved_to_another_engine`, `sources_and_engines_on_two_threads` |
 | 0026 | — (found porting milestone D) | `setInaudibleBehavior` changed the ticking flag, which decides which voices are active, without marking the active set dirty (the defect of 0023). | `ticking_a_voice_makes_it_active` |
 | 0027 | — (found porting milestone D) | `setSamplerate` accepts any rate, and a negative one made the fixed-point step a huge unsigned value: no output frame was ever written and `mix` hung. A negative step now takes the stopped-voice path, like the steps of 0022. | `negative_sample_rate_renders_silence` |
 | 0028 | — (found porting milestone B) | `AudioSourceInstance::seek` turned seconds into frames at `mSamplerate`, which includes the relative play speed, while `mStreamPosition` counts seconds of source: at speed 2, `Soloud::seek` and every loop wrap to a loop point went twice as far. It now uses `mBaseSamplerate`, as `WavStreamInstance::seek` does for Ogg. | `seek_ignores_play_speed` |
 | 0029 | — (found porting milestone B) | The loop wrap seeks with `mScratch` as its discard buffer, but `mScratch` then holds the frames of the voice resampled earlier in the same mix call. Any loop point above 0 replaced those frames (the rest of the previous block, up to 511 frames) with discarded source audio. The wrap now has a scratch of its own. | `loop_point_keeps_earlier_frames` |
 | 0030 | — (found porting milestone B) | `soloud.h` defines `M_PI` as `3.14159265359` when `<math.h>` has none (MSVC), but glibc's is exact, so every use (the pan law, 3D, filters, generators) differed between Windows and Linux; a hard-panned voice leaked about 1e-12 into the other side on Windows. The fallback now has full precision. | `hard_pan_is_silent_on_the_far_side` |
-| 0031 | — (GoreGrind) | Voice filters run at the voice's own rate, which falls with its play speed. `BiquadResonantFilter` at or above that rate's Nyquist frequency put its poles outside the unit circle, and its output grew to infinity and NaN, which then poisoned the whole mix. The frequency is limited to 0.49 times the rate (NaN included) when the coefficients are computed; the parameter keeps its value. | `biquad_above_voice_nyquist_stays_finite` |
+| 0031 | — (found in production; the cause of a game's NaN audio) | Voice filters run at the voice's own rate, which falls with its play speed. `BiquadResonantFilter` at or above that rate's Nyquist frequency put its poles outside the unit circle, and its output grew to infinity and NaN, which then poisoned the whole mix. The frequency is limited to 0.49 times the rate (NaN included) when the coefficients are computed; the parameter keeps its value. | `biquad_above_voice_nyquist_stays_finite` |
 | 0032 | — (found porting milestone D) | `LofiFilterInstance` kept state for 2 channels but filtered up to 8, so channels 2 to 7 read and wrote past the instance. State now covers `MAX_CHANNELS`. | `lofi_filters_eight_channels` |
 | 0033 | — (found porting milestone D) | An `EchoFilter` delay set or faded to 0 (or below one frame) made the delay line 0 frames long: `% 0` crashed with a division by zero. The line is at least one frame. | `echo_with_zero_delay_survives` |
 | 0034 | — (found porting milestone D) | `WaveShaperFilter` accepts amounts down to -1, where the curve's denominator `1 + k|x|` is 0 at `|x| = 1` (0 / 0 gives NaN) and negative beyond `-1 / k` for other negative amounts. Past the pole the output is 0. | `waveshaper_minimum_amount_is_finite` |
@@ -398,15 +399,15 @@ unpatched reference, and each needs a matching Rust test.
 | 0051 | — (found reviewing milestone D) | `Fader::setLFO` made the half range positive and centred the oscillation on `aFrom` plus it, so `oscillate*` from a higher value to a lower one ran between `aFrom` and `aFrom + abs(aTo - aFrom)`: a volume oscillation from 1 to 0 reached 2. The half range keeps its sign, so the oscillation runs between the two values and moves toward `aTo` first; oscillations upward are unchanged. | `lfo_from_above_to_stays_in_range` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
-(`master`, pushed from the `goregrind` branch). Its README lists every fix with
-credits. Commits after 0017 on `goregrind` add build scripts and that README,
+(`master`, pushed from the maintainer's working branch). Its README lists every
+fix with credits. Commits after 0017 on that branch add build scripts and that README,
 so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
-`--ref solouder-reference`, and cherry-picked onto `goregrind`. Patches 0018 to
+`--ref solouder-reference`, and cherry-picked onto the working branch. Patches 0018 to
 0050 were pushed on 2026-10-12 (public `master` at `7b91e3b`), and 0051 after
 them.
 
-GoreGrind's native libraries are built from the same branch: Windows with
+The shipped native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
 `build_linux.sh` (MiniAudio, Null; built in Ubuntu 20.04 so it needs at most
 glibc 2.29), and macOS with `build_macos.sh` (CoreAudio, Null; universal
@@ -423,7 +424,7 @@ fixes are welcome as new patches.
 | #396 (reported), #156 | `WavStreamInstance::seek` fallback | Non-Ogg streams seek by rewind + decode-and-discard, which is O(seek distance). Upstream reports seeking a stream handle silently kills it. | Per-codec seek with defined accuracy; test seek while playing and while paused. PR #336 is a native-seek reference. |
 | — (found 2026-10-12) | `Soloud::mix`, `Soloud::mixSigned16` | No bound on the frame count: a request for more frames than the scratch buffer holds (at least 4096, or the buffer size rounded up to 16) writes past `mScratch`. Parity scenarios stay at or below 4096 frames. | Done: `Mixer::mix_interleaved` renders long requests in passes of at most the scratch size (`mix_without_sources_is_silent`, `split_mixes_match_one_mix`). |
 | — (found 2026-10-12) | `Queue::play`, `QueueInstance::getAudio` | A queued sound is an instance that reads its `Wav`'s samples; destroying the `Wav` while it is queued stops only its own voices, so the queue later reads freed memory. Queued instances are also never freed: `QueueInstance::getAudio` deletes the ones it finishes, but `Queue` has no destructor, so whatever is still queued leaks. | Done: a queued `Sound` holds its `Pcm`, and dropped queue entries go through retirement like ended voices (scenario `queues`). |
-| #307, #241 | `Soloud::deinit`, `Soloud::~Soloud` | `SOLOUD_ASSERT(!mInsideAudioThreadMutex)` in `deinit` can fire at shutdown; ordering of `stopAll` versus backend teardown. | `Drop` is safe in every state; test repeated init/teardown. See the GoreGrind shutdown lesson below. |
+| #307, #241 | `Soloud::deinit`, `Soloud::~Soloud` | `SOLOUD_ASSERT(!mInsideAudioThreadMutex)` in `deinit` can fire at shutdown; ordering of `stopAll` versus backend teardown. | `Drop` is safe in every state; test repeated init/teardown. See the shutdown lesson below. |
 
 Also reported upstream and worth a test once the feature is ported: #274
 (intelligibility with many voices), #351 (many plays into a bus starting late),
@@ -475,12 +476,10 @@ These fixes were already upstream; Rust must not reintroduce them.
 - **#136, #238:** `play`, `play3d`, and volume changes while paused set the
   current channel volume to its target instead of ramping from silence.
 
-### Lessons from the GoreGrind Unity integration
+### Lessons from a Unity integration
 
-The game uses the patched DLL through C# bindings
-(`F:\GoreGrind\Assets\Scripts\Audio\SoLoudRuntime`; crash analysis in
-`F:\GoreGrind\Assets\Plans\fix-soloud-quit-crash.md` and
-`soloud-playmode-exit-crash-fix.md`). Findings that constrain the Rust design:
+A Unity game ships the patched libraries through C# bindings. Its crash
+analyses gave these findings, which constrain the Rust design:
 
 - **Shutdown crashed in `Soloud_deinit`.** `stopAll` only flags voices; the
   device thread keeps mixing while `deinit` frees filter instances. The game
@@ -495,7 +494,7 @@ The game uses the patched DLL through C# bindings
   an engine is destroyed, and `~AudioSource` stopped voices only on the last
   engine that played it. The game "abandons" sources rather than destroying
   them at exit; patch 0025 makes destroying them safe. Rust: no source-to-engine pointers; voices hold `Arc` PCM.
-- **One engine per listener** (two for co-op) exposed process-global backend
+- **One engine per listener** (sometimes two at once) exposed process-global backend
   state (patch 0001). Rust: device state is per engine.
 - **Filters can produce NaN.** Source filters run at the voice's rate before
   resampling, so a slowed voice can push a biquad cutoff above Nyquist; the
@@ -598,7 +597,7 @@ belong to the milestone that introduces the affected behavior:
   moved to D with inaudible behavior
   (`ticking_voices_over_the_active_cap_still_get_resample_blocks`).
 - **C:** init failure, repeated init/teardown, and callback-before-state
-  shutdown order (patch 0010, #307, GoreGrind teardown lessons). Done:
+  shutdown order (patch 0010, #307, the Unity teardown lessons). Done:
   `device_lifecycle` (`repeated_open_play_close`,
   `dropping_while_playing_stops_cleanly`, `two_outputs_run_independently`,
   `invalid_voice_count_fails_before_touching_the_device`), `plugin_lifecycle`

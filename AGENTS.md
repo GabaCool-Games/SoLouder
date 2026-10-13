@@ -35,6 +35,6 @@ defects, milestones) and [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
   `reference/tests/parity_runner.cpp` and `crates/solouder-parity/src/run.rs`
   with identical validation, and into the table in
   `tests/scenarios/README.md`.
-- Do not mention GoreGrind in anything published from this repository without
-  asking the maintainer first.
+- Do not name the game the reference fixes came from, or its features, in
+  anything published from this repository without asking the maintainer first.
 - Before finishing: `python scripts/check_all.py --reference --parity`.
