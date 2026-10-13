@@ -676,11 +676,34 @@ last); each ends with passing scenarios, ledger rows and a commit:
    mixer decodes inside the mix, as the reference does, so scenarios stay
    bit-exact; the real-time controller refuses streams until unit 3, and
    queues accepting streams moved there too.
-3. **Streaming in real time:** queues accept streams; decoding moves to a worker (one per output)
+3. **Streaming in real time:** decoding moves to a worker (one per output)
    that fills a bounded PCM ring per streaming voice; prebuffering,
    underflow silence counted in `Status`, seek and loop flushes tagged with
    an epoch, decoders and files dropped on the worker; streamed Bevy assets.
-   Prebuffered renders match the offline mixer and do not allocate.
+   Prebuffered renders match the offline mixer and do not allocate. In
+   three steps, each committed on its own:
+   - **3a, feeds:** `split` also makes a `StreamWorker` (taken once from the
+     controller; the application runs it on a thread, tests call
+     `service()`). Playing a `Stream` through the `Controller` makes a
+     *feed*: a pool of fixed-size chunks (one block of frames each, allocated
+     on the game thread), a ring of full chunks to the audio thread and one
+     of empty chunks back. The worker opens the reader, fills chunks in
+     order and stamps each with its epoch and first source frame; at the end
+     of the audio it marks the short chunk and, when the voice loops,
+     carries on from the loop point's frame, so a loop wrap finds its audio
+     waiting. A seek on the audio thread (a loop wrap included) whose target
+     frame is the next chunk's start continues; any other bumps the epoch,
+     returns the queued chunks and asks the worker for the frame. A voice
+     whose feed has not filled yet waits silently without advancing
+     (prebuffering); one whose feed runs dry plays silence without
+     advancing and counts the frames in `Status`. Looping and loop-point
+     changes reach the worker through the feed's atomics. An ended voice's
+     feed goes back to the controller with the voice, and the worker drops
+     the reader (and its file) once it sees the feed closed.
+   - **3b, queued streams:** `Queue::play` and `Controller::queue_play`
+     accept streams, offline and through feeds.
+   - **3c, Bevy:** streamed assets play through the worker, which the
+     plugin runs on its own thread.
 4. **FLAC**, resident and streamed: Symphonia's decoder, bit-exact against
    dr_flac; malformed-input fuzzing; more than 8 channels rejected (patch
    0012).
