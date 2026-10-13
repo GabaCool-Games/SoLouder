@@ -11,7 +11,7 @@ use std::sync::Arc;
 
 use solouder_core::{StreamFormat, StreamReader, StreamSource};
 
-use super::flac_reader::{FlacReader, Reopen};
+use super::flac_reader::{FlacReader, Source};
 use super::wav_reader::WavReader;
 use crate::DecodeError;
 use crate::features::decoded_audio::flac::FlacFile;
@@ -99,11 +99,11 @@ impl WavStream {
         Self::from_bytes(bytes)
     }
 
-    fn open_flac(&self, mut reopen: Reopen) -> Option<Box<dyn StreamReader>> {
-        let file = reopen()?;
+    fn open_flac(&self, source: Box<dyn Source>) -> Option<Box<dyn StreamReader>> {
+        let file = FlacFile::open(source).ok()?;
         let same = (file.channels, file.sample_rate as f32)
             == (self.format.channels, self.format.sample_rate);
-        same.then(|| Box::new(FlacReader::new(file, reopen)) as Box<dyn StreamReader>)
+        same.then(|| Box::new(FlacReader::new(file)) as Box<dyn StreamReader>)
     }
 }
 
@@ -131,7 +131,7 @@ fn wav_format(layout: Layout) -> Result<(Kind, StreamFormat), DecodeError> {
     Ok((Kind::Wav(layout), format))
 }
 
-fn flac_format(file: FlacFile<'_>) -> Result<(Kind, StreamFormat), DecodeError> {
+fn flac_format<R>(file: FlacFile<R>) -> Result<(Kind, StreamFormat), DecodeError> {
     let format = StreamFormat {
         channels: file.channels,
         sample_rate: file.sample_rate as f32,
@@ -153,10 +153,7 @@ impl StreamSource for WavStream {
                 Some(Box::new(reader))
             }
             (Origin::Memory(bytes), Kind::Flac) => {
-                let bytes = Arc::clone(bytes);
-                self.open_flac(Box::new(move || {
-                    FlacFile::open(Cursor::new(Arc::clone(&bytes))).ok()
-                }))
+                self.open_flac(Box::new(Cursor::new(Arc::clone(bytes))))
             }
             (Origin::File(path), Kind::Wav(expected)) => {
                 let mut file = File::open(path).ok()?;
@@ -175,11 +172,7 @@ impl StreamSource for WavStream {
                 if !flac {
                     return None;
                 }
-                self.open_flac(Box::new(move || {
-                    let mut handle = file.try_clone().ok()?;
-                    handle.seek(SeekFrom::Start(0)).ok()?;
-                    FlacFile::open(handle).ok()
-                }))
+                self.open_flac(Box::new(file))
             }
         }
     }

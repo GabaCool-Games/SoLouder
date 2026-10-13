@@ -4,27 +4,27 @@
 //! One voice's reader of a FLAC stream (`WavStreamInstance` with dr_flac).
 
 use std::fmt;
+use std::io::{Read, Seek};
 
 use solouder_core::StreamReader;
 
 use crate::features::decoded_audio::convert;
 use crate::features::decoded_audio::flac::FlacFile;
 
-/// Opens the voice's file again at its start: its bytes in memory, or the
-/// file it opened, through a second handle.
-pub(crate) type Reopen = Box<dyn FnMut() -> Option<FlacFile<'static>> + Send>;
+/// What a voice reads a FLAC stream from: the file it opened, or the bytes.
+pub(crate) trait Source: Read + Seek + Send {}
+
+impl<T: Read + Seek + Send> Source for T {}
 
 /// Decodes a FLAC file a FLAC frame at a time, converting as
 /// [`decode_flac`](crate::decode_flac) does. Reads continue past the length
 /// STREAMINFO declares, as dr_flac's do; the voice ends at that length.
 ///
-/// Rewinding reads the file again from its start, and skipping decodes and
-/// discards, as SoLoud's generic seek does: Symphonia's FLAC seek panics on
-/// some damaged seek tables. Frames that failed to decode are silent, up to
+/// Rewinding goes back to the first FLAC frame, as dr_flac does, and
+/// skipping decodes and discards, as SoLoud's generic seek does. Frames that failed to decode are silent, up to
 /// the declared length (or one FLAC frame when no length is declared).
 pub(crate) struct FlacReader {
-    file: FlacFile<'static>,
-    reopen: Reopen,
+    file: FlacFile<Box<dyn Source>>,
     channels: usize,
     /// The decoded FLAC frame, planar with a stride of `stride`.
     block: Vec<f32>,
@@ -41,13 +41,12 @@ pub(crate) struct FlacReader {
 }
 
 impl FlacReader {
-    /// A reader at the first frame of `file`, which `reopen` opens again.
-    pub fn new(file: FlacFile<'static>, reopen: Reopen) -> Self {
+    /// A reader at the first frame of `file`.
+    pub fn new(file: FlacFile<Box<dyn Source>>) -> Self {
         let channels = file.channels as usize;
         let stride = file.max_block;
         Self {
             file,
-            reopen,
             channels,
             block: vec![0.0; channels * stride],
             stride,
@@ -139,17 +138,11 @@ impl StreamReader for FlacReader {
         self.take(Some((out, stride)), frames)
     }
 
-    /// Fails if the file cannot be read again or no longer has the same
-    /// layout.
+    /// Fails if the file can no longer seek.
     fn rewind(&mut self) -> bool {
-        let Some(file) = (self.reopen)() else {
-            return false;
-        };
-        let layout = |f: &FlacFile<'_>| (f.channels, f.sample_rate, f.max_block);
-        if layout(&file) != layout(&self.file) {
+        if !self.file.rewind() {
             return false;
         }
-        self.file = file;
         self.block_len = 0;
         self.block_read = 0;
         self.silence = 0;

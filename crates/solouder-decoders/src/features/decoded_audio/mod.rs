@@ -7,7 +7,6 @@ pub(crate) mod convert;
 mod detect;
 mod error;
 pub(crate) mod flac;
-mod flac_source;
 pub(crate) mod riff;
 mod wav;
 

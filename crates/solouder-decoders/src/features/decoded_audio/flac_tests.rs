@@ -24,7 +24,7 @@ fn tone() -> Vec<f32> {
 
 #[test]
 fn decodes_every_layout() {
-    let cases: [(&[u8], u32, u32, f32); 9] = [
+    let cases: [(&[u8], u32, u32, f32); 10] = [
         (fixture!("s16_stereo_44100.flac"), 2, 5108, 44100.0),
         (fixture!("s24_mono_48000.flac"), 1, 9192, 48000.0),
         (fixture!("s8_quad_8000.flac"), 4, 1500, 8000.0),
@@ -33,6 +33,7 @@ fn decodes_every_layout() {
         (fixture!("s16_7.1_32000_metadata.flac"), 8, 1200, 32000.0),
         (fixture!("s32_mono_44100.flac"), 1, 1500, 44100.0),
         (fixture!("s28_stereo_44100.flac"), 2, 1500, 44100.0),
+        (fixture!("s32_stereo_44100.flac"), 2, 4572, 44100.0),
         (
             fixture!("s16_mono_44100_variable_equal.flac"),
             1,
@@ -78,6 +79,19 @@ fn a_frame_that_fails_its_checksum_is_silent() {
     assert_eq!(samples[..1024], tone[..1024]);
     assert!(samples[1024..2048].iter().all(|&s| s == 0.0));
     assert_eq!(samples[2048..], tone[2048..]);
+}
+
+/// dr_flac as SoLoud builds it does not check header checksums either; a
+/// header that fails is not taken for a frame, and its frame is silent.
+#[test]
+fn a_frame_header_that_fails_its_checksum_is_silent() {
+    let tone = tone();
+    let pcm = decode_default(fixture!("bad_crc8_s16_mono_44100.flac")).unwrap();
+    let samples = pcm.channel(0);
+    assert_eq!(samples.len(), 4096);
+    assert_eq!(samples[..2048], tone[..2048]);
+    assert!(samples[2048..3072].iter().all(|&s| s == 0.0));
+    assert_eq!(samples[3072..], tone[3072..]);
 }
 
 #[test]
@@ -134,18 +148,19 @@ fn an_unknown_length_and_bad_headers_are_rejected() {
     assert!(decode_default(b"").is_err());
 }
 
-/// Symphonia overflows on the first frame; builds with overflow checks
-/// panic, which counts as a damaged frame, and other builds wrap as dr_flac
-/// does. The next frame decodes either way.
+/// The first frame's mid and side channels are far beyond 16 bits. The
+/// arithmetic wraps in 32 bits as dr_flac's scalar code does, in every
+/// build, and shifting the wrapped samples into place leaves nothing of
+/// them. (dr_flac's SSE2 code, which x64 runs on most of a 16-bit stereo
+/// read, keeps eight more bits, so the C++ output depends on its reads.)
+/// The next frame decodes.
 #[test]
-fn arithmetic_overflow_does_not_panic() {
+fn arithmetic_overflow_wraps_as_dr_flac_does() {
     let pcm = decode_default(fixture!("bad_overflow_s16_stereo_44100.flac")).unwrap();
     assert_eq!(pcm.frames(), 8192);
     for channel in 0..2 {
         let samples = pcm.channel(channel);
-        if cfg!(debug_assertions) {
-            assert!(samples[..4096].iter().all(|&s| s == 0.0));
-        }
+        assert!(samples[..4096].iter().all(|&s| s == 0.0));
         assert!(samples[4096..].iter().all(|s| (-1.0..1.0).contains(s)));
         assert!(samples[4096..].iter().any(|&s| s != 0.0));
     }

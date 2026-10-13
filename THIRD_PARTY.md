@@ -13,7 +13,7 @@ None of this code has been translated. The C++ reference checkout under
 | Ogg Vorbis decoding | `src/audiosource/wav/stb_vorbis.c` | stb_vorbis by Sean Barrett, public domain | Not translated; use a maintained Rust decoder |
 | MP3 decoding | `src/audiosource/wav/dr_mp3.h` | dr_mp3 by David Reid, Unlicense (based on minimp3, CC0) | Not translated |
 | WAV decoding | `src/audiosource/wav/dr_wav.h` | dr_wav by David Reid, Unlicense | Not translated; `solouder-decoders` has its own RIFF reader and reuses dr_wav's conversion formulas and G.711 tables (credited in `convert.rs`) |
-| FLAC decoding | `src/audiosource/wav/dr_flac.h` | dr_flac by David Reid, Unlicense | Not translated |
+| FLAC decoding | `src/audiosource/wav/dr_flac.h` | dr_flac by David Reid, Unlicense or MIT No Attribution | Decoding path ported to `solouder-decoders` (`decoded_audio/flac/`), credited in its files |
 | Freeverb | `src/filter/soloud_freeverbfilter.cpp` | Jezar at Dreampoint, public domain (original release, not GPL Freeverb3) | Port with attribution |
 | FFT | `src/core/soloud_fft.cpp` | Based on fftreal by Laurent de Soras, WTFPL | Port with attribution |
 | Sfxr | `src/audiosource/sfxr/` | Tomas Pettersson, relicensed to zlib by permission | Port; keep the zlib notice and permission note |
@@ -35,6 +35,5 @@ are MIT, Apache-2.0, Zlib, Unicode-3.0 or CC0 variants; check again with `cargo 
 | `rtrb` 0.4 | `solouder-core`, `solouder-cpal` | MIT OR Apache-2.0 | Wait-free ring buffers between game and audio thread. |
 | `bevy` 0.20 (`std`, `bevy_asset`) | `bevy_solouder` | MIT OR Apache-2.0 | |
 | `stats_alloc` 0.1 | `solouder-core` tests only | MIT | Counts allocations in `realtime_no_alloc`. |
-| `symphonia` 0.6 (`flac`) | `solouder-decoders` | MPL-2.0 | FLAC demuxer and decoder, used unmodified as a library; MPL-2.0's copyleft covers changes to its own files only. |
 
-WAV is decoded by first-party code; Symphonia decodes FLAC.
+WAV and FLAC are decoded by first-party code.

@@ -1,5 +1,6 @@
 # FLAC files decoded by SoLoud's Wav::load (dr_flac) and by solouder-decoders:
-# 8, 12, 16, 20, 24, 28 and 32-bit samples, 1 to 8 channels, every subframe
+# 8, 12, 16, 20, 24, 28 and 32-bit samples (32-bit stereo with dr_flac's
+# 33-bit side quirks), 1 to 8 channels, every subframe
 # type and stereo decorrelation, both residual codings with escaped
 # partitions, wasted bits, variable block sizes (also all of one size) and
 # metadata blocks to skip;
@@ -25,6 +26,8 @@ load name=s32 file=flac/s32_mono_44100.flac
 samples name=s32
 load name=s28 file=flac/s28_stereo_44100.flac
 samples name=s28
+load name=s32s file=flac/s32_stereo_44100.flac
+samples name=s32s
 load name=equal file=flac/s16_mono_44100_variable_equal.flac
 samples name=equal
 load name=crc file=flac/bad_crc_s16_mono_44100.flac

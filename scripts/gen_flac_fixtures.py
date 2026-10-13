@@ -274,7 +274,7 @@ def frame(channels: list[list[int]], start: int, index: int, info: dict, spec: d
         header += struct.pack(">H", rate)
     elif rate_code == 14:
         header += struct.pack(">H", rate // 10)
-    header += bytes([crc8(header)])
+    header += bytes([crc8(header) ^ (0x55 if spec.get("bad_crc8") else 0)])
 
     bits = Bits()
     subframes = list(channels)
@@ -410,6 +410,19 @@ def fixtures() -> dict[str, bytes]:
               {"frames": 476, "mode": MID_SIDE, "subframes": [{"type": "fixed", "order": 2, "method": 1}]}]
     files["s28_stereo_44100.flac"] = flac({"rate": 44100, "bits": 28, "variable": False}, [left, right], blocks)
 
+    # 32-bit stereo in every stereo mode, with 33-bit side subframes: some
+    # verbatim, so that dr_flac's 33-bit reads cross its 64-bit cache lines
+    # at every offset. The last two frames are loud, left and right opposed,
+    # where dr_flac's mid/side arithmetic wraps in 32 bits.
+    left = signal(3072, 30, 53, "wave") + signal(1500, 32, 54, "wave")
+    right = signal(3072, 30, 55, "wave") + [min(-v, (1 << 31) - 1) for v in left[3072:]]
+    blocks = [{"frames": 1024, "mode": LEFT_SIDE, "subframes": [{"type": "fixed", "order": 2, "method": 1}]},
+              {"frames": 1024, "mode": RIGHT_SIDE, "subframes": [{"type": "verbatim"}]},
+              {"frames": 1024, "mode": MID_SIDE, "subframes": [{"type": "fixed", "order": 1, "method": 1}]},
+              {"frames": 1024, "mode": MID_SIDE, "subframes": [{"type": "verbatim"}]},
+              {"frames": 476, "mode": LEFT_SIDE, "subframes": [{"type": "verbatim"}]}]
+    files["s32_stereo_44100.flac"] = flac({"rate": 44100, "bits": 32, "variable": False}, [left, right], blocks)
+
     # Variable block sizes that happen to be equal: STREAMINFO gives one size.
     equal = signal(3072, 16, 75, "wave")
     blocks = [{"frames": 1024, "subframes": [{"type": "fixed", "order": 2}]} for _ in range(3)]
@@ -422,7 +435,7 @@ def fixtures() -> dict[str, bytes]:
     files["s8_mono_8000_long.flac"] = flac({"rate": 8000, "bits": 8, "variable": False}, [long], blocks)
 
     # Damaged and unusual files.
-    left = signal(4096, 16, 60, "wave")
+    left = left16 = signal(4096, 16, 60, "wave")
     blocks = [{"frames": 1024, "subframes": [{"type": "fixed", "order": 2}], "bad_crc": i == 1} for i in range(4)]
     files["bad_crc_s16_mono_44100.flac"] = flac({"rate": 44100, "bits": 16, "variable": False}, [left], blocks)
     blocks = [{"frames": 1024, "subframes": [{"type": "fixed", "order": 2}]} for _ in range(4)]
@@ -436,6 +449,9 @@ def fixtures() -> dict[str, bytes]:
     no_rate = bytearray(whole)
     no_rate[18:21] = bytes([0, 0, no_rate[20] & 0x0F])
     files["bad_zero_rate.flac"] = bytes(no_rate)
+    # A frame header with a bad checksum.
+    blocks = [{"frames": 1024, "subframes": [{"type": "fixed", "order": 2}], "bad_crc8": i == 2} for i in range(4)]
+    files["bad_crc8_s16_mono_44100.flac"] = flac({"rate": 44100, "bits": 16, "variable": False}, [left16], blocks)
     # Runs of frames with bad checksums, at the start and in the middle.
     runs = signal(6144, 16, 61, "wave")
     blocks = [{"frames": 1024, "subframes": [{"type": "fixed", "order": 2}], "bad_crc": i in (0, 1, 3, 4)}

@@ -750,6 +750,25 @@ last); each ends with passing scenarios, ledger rows and a commit:
    mid/side at high amplitude is wrong in dr_flac and Symphonia alike.
    dr_flac fixes after 0.12.35 (fuzz fixes, 0.12.43's buffer overflow) are
    not backported.
+   **4b. Own FLAC decoder** (done): Symphonia is replaced by a port of
+   dr_flac 0.12.31's decoding path as SoLoud builds it (`DR_FLAC_NO_CRC`,
+   strict open, no metadata callback) with patch 0057, in
+   `solouder-decoders/src/features/decoded_audio/flac/`: a buffered bit
+   reader, frame headers, constant, verbatim, fixed and LPC subframes, Rice
+   residuals, 32 and 64-bit prediction and dr_flac's scalar decorrelation,
+   in its wrapping 32-bit arithmetic, so no input panics in any build
+   (200,000 mutated files in a debug build). It also reproduces a dr_flac
+   quirk on x64: a 33-bit side sample read with one bit left in a 64-bit
+   cache line gets that bit in bit 0 (`s32_stereo_44100` pins it). The
+   policies above are kept, now with frame and header checksums of its own.
+   `bad_overflow_*` stays out of the parity scenarios: dr_flac's SSE2 and
+   scalar conversions disagree on overflowed samples, and which one runs
+   depends on read sizes. Decoding speed matches Symphonia's (5 minutes of
+   16-bit stereo in about 150 ms in release builds) and the output equals
+   ffmpeg's on ffmpeg-encoded files. Symphonia leaves the workspace; E5
+   decides how Ogg Vorbis and MP3 are decoded. dr_flac's later fixes concern
+   its C buffer handling and Ogg/seek-table code, which the port does not
+   have.
 5. **Ogg Vorbis and MP3**, resident and streamed, with `Wav::load`'s format
    detection (WAV, Ogg, FLAC, then MP3), file loading and Bevy loaders for
    `.ogg`, `.flac` and `.mp3`. Lossy decoders differ from stb_vorbis and

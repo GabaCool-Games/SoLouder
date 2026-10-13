@@ -20,7 +20,7 @@ macro_rules! fixture {
     };
 }
 
-const GOOD: [&[u8]; 10] = [
+const GOOD: [&[u8]; 11] = [
     fixture!("s16_stereo_44100.flac"),
     fixture!("s24_mono_48000.flac"),
     fixture!("s8_quad_8000.flac"),
@@ -29,6 +29,7 @@ const GOOD: [&[u8]; 10] = [
     fixture!("s16_7.1_32000_metadata.flac"),
     fixture!("s32_mono_44100.flac"),
     fixture!("s28_stereo_44100.flac"),
+    fixture!("s32_stereo_44100.flac"),
     fixture!("s8_mono_8000_long.flac"),
     fixture!("s16_mono_44100_variable_equal.flac"),
 ];
@@ -119,6 +120,7 @@ fn damaged_files_stream_like_they_decode() {
     for bytes in [
         fixture!("bad_crc_s16_mono_44100.flac"),
         fixture!("bad_crc_runs_s16_mono_44100.flac"),
+        fixture!("bad_crc8_s16_mono_44100.flac"),
         fixture!("bad_overlap_s16_mono_44100.flac"),
         fixture!("short_data_s16_mono_44100.flac"),
         fixture!("long_claim_s16_mono_44100.flac"),

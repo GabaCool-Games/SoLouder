@@ -13,8 +13,10 @@ repository's license and contain no third-party audio.
   encoder covering every subframe type, both residual codings, escaped
   partitions, wasted bits, stereo decorrelation, variable block sizes and
   metadata blocks; `--check` works as for WAV. `*_variable_equal` uses
-  variable blocking with blocks of one size. `bad_crc_*` has a frame with a
-  wrong checksum and `bad_crc_runs_*` runs of them, `bad_overlap_*` two
+  variable blocking with blocks of one size; `s32_stereo_*` has 33-bit side
+  subframes, some verbatim, and loud mid/side. `bad_crc_*` has a frame with a
+  wrong checksum, `bad_crc_runs_*` runs of them, `bad_crc8_*` a frame header
+  with a wrong checksum, `bad_overlap_*` two
   frames with the same number, `short_data_*` is cut off in its last frame,
   `long_claim_*` declares more frames than it holds, `unknown_length_*`
   declares none and `bad_overflow_*` holds subframes far beyond its sample

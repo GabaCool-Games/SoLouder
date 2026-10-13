@@ -171,7 +171,7 @@ WAV), `solouder-cpal` (`features/output_lifecycle/`), `bevy_solouder`
 (`features/decoded_audio/`, `features/output_lifecycle/`,
 `features/playback/`), `solouder-parity`, `tests/scenarios/`,
 `tests/fixtures/wav/` and `docs/port-status.md`. Versions are pinned in `rust-toolchain.toml` (Rust
-1.98.1) and the root `Cargo.toml` (Bevy 0.20, CPAL 0.18; Symphonia 0.6 is pinned for the later codecs).
+1.98.1) and the root `Cargo.toml` (Bevy 0.20, CPAL 0.18).
 
 This illustrates feature ownership, not a requirement to create empty modules
 up front. Introduce a slice when it has an implemented use case. File names
@@ -187,9 +187,11 @@ The crates are dependency/execution boundaries, not horizontal business layers.
 - Start core with ordinary Rust `std`; `no_std` is not an initial goal.
 - CPAL is the initial device-output adapter, not a core DSP dependency. Isolate
   negotiation and target-specific stream requirements in that adapter.
-- Prefer maintained Rust decoders, with Symphonia as an initial candidate for
-  WAV, Ogg Vorbis, FLAC, and MP3. Check enabled codecs, channel layouts, seek
-  behavior, numerical differences, and licenses before committing to a library.
+- WAV and FLAC are decoded by first-party code: a RIFF reader with dr_wav's
+  conversions, and a port of dr_flac, which matches the reference bit for bit.
+  For Ogg Vorbis and MP3, weigh maintained Rust decoders (Symphonia among them)
+  against a port: check channel layouts, seek behavior, numerical differences,
+  panics on damaged files, and licenses before committing to a library.
   Ogg container support does not automatically include every Ogg codec.
 - Use Bevy's asset/task facilities for Bevy loading. A separate async runtime is
   not required simply to decode an asset.
