@@ -2,6 +2,7 @@
 
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 use rtrb::{Consumer, Producer};
 
@@ -10,8 +11,10 @@ use super::bus_layouts::BusLayouts;
 use super::command::{Command, PlayRequest};
 use super::ids::IdPool;
 use super::status::{Event, Shared, Status};
+use super::stream_worker::StreamWorker;
 use crate::features::playback::{
     Bus, Handle, MixerConfig, PlayOptions, Playable, QUEUE_MAX, RetiredItem, SoundId, Start,
+    WorkerFeed,
 };
 
 /// Why the controller refused a request. Nothing was queued.
@@ -33,9 +36,10 @@ pub enum ControllerError {
     /// The renderer has been dropped: nothing will apply this request, and
     /// voices already queued or playing will not report again.
     Disconnected,
-    /// Streams play on the offline [`Mixer`](crate::Mixer) only for now:
-    /// their reads may wait for I/O, which the audio thread must not.
-    StreamsNotSupported,
+    /// More streams were played than the [`StreamWorker`] has taken
+    /// ([`RealtimeConfig::pending_streams`](super::RealtimeConfig::pending_streams)):
+    /// it is not running, or has fallen behind.
+    StreamsFull,
 }
 
 impl fmt::Display for ControllerError {
@@ -46,7 +50,7 @@ impl fmt::Display for ControllerError {
             Self::InvalidSpeed => write!(f, "play speed must be greater than 0"),
             Self::TooManyQueues => write!(f, "too many queues"),
             Self::Disconnected => write!(f, "the audio renderer is gone"),
-            Self::StreamsNotSupported => write!(f, "streams cannot play in real time yet"),
+            Self::StreamsFull => write!(f, "the stream worker has not taken the streams played"),
         }
     }
 }
@@ -82,6 +86,12 @@ pub struct Controller {
     /// The layout of each bus voice started here, which bus filters run at.
     pub(super) buses: BusLayouts,
     pub(super) shared: Arc<Shared>,
+    /// Streams played, for the worker to take.
+    pub(super) feeds: Producer<WorkerFeed>,
+    pub(super) stream_chunks: usize,
+    /// Frames of silence streams played because the worker fell behind.
+    pub(super) underflow: Arc<AtomicU64>,
+    pub(super) worker: Option<StreamWorker>,
 }
 
 impl Controller {
@@ -191,8 +201,8 @@ impl Controller {
         if self.commands.is_abandoned() {
             return Err(ControllerError::Disconnected);
         }
-        if source.is_stream() {
-            return Err(ControllerError::StreamsNotSupported);
+        if source.stream().is_some() && self.feeds.is_full() {
+            return Err(ControllerError::StreamsFull);
         }
         let queue = source.queue_id().filter(|id| !self.queues.contains(id));
         let needed = 1 + usize::from(queue.is_some());
@@ -209,7 +219,14 @@ impl Controller {
             let _ = self.send(Command::QueueStorage(queue, storage));
             self.queues.push(queue);
         }
-        let mut prepared = source.prepare();
+        let (mut prepared, feed) = match source.stream() {
+            Some(stream) => {
+                let underflow = Arc::clone(&self.underflow);
+                let (prepared, feed) = stream.prepare_fed(self.stream_chunks, underflow);
+                (prepared, Some(feed))
+            }
+            None => (source.prepare(), None),
+        };
         prepared.prepare_filters(options.speed);
         let layout = (prepared.voice.channels(), prepared.voice.base_sample_rate);
         let request = PlayRequest {
@@ -227,6 +244,10 @@ impl Controller {
             return Err(error);
         }
         self.retire_credits -= 1;
+        if let Some(feed) = feed {
+            // Cannot fail: checked above, and only this thread pushes.
+            let _ = self.feeds.push(feed);
+        }
         if let Some(bus) = source.bus_id() {
             self.buses
                 .started(bus, id, layout.0, layout.1, options.speed);
@@ -266,7 +287,17 @@ impl Controller {
 
     /// The counters from the most recent render.
     pub fn status(&self) -> Status {
-        self.shared.read()
+        Status {
+            stream_underflow_frames: self.underflow.load(Ordering::Relaxed),
+            ..self.shared.read()
+        }
+    }
+
+    /// The worker that decodes the streams this controller plays; `None`
+    /// after the first call. Run it (see [`StreamWorker`]) before playing
+    /// streams, or they stay silent.
+    pub fn take_stream_worker(&mut self) -> Option<StreamWorker> {
+        self.worker.take()
     }
 
     /// Voice IDs reserved and not yet freed by a final event.

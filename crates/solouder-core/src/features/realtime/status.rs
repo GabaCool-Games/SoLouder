@@ -73,6 +73,11 @@ pub struct Status {
     /// Sounds [`Controller::queue_play`](super::Controller::queue_play)
     /// sent that could not be queued: the queue was not playing or was full.
     pub rejected_queue_sounds: u64,
+    /// Frames of silence streams played because the
+    /// [`StreamWorker`](super::StreamWorker) had not decoded their audio in
+    /// time, after it first arrived (waiting for a stream to start, or to
+    /// continue after a seek, is not counted).
+    pub stream_underflow_frames: u64,
 }
 
 /// The snapshot, shared through atomics so neither side waits.
@@ -115,6 +120,7 @@ impl Shared {
             deferred_commands: self.deferred_commands.load(relaxed),
             retired_overflow: self.retired_overflow.load(relaxed),
             rejected_queue_sounds: self.rejected_queue_sounds.load(relaxed),
+            stream_underflow_frames: 0,
         }
     }
 }

@@ -30,5 +30,6 @@ pub use features::playback::{
 pub const SOLOUD_VERSION: u32 = 202002;
 pub use features::realtime;
 pub use features::realtime::{
-    Controller, ControllerError, Event, FinishReason, RealtimeConfig, Renderer, Status, VoiceId,
+    Controller, ControllerError, Event, FinishReason, RealtimeConfig, Renderer, Status,
+    StreamWorker, VoiceId,
 };

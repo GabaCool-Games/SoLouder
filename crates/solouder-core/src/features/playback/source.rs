@@ -61,9 +61,10 @@ pub(crate) mod private {
             None
         }
 
-        /// Whether the voice reads a stream, which may wait for I/O.
-        fn is_stream(&self) -> bool {
-            false
+        /// The stream, for a source whose voices read one (and may wait
+        /// for I/O).
+        fn stream(&self) -> Option<&super::super::stream::Stream> {
+            None
         }
     }
 }

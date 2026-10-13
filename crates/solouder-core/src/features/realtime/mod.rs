@@ -19,6 +19,7 @@ mod ids;
 mod renderer;
 mod renderer_control;
 mod status;
+mod stream_worker;
 
 use std::sync::Arc;
 
@@ -27,6 +28,7 @@ pub use controller_routing::FilterTarget;
 pub use ids::VoiceId;
 pub use renderer::Renderer;
 pub use status::{Event, FinishReason, Status};
+pub use stream_worker::StreamWorker;
 
 use crate::features::playback::Mixer;
 use ids::{IdPool, LiveTable};
@@ -51,6 +53,12 @@ pub struct RealtimeConfig {
     /// Distinct queues the controller may play; the renderer reserves room
     /// for their queued sounds.
     pub queues: usize,
+    /// Blocks of decoded audio (512 frames each) buffered for each
+    /// streaming voice: how far the [`StreamWorker`] decodes ahead.
+    pub stream_chunks: usize,
+    /// Streams played that the [`StreamWorker`] has not taken yet, before
+    /// [`ControllerError::StreamsFull`].
+    pub pending_streams: usize,
 }
 
 impl Default for RealtimeConfig {
@@ -61,6 +69,8 @@ impl Default for RealtimeConfig {
             commands_per_render: 512,
             retired_capacity: 4096,
             queues: 64,
+            stream_chunks: 32,
+            pending_streams: 64,
         }
     }
 }
@@ -88,6 +98,11 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
     let (event_tx, event_rx) = rtrb::RingBuffer::new(voice_ids * 2);
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(config.retired_capacity.max(1));
     let shared = Arc::new(Shared::default());
+    let (feeds, incoming) = rtrb::RingBuffer::new(config.pending_streams.max(1));
+    let worker = StreamWorker {
+        incoming,
+        feeds: Vec::new(),
+    };
     let controller = Controller {
         commands: command_tx,
         events: event_rx,
@@ -99,6 +114,10 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
         config: mixer.config(),
         buses: Default::default(),
         shared: Arc::clone(&shared),
+        feeds,
+        stream_chunks: config.stream_chunks,
+        underflow: Default::default(),
+        worker: Some(worker),
     };
     let renderer = Renderer {
         mixer,
@@ -124,3 +143,7 @@ mod routing_tests;
 #[cfg(test)]
 #[path = "layout_tests.rs"]
 mod layout_tests;
+
+#[cfg(test)]
+#[path = "stream_tests.rs"]
+mod stream_tests;

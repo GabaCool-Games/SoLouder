@@ -177,7 +177,7 @@ Wav::loadRawWave,source,Wav_loadRawWave Wav_loadRawWaveEx,decoded_audio,B,ported
 Wav::loadRawWave16,source,Wav_loadRawWave16 Wav_loadRawWave16Ex,decoded_audio,B,ported,sound_instances,Pcm::from_planar_i16 plus Sound; always copies.
 Wav::loadRawWave8,source,Wav_loadRawWave8 Wav_loadRawWave8Ex,decoded_audio,B,ported,sound_instances,Pcm::from_planar_u8 plus Sound; always copies.
 WavStream::getLength,source,WavStream_getLength,streaming,E,ported,stream_wav,Stream::length (single-precision division).
-WavStream::lifecycle,source,WavStream_create WavStream_destroy,streaming,E,in-progress,stream_wav,"Stream::new over an Arc<dyn StreamSource>; dropping a Stream does not stop its voices (each owns its reader), so the parity runner stops them when a name is replaced. Offline Mixer only until unit E3."
+WavStream::lifecycle,source,WavStream_create WavStream_destroy,streaming,E,in-progress,stream_wav,"Stream::new over an Arc<dyn StreamSource>; dropping a Stream does not stop its voices (each owns its reader), so the parity runner stops them when a name is replaced. Through the Controller, decoded ahead by its StreamWorker."
 WavStream::load,source,WavStream_load,streaming,E,in-progress,stream_wav,"WAV only: solouder_decoders::WavStream::open; each voice reopens the file, as the reference does. A file gone or changed in layout by then ends the voice at once (patch 0053). Ogg Vorbis, FLAC and MP3 in E4 and E5."
 WavStream::loadFile,source,WavStream_loadFile,streaming,E,todo,,
 WavStream::loadFileToMem,source,WavStream_loadFileToMem,streaming,E,todo,,

@@ -9,7 +9,7 @@ use super::handle::Handle;
 use super::queue::{self, Queues};
 use super::sound::SoundId;
 use super::source::SourceSettings;
-use super::stream::{self, StreamReader};
+use super::stream::{self, StreamInput};
 use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
 use crate::dsp::fader::Fader;
 use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
@@ -48,10 +48,10 @@ pub(crate) enum VoiceSource {
     /// The sounds queued on the queue `sound_id` (`QueueInstance`), kept in
     /// `Voices::queues`.
     Queue { channels: u32 },
-    /// A stream's reader (`WavStreamInstance`): `None` if it could not be
-    /// opened. `offset` counts the frames read, up to `frames`.
+    /// A stream's reader (`WavStreamInstance`). `offset` counts the frames
+    /// read, up to `frames`.
     Stream {
-        reader: Option<Box<dyn StreamReader>>,
+        input: StreamInput,
         channels: u32,
         frames: u32,
         offset: u32,
@@ -174,7 +174,8 @@ impl Voice {
     /// channel, and returns how many were copied (`WavInstance::getAudio`).
     pub fn read(&mut self, block: &mut [f32], start: usize, frames: u32) -> u32 {
         let VoiceSource::Pcm { pcm, offset } = &mut self.source else {
-            return stream::read(&mut self.source, block, start, frames);
+            let looping = stream::loop_target(self);
+            return stream::read(&mut self.source, block, start, frames, looping);
         };
         let count = (pcm.frames() - *offset).min(frames);
         let from = *offset as usize;

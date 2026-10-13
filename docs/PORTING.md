@@ -682,7 +682,7 @@ last); each ends with passing scenarios, ledger rows and a commit:
    an epoch, decoders and files dropped on the worker; streamed Bevy assets.
    Prebuffered renders match the offline mixer and do not allocate. In
    three steps, each committed on its own:
-   - **3a, feeds:** `split` also makes a `StreamWorker` (taken once from the
+   - **3a, feeds** (done): `split` also makes a `StreamWorker` (taken once from the
      controller; the application runs it on a thread, tests call
      `service()`). Playing a `Stream` through the `Controller` makes a
      *feed*: a pool of fixed-size chunks (one block of frames each, allocated

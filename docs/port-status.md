@@ -31,7 +31,8 @@ and a `Renderer` for the audio thread, joined by bounded wait-free queues
 (see [ARCHITECTURE.md](ARCHITECTURE.md#ownership-and-the-real-time-boundary)).
 `solouder-cpal` runs the renderer on the default output device and
 `bevy_solouder` plays `.wav` assets from entities. WAV files can also be
-streamed, on the offline `Mixer` only for now. Other codecs and 3D audio do
+streamed, offline or through the `Controller`, whose `StreamWorker` decodes
+them ahead of the audio thread. Other codecs and 3D audio do
 not exist yet. Voice groups and the voice, bus and queue queries are
 available on the offline `Mixer` only (see "Real-time coverage" below).
 
@@ -41,7 +42,7 @@ available on the offline `Mixer` only (see "Real-time coverage" below).
 | `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping, faders (linear fades and sine oscillation), `fft` (Ooura's split-radix FFT as SoLoud has it), `waveform` (`generateWaveform`) |
 | `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `Stream` (with the `StreamSource` and `StreamReader` traits), `Bus`, `Queue`, `Playable`, `SoundId`, `Handle`, `PlayOptions`, `FilterTarget`, voice table, active-voice selection, resample-buffer pool, bus mixing (nested bus voices, bus seeking, visualization data), queued sounds, voice control and queries, fades and timers, voice groups, sound, bus and global filter slots and their parameters, `f32` and `i16` output |
 | `solouder-core` | `features/filters` | `Filter` and `FilterInstance` traits, `FilterParams` (live values with fades), `BiquadResonantFilter`, `LofiFilter`, `EchoFilter`, `WaveShaperFilter`, `DcRemovalFilter`, `FftFilter`, `BassboostFilter`, `RobotizeFilter`, `FlangerFilter`, `FreeverbFilter` |
-| `solouder-core` | `features/realtime` | `split`, `Controller` (plays, voice and global controls, fades and schedules, filters and their parameters, bus settings and `annex_sound`, queued sounds), `Renderer`, `VoiceId`, `FilterTarget`, `Event`, `Status`, `RealtimeConfig`; voices and filter instances prepared on the game thread, and ended voices, replaced filters and rejected queue sounds retired to it |
+| `solouder-core` | `features/realtime` | `split`, `Controller` (plays, voice and global controls, fades and schedules, filters and their parameters, bus settings and `annex_sound`, queued sounds), `Renderer`, `StreamWorker` (decodes streams ahead into per-voice feeds), `VoiceId`, `FilterTarget`, `Event`, `Status`, `RealtimeConfig`; voices and filter instances prepared on the game thread, and ended voices, replaced filters and rejected queue sounds retired to it |
 | `solouder-decoders` | `features/decoded_audio` | `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `DecodeLimits`, `DecodeError` |
 | `solouder-decoders` | `features/streaming` | `WavStream` (a file, bytes or a file read into memory; per-voice readers that seek by frame) |
 | `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
@@ -55,7 +56,7 @@ Ledger: the Milestone B playback behaviors are `ported`; `Soloud::init`,
 Milestone C ports `Soloud::deinit` and the `getBackend*` queries; `init`
 stays `in-progress` until its remaining flags are done. Milestone E ports `WavStream::getLength`;
 the `WavStream` lifecycle, `load`, `loadMem` and `loadToMem` are
-`in-progress` (WAV only, offline only).
+`in-progress` (WAV only).
 
 ## Verified by scenario
 
@@ -112,6 +113,7 @@ harness, so they are checked by Rust tests instead of scenarios:
 | Test | Checks |
 |---|---|
 | `realtime_tests` (core, 14 tests) | Renders match an offline `Mixer` sample for sample, a stop queued before the first render still reports start and finish, commands for finished voices do nothing, full queues and ID pools reject requests, each render applies a bounded number of commands, ended audio is released by the controller, all-protected tables fail the play, a stolen voice finishes with `Stolen` before its replacement starts, uncollected audio blocks plays instead of being freed in the render, a dropped renderer disconnects the controller, play options set speed and protection from the first frame |
+| `stream_tests` (core, 7 tests) and `realtime_no_alloc_streams` | Prebuffered streams (looping with a loop point and resampled, and played once) render the same samples as the offline `Mixer`; a stream waits silently for the worker; a dry feed counts underflow and keeps its place; seeks before and while playing continue from the right frame; ended and missing streams finish and their feeds close; the worker finishes with the controller and renderer; streams the worker has not taken fill `pending_streams`; none of it allocates or frees in the render |
 | `routing_tests` (core, 3 tests) | A real-time session with voice and global filters, a filtered bus, a queue, clocked and background plays, fades, filter parameter fades, seeks, a bus filter swap, `annex_sound` and `stop_sound` renders the same samples as the offline `Mixer`, bit for bit; bus and queue plays report their events, and a play through a bus that is not playing fails; queues past `RealtimeConfig::queues` are refused |
 | `layout_tests` (core, 5 tests) | Filters whose delays change before their first block, and a bus whose channel setting changed while it plays, render the same samples as the offline `Mixer`; a mixer split after offline use (queue storage, a queued sound, a playing voice) never overflows its retirement list; `Mixer::keep_retired` keeps voices played after it, and `split` trims the surplus voice boxes left by offline overflow; a voice a bus seek plays out reports `Ended` even when a play in the same render takes its slot |
 | `realtime_no_alloc` (core) | No allocation or free inside any `Renderer::render`, with a fresh sound per play and the smallest retirement queue: playing, every control, stopping, voices ending, voice stealing past the slot count, all-protected failures, `stop_all`, rendering after the controller is dropped, and voices, a bus and a queue using every filter that allocates lazily (echo, DC removal, FFT, bassboost, flanger), with global and bus filter swaps, seeks, and sounds queued past the queue's limit; and filters first running on a bus at double speed whose channel setting changed, after delays were changed, after a failed replay of the bus and during a speed oscillation from 3 to 1, and with a flanger delay growing to its maximum; and a mixer split while it holds global filters and filtered voices that have not played yet |
@@ -163,7 +165,7 @@ Rust 1.98.1, no device).
 | Stream length | `WavStream` takes its frame count from the header | `WavStream` counts the whole frames present in the file | The header can claim more than the file holds; with patch 0054 both end where the data does |
 | Changed stream files | Each instance reopens the file and trusts the header read at load | A file reopened with a different encoding, channel count or rate ends the voice, like a missing file (patch 0053); one that got shorter plays what is left | A reader must produce the layout the voice was set up for |
 | Dropping a stream | `~WavStream` stops its voices | Dropping a `Stream` leaves its voices playing; each owns its reader | As for `Sound` |
-| Streams in real time | Played like any source; the audio thread reads the file | `Controller::play` refuses a `Stream` with `StreamsNotSupported` until decoding moves to a worker (milestone E unit 3) | File reads on the audio thread can stall it |
+| Streams in real time | Played like any source; the audio thread reads the file | A `StreamWorker` thread opens and decodes each voice's stream ahead of it into a bounded buffer (`RealtimeConfig::stream_chunks`). A voice waits silently, without advancing, until its audio arrives at the start and after a seek the worker had not anticipated (loop wraps are anticipated); if the worker falls behind, the voice plays silence without advancing, counted in `Status::stream_underflow_frames`. A source that can no longer rewind ends the voice | File reads on the audio thread can stall it |
 | Unknown files | `Wav::load` detects WAV, Ogg, FLAC and MP3, and tries MP3 for anything else | `decode_wav` reads WAV only and reports `NotRecognized` | Other codecs come in milestone E; the caller picks the decoder |
 | Decode limits | Only the `u32` size checks of patch 0012 | `DecodeLimits::max_samples` (default 256 Mi samples); allocation follows decoded data, not header claims | Untrusted files cannot request huge allocations |
 | Deleting a sound | `~Wav` stops every voice playing it | Dropping a `Sound` leaves its voices playing; they share its samples and release them when they end | No dangling source; stop voices explicitly (the Bevy plugin stops a player's voice when its component goes away) |
@@ -241,5 +243,4 @@ Limits:
 - Voice groups, voice getters, bus wave, FFT and voice counts, queue counts,
   and filter parameter reads through the `Controller` (see "Real-time
   coverage").
-- Streaming through the `Controller` and queued streams (Milestone E unit
-  3); Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).
+- Queued streams and streamed Bevy assets (Milestone E unit 3); Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).

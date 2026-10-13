@@ -7,7 +7,9 @@
 
 use std::fmt;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU64;
 
+use super::feed::{self, FeedReader, WorkerFeed};
 use super::sound::SoundId;
 use super::source::private::{Prepared, Sealed};
 use super::source::{Playable, SourceSettings, source_settings_api};
@@ -99,9 +101,10 @@ impl std::error::Error for StreamError {}
 /// independent. Cloning shares the source and keeps the [`SoundId`], as for
 /// [`Sound`](super::Sound).
 ///
-/// Only the offline [`Mixer`](super::Mixer) plays streams for now: the
-/// real-time controller would read the file on the audio thread, so it
-/// refuses them until streaming moves to a worker.
+/// The offline [`Mixer`](super::Mixer) reads streams as it mixes. Through
+/// the real-time [`Controller`](crate::Controller), a
+/// [`StreamWorker`](crate::StreamWorker) decodes them ahead of the audio
+/// thread, which never reads a file.
 #[derive(Clone, Debug)]
 pub struct Stream {
     source: Arc<dyn StreamSource>,
@@ -148,8 +151,45 @@ impl Stream {
 
     /// A voice at the start of the stream, with a reader of its own.
     pub(crate) fn voice(&self) -> Voice {
+        let input = match self.source.open() {
+            Some(reader) => StreamInput::Direct(reader),
+            None => StreamInput::Missing,
+        };
+        self.voice_reading(input)
+    }
+
+    /// A voice that reads through a feed, and the worker's end of the feed.
+    pub(crate) fn fed_voice(
+        &self,
+        chunks: usize,
+        underflow: Arc<AtomicU64>,
+    ) -> (Voice, WorkerFeed) {
+        let source = Arc::clone(&self.source);
+        let (reader, worker) = feed::feed(source, self.format.channels, chunks, underflow);
+        (
+            self.voice_reading(StreamInput::Feed(Box::new(reader))),
+            worker,
+        )
+    }
+
+    /// [`Sealed::prepare`] for a voice that reads through a feed.
+    pub(crate) fn prepare_fed(
+        &self,
+        chunks: usize,
+        underflow: Arc<AtomicU64>,
+    ) -> (Prepared, WorkerFeed) {
+        let (voice, feed) = self.fed_voice(chunks, underflow);
+        let prepared = Prepared {
+            voice,
+            stop_others: self.settings.single_instance,
+            default_volume: self.settings.volume,
+        };
+        (prepared, feed)
+    }
+
+    fn voice_reading(&self, input: StreamInput) -> Voice {
         let source = VoiceSource::Stream {
-            reader: self.source.open(),
+            input,
             channels: self.format.channels,
             frames: self.format.frames,
             offset: 0,
@@ -173,28 +213,78 @@ impl Sealed for Stream {
         }
     }
 
-    fn is_stream(&self) -> bool {
-        true
+    fn stream(&self) -> Option<&Stream> {
+        Some(self)
     }
+}
+
+/// Where a stream voice's audio comes from.
+#[derive(Debug)]
+pub(crate) enum StreamInput {
+    /// The source could not be opened.
+    Missing,
+    /// Read on the thread that mixes (the offline [`Mixer`](super::Mixer)).
+    Direct(Box<dyn StreamReader>),
+    /// Decoded ahead by a worker (the real-time renderer).
+    Feed(Box<FeedReader>),
+}
+
+/// The frame a loop wrap continues from: [`seek`] to `loop_point` from the
+/// end of the stream.
+pub(crate) fn loop_frame(loop_point: f64, base_rate: f32, total: u32) -> u32 {
+    let frames = (f64::from(base_rate) * loop_point).floor();
+    if (1.0..2_147_483_648.0).contains(&frames) {
+        (frames as u32).min(total)
+    } else {
+        0
+    }
+}
+
+/// The frame a loop wrap of `voice` continues from, if it loops.
+pub(crate) fn loop_target(voice: &Voice) -> Option<u32> {
+    let VoiceSource::Stream { frames, .. } = voice.source else {
+        return None;
+    };
+    let looping = voice.has_flag(super::voice::flags::LOOPING);
+    looping.then(|| loop_frame(voice.loop_point, voice.base_sample_rate, frames))
 }
 
 /// `WavStreamInstance::getAudio` for a stream voice: like
 /// [`Voice::read`](super::voice::Voice::read), into `block` at `start`.
-/// A short read is the end of the stream (reference patch 0054).
-pub(crate) fn read(source: &mut VoiceSource, block: &mut [f32], start: usize, frames: u32) -> u32 {
+/// A short read is the end of the stream (reference patch 0054). `looping`
+/// is the frame a loop wrap continues from, if the voice loops.
+pub(crate) fn read(
+    source: &mut VoiceSource,
+    block: &mut [f32],
+    start: usize,
+    frames: u32,
+    looping: Option<u32>,
+) -> u32 {
     let VoiceSource::Stream {
-        reader: Some(reader),
+        input,
+        channels,
         frames: total,
         offset,
-        ..
     } = source
     else {
         return 0;
     };
-    let count = reader
-        .read(&mut block[start..], BLOCK, frames as usize)
-        .min(frames as usize) as u32;
-    *offset = offset.saturating_add(count);
+    let (count, read) = match input {
+        StreamInput::Missing => return 0,
+        StreamInput::Direct(reader) => {
+            let count = reader
+                .read(&mut block[start..], BLOCK, frames as usize)
+                .min(frames as usize) as u32;
+            (count, count)
+        }
+        StreamInput::Feed(feed) => {
+            feed.set_looping(looping);
+            let (read, ended) = feed.read(block, start, frames, *channels);
+            // Silence while the feed catches up keeps the voice going.
+            (if ended { read } else { frames }, read)
+        }
+    };
+    *offset = offset.saturating_add(read);
     if count < frames && *offset < *total {
         *offset = *total;
     }
@@ -205,7 +295,14 @@ pub(crate) fn read(source: &mut VoiceSource, block: &mut [f32], start: usize, fr
 /// (reference patch 0053).
 pub(crate) fn has_ended(source: &VoiceSource, looping: bool) -> bool {
     match source {
-        VoiceSource::Stream { reader: None, .. } => true,
+        VoiceSource::Stream {
+            input: StreamInput::Missing,
+            ..
+        } => true,
+        VoiceSource::Stream {
+            input: StreamInput::Feed(feed),
+            ..
+        } if feed.failed() => true,
         VoiceSource::Stream { frames, offset, .. } => !looping && offset >= frames,
         _ => false,
     }
@@ -216,7 +313,7 @@ pub(crate) fn has_ended(source: &VoiceSource, looping: bool) -> bool {
 /// is), then skips frames at `base_rate`. Returns false if it did nothing.
 pub(crate) fn seek(source: &mut VoiceSource, position: f64, seconds: f64, base_rate: f32) -> bool {
     let VoiceSource::Stream {
-        reader,
+        input,
         frames: total,
         offset: read,
         ..
@@ -226,7 +323,7 @@ pub(crate) fn seek(source: &mut VoiceSource, position: f64, seconds: f64, base_r
     };
     let mut offset = seconds - position;
     if offset <= 0.0 {
-        if let Some(reader) = reader
+        if let StreamInput::Direct(reader) = input
             && !reader.rewind()
         {
             return false;
@@ -236,13 +333,25 @@ pub(crate) fn seek(source: &mut VoiceSource, position: f64, seconds: f64, base_r
     }
     let frames = (f64::from(base_rate) * offset).floor();
     // `(int)` of a value outside its range is INT_MIN on x86: skip nothing.
-    if let Some(reader) = reader
-        && (1.0..2_147_483_648.0).contains(&frames)
-    {
-        let skipped = reader.skip(frames as u64);
-        *read = read.saturating_add(u32::try_from(skipped).unwrap_or(u32::MAX));
-        if skipped < frames as u64 && *read < *total {
-            *read = *total;
+    let skip = if (1.0..2_147_483_648.0).contains(&frames) {
+        frames as u64
+    } else {
+        0
+    };
+    match input {
+        StreamInput::Missing => {}
+        StreamInput::Direct(reader) => {
+            if skip > 0 {
+                let skipped = reader.skip(skip);
+                *read = read.saturating_add(u32::try_from(skipped).unwrap_or(u32::MAX));
+                if skipped < skip && *read < *total {
+                    *read = *total;
+                }
+            }
+        }
+        StreamInput::Feed(feed) => {
+            *read = (u64::from(*read) + skip).min(u64::from(*total)) as u32;
+            feed.seek_to(*read);
         }
     }
     true
