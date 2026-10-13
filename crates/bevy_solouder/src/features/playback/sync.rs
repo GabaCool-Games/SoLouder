@@ -247,8 +247,6 @@ fn start(
             .unwrap_or(1.0),
         ..settings
     };
-    let mut sound = Sound::new(clip.pcm().clone());
-    sound.set_looping(sent.looping);
     let options = PlayOptions {
         volume: Some(sent.volume),
         pan: sent.pan,
@@ -257,9 +255,22 @@ fn start(
         protect: sent.protect,
         ..PlayOptions::default()
     };
-    match controller.play_with(&sound, options) {
+    let played = match (clip.pcm(), clip.stream()) {
+        (Some(pcm), _) => {
+            let mut sound = Sound::new(pcm.clone());
+            sound.set_looping(sent.looping);
+            controller.play_with(&sound, options)
+        }
+        (None, Some(stream)) => {
+            let mut stream = stream.clone();
+            stream.set_looping(sent.looping);
+            controller.play_with(&stream, options)
+        }
+        (None, None) => return Err(PlaybackError::AssetFailed),
+    };
+    match played {
         Ok(voice) => Ok(Some((voice, sent))),
-        Err(ControllerError::QueueFull) => Ok(None),
+        Err(ControllerError::QueueFull | ControllerError::StreamsFull) => Ok(None),
         Err(ControllerError::NoFreeVoiceId) => Err(PlaybackError::NoFreeVoice),
         Err(ControllerError::Disconnected) => Err(PlaybackError::OutputUnavailable),
         Err(_) => Err(PlaybackError::Rejected),

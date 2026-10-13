@@ -1,7 +1,8 @@
 //! Bevy plugin for SoLouder.
 //!
 //! Add [`SolouderPlugin`] (after Bevy's asset plugin), load `.wav` files as
-//! [`AudioClip`]s, and spawn entities with a [`SoundPlayer`]. A sound plays
+//! [`AudioClip`]s (decoded at load, or streamed with [`WavSettings::stream`]),
+//! and spawn entities with a [`SoundPlayer`]. A sound plays
 //! while its player exists: despawning the entity, removing the component or
 //! inserting a new one stops it. [`PlaybackSettings`] holds the requested
 //! volume, pan, speed, pause, looping and protection; [`SoundStatus`] shows
@@ -22,9 +23,10 @@ use bevy::prelude::*;
 use bevy::transform::TransformSystems;
 use solouder_decoders::DecodeLimits;
 
-pub use features::decoded_audio::{AudioClip, AudioLoadError, WavLoader};
+pub use features::decoded_audio::{AudioClip, AudioLoadError, WavLoader, WavSettings};
 pub use features::output_lifecycle::{
-    AudioOutput, AudioOutputState, HeadlessRenderer, OutputMode, SolouderController,
+    AudioOutput, AudioOutputState, HeadlessRenderer, HeadlessStreamWorker, OutputMode,
+    SolouderController,
 };
 pub use features::playback::{
     FinishBehavior, PlaybackError, PlaybackSettings, PlaybackState, SoundFailed, SoundFinished,

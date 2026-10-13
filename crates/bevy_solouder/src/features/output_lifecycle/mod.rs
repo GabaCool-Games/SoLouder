@@ -6,7 +6,7 @@ use std::sync::{Mutex, PoisonError};
 use bevy::prelude::*;
 use solouder_core::realtime::split;
 use solouder_core::{
-    Clipper, ConfigError, Controller, Mixer, MixerConfig, RealtimeConfig, Renderer,
+    Clipper, ConfigError, Controller, Mixer, MixerConfig, RealtimeConfig, Renderer, StreamWorker,
 };
 use solouder_cpal::{Output, OutputConfig, OutputInfo, OutputState};
 
@@ -97,6 +97,25 @@ impl HeadlessRenderer {
     }
 }
 
+/// The stream worker in [`OutputMode::Headless`]; call
+/// [`service`](Self::service) before rendering so streamed clips have their
+/// audio decoded. With a device, the worker runs on its own thread.
+#[derive(Resource)]
+pub struct HeadlessStreamWorker(Mutex<StreamWorker>);
+
+impl HeadlessStreamWorker {
+    /// Decodes until every streaming voice's buffer is full; returns
+    /// whether there was anything to do.
+    pub fn service(&mut self) -> bool {
+        self.worker().service()
+    }
+
+    /// The worker itself.
+    pub fn worker(&mut self) -> &mut StreamWorker {
+        self.0.get_mut().unwrap_or_else(PoisonError::into_inner)
+    }
+}
+
 /// The device stream. Not `Send` on every platform, so it lives in the
 /// world's non-send storage and is dropped, stopping the callback, when the
 /// world is.
@@ -128,7 +147,16 @@ pub(crate) fn build(app: &mut App, mode: &OutputMode) {
             Err(error) => (None, AudioOutputState::Unavailable(error.to_string()), None),
         },
     };
-    if let Some(controller) = controller {
+    if let Some(mut controller) = controller {
+        if let Some(worker) = controller.take_stream_worker() {
+            if matches!(mode, OutputMode::Headless(_)) {
+                app.insert_resource(HeadlessStreamWorker(Mutex::new(worker)));
+            } else {
+                // Without the thread, streamed clips stay silent; decoded
+                // clips do not need it.
+                let _ = worker.spawn();
+            }
+        }
         app.insert_resource(SolouderController(Mutex::new(controller)));
     }
     app.insert_resource(AudioOutput { state, info })

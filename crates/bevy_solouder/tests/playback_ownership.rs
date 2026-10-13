@@ -120,7 +120,7 @@ fn starting_settings_ride_with_the_play_request() {
         OutputMode::Device(_) => unreachable!(),
     })
     .unwrap();
-    mixer.play_with(&Sound::new(tone.pcm().clone()), options);
+    mixer.play_with(&Sound::new(tone.pcm().unwrap().clone()), options);
     let mut expected = vec![0.0; 2 * 512];
     mixer.mix_interleaved(&mut expected);
 

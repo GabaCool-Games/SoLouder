@@ -18,6 +18,7 @@ solouder-cpal = { path = "crates/solouder-cpal" }
 bevy = { version = "0.20", default-features = false }
 cpal = "0.18"
 rtrb = "0.4"
+serde = { version = "1", features = ["derive"] }
 symphonia = { version = "0.6", default-features = false }
 
 [workspace.lints.rust]

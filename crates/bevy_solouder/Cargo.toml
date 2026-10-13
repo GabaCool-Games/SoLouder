@@ -12,6 +12,7 @@ solouder-core.workspace = true
 solouder-cpal.workspace = true
 solouder-decoders.workspace = true
 bevy = { workspace = true, features = ["std", "bevy_asset"] }
+serde.workspace = true
 
 [lints]
 workspace = true

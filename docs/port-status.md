@@ -32,7 +32,8 @@ and a `Renderer` for the audio thread, joined by bounded wait-free queues
 `solouder-cpal` runs the renderer on the default output device and
 `bevy_solouder` plays `.wav` assets from entities. WAV files can also be
 streamed, offline or through the `Controller`, whose `StreamWorker` decodes
-them ahead of the audio thread. Other codecs and 3D audio do
+them ahead of the audio thread; `bevy_solouder` streams `.wav` assets
+loaded with `WavSettings::stream`. Other codecs and 3D audio do
 not exist yet. Voice groups and the voice, bus and queue queries are
 available on the offline `Mixer` only (see "Real-time coverage" below).
 
@@ -46,7 +47,7 @@ available on the offline `Mixer` only (see "Real-time coverage" below).
 | `solouder-decoders` | `features/decoded_audio` | `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `DecodeLimits`, `DecodeError` |
 | `solouder-decoders` | `features/streaming` | `WavStream` (a file, bytes or a file read into memory; per-voice readers that seek by frame) |
 | `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
-| `bevy_solouder` | `decoded_audio`, `output_lifecycle`, `playback` | `SolouderPlugin`, `AudioClip` and `WavLoader`, `OutputMode` (device or headless), `AudioOutput`, `SoundPlayer`, `PlaybackSettings`, `SoundStatus`, `SoundFinished`/`SoundFailed` |
+| `bevy_solouder` | `decoded_audio`, `output_lifecycle`, `playback` | `SolouderPlugin`, `AudioClip` (decoded or streamed) and `WavLoader` (`WavSettings::stream`), the stream worker (a thread with a device, `HeadlessStreamWorker` headless), `OutputMode` (device or headless), `AudioOutput`, `SoundPlayer`, `PlaybackSettings`, `SoundStatus`, `SoundFinished`/`SoundFailed` |
 | `solouder-parity` | — | Scenario parser, test patterns, WAV fixture loading, Rust runner, comparison with C++ output |
 
 Ledger: the Milestone B playback behaviors are `ported`; `Soloud::init`,
@@ -246,4 +247,4 @@ Limits:
 - Voice groups, voice getters, bus wave, FFT and voice counts, queue counts,
   and filter parameter reads through the `Controller` (see "Real-time
   coverage").
-- Streamed Bevy assets (Milestone E unit 3); Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).
+- Ogg Vorbis, FLAC, MP3 and WAV ADPCM (Milestone E).

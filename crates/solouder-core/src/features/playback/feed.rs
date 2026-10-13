@@ -279,20 +279,20 @@ impl WorkerFeed {
     /// Opens the source, follows seeks and fills empty chunks. Returns
     /// whether it did anything.
     pub fn service(&mut self) -> bool {
+        let mut worked = false;
         if !self.opened {
             self.opened = true;
             self.reader = self.source.open();
             if self.reader.is_none() {
                 self.shared.failed.store(true, Ordering::Release);
             }
-            return true;
+            worked = true;
         }
         if self.reader.is_none() {
-            return false;
+            return worked;
         }
         let request = self.shared.request.load(Ordering::Acquire);
         let epoch = (request >> 32) as u32;
-        let mut worked = false;
         if epoch != self.epoch {
             self.epoch = epoch;
             self.seek(u64::from(request as u32));

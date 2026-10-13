@@ -4,8 +4,8 @@ mod common;
 
 use bevy::prelude::*;
 use bevy_solouder::{
-    FinishReason, PlaybackError, PlaybackSettings, PlaybackState, SoundFailed, SoundFinished,
-    SoundPlayer,
+    AudioClip, FinishReason, HeadlessStreamWorker, PlaybackError, PlaybackSettings, PlaybackState,
+    SoundFailed, SoundFinished, SoundPlayer, WavSettings,
 };
 use common::*;
 
@@ -173,6 +173,41 @@ fn wav_files_load_through_the_asset_server() {
     let entity = app.world_mut().spawn(SoundPlayer(clip)).id();
     update_until(&mut app, |app| state(app, entity) != PlaybackState::Loading);
     render(&mut app, 4096);
+    app.update();
+    assert_eq!(
+        state(&app, entity),
+        PlaybackState::Finished(FinishReason::Ended)
+    );
+}
+
+#[test]
+fn streamed_wav_files_play_through_the_worker() {
+    let mut app = headless_app();
+    let streamed: Handle<AudioClip> = app
+        .world()
+        .resource::<AssetServer>()
+        .load_builder()
+        .with_settings(|settings: &mut WavSettings| settings.stream = true)
+        .load("wav/s16_stereo_44100.wav");
+    let entity = app.world_mut().spawn(SoundPlayer(streamed.clone())).id();
+    update_until(&mut app, |app| state(app, entity) != PlaybackState::Loading);
+    let clips = app.world().resource::<Assets<AudioClip>>();
+    let clip = clips.get(&streamed).unwrap();
+    assert!(clip.stream().is_some() && clip.pcm().is_none());
+    assert_eq!(clip.duration_seconds(), 1500.0 / 44100.0);
+
+    // Silent until the worker has decoded the start.
+    assert!(render(&mut app, 512).iter().all(|&s| s == 0.0));
+    app.world_mut()
+        .resource_mut::<HeadlessStreamWorker>()
+        .service();
+    assert!(render(&mut app, 512).iter().any(|&s| s != 0.0));
+    for _ in 0..4 {
+        app.world_mut()
+            .resource_mut::<HeadlessStreamWorker>()
+            .service();
+        render(&mut app, 1024);
+    }
     app.update();
     assert_eq!(
         state(&app, entity),

@@ -691,6 +691,7 @@ name = "bevy_solouder"
 version = "0.1.0"
 dependencies = [
  "bevy",
+ "serde",
  "solouder-core",
  "solouder-cpal",
  "solouder-decoders",

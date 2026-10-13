@@ -702,7 +702,7 @@ last); each ends with passing scenarios, ledger rows and a commit:
      the reader (and its file) once it sees the feed closed.
    - **3b, queued streams** (done): `Queue::play` and `Controller::queue_play`
      accept streams, offline and through feeds.
-   - **3c, Bevy:** streamed assets play through the worker, which the
+   - **3c, Bevy** (done): streamed assets play through the worker, which the
      plugin runs on its own thread.
 4. **FLAC**, resident and streamed: Symphonia's decoder, bit-exact against
    dr_flac; malformed-input fuzzing; more than 8 channels rejected (patch
