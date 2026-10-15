@@ -98,7 +98,7 @@ pub struct WavSettings {
     pub stream: bool,
 }
 
-/// Loads `.wav` and `.flac` files into [`AudioClip`]s, decoding on the asset
+/// Loads `.wav`, `.flac`, `.ogg` and `.mp3` files into [`AudioClip`]s, decoding on the asset
 /// task pool, or with [`WavSettings::stream`] checking the header there and
 /// decoding while the clip plays. As in SoLoud's `Wav`, the format is chosen
 /// by the file's first bytes, not its extension.
@@ -147,7 +147,7 @@ impl AssetLoader for WavLoader {
     }
 
     fn extensions(&self) -> &[&str] {
-        &["wav", "flac"]
+        &["wav", "flac", "ogg", "mp3"]
     }
 }
 

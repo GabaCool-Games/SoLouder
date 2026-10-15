@@ -4,17 +4,12 @@
 //! One voice's reader of a FLAC stream (`WavStreamInstance` with dr_flac).
 
 use std::fmt;
-use std::io::{Read, Seek};
 
 use solouder_core::StreamReader;
 
+use super::kind::BoxedSource;
 use crate::features::decoded_audio::convert;
 use crate::features::decoded_audio::flac::FlacFile;
-
-/// What a voice reads a FLAC stream from: the file it opened, or the bytes.
-pub(crate) trait Source: Read + Seek + Send {}
-
-impl<T: Read + Seek + Send> Source for T {}
 
 /// Decodes a FLAC file a FLAC frame at a time, converting as
 /// [`decode_flac`](crate::decode_flac) does. Reads continue past the length
@@ -24,7 +19,7 @@ impl<T: Read + Seek + Send> Source for T {}
 /// skipping decodes and discards, as SoLoud's generic seek does. Frames that failed to decode are silent, up to
 /// the declared length (or one FLAC frame when no length is declared).
 pub(crate) struct FlacReader {
-    file: FlacFile<Box<dyn Source>>,
+    file: FlacFile<BoxedSource>,
     channels: usize,
     /// The decoded FLAC frame, planar with a stride of `stride`.
     block: Vec<f32>,
@@ -42,7 +37,7 @@ pub(crate) struct FlacReader {
 
 impl FlacReader {
     /// A reader at the first frame of `file`.
-    pub fn new(file: FlacFile<Box<dyn Source>>) -> Self {
+    pub fn new(file: FlacFile<BoxedSource>) -> Self {
         let channels = file.channels as usize;
         let stride = file.max_block;
         Self {

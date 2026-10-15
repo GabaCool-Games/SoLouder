@@ -34,6 +34,8 @@ find_package(Threads REQUIRED)
 add_executable(reference_regressions regressions.cpp)
 target_include_directories(reference_regressions PRIVATE "${SOLOUDER_REFERENCE_DIR}/include")
 target_link_libraries(reference_regressions PRIVATE soloud Threads::Threads)
+target_compile_definitions(reference_regressions PRIVATE
+  SOLOUDER_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/fixtures")
 
 # Renders tests/scenarios/*.scn for comparison with the Rust port
 # (scripts/run_parity.py).
@@ -101,6 +103,10 @@ set(REFERENCE_TESTS
   bus_moved_to_another_engine
   sources_and_engines_on_two_threads
   flac_lpc_prediction_uses_64_bits
+  oggstream_rewind_restarts
+  oggstream_seek_lands_on_target
+  oggstream_seek_past_end_ends
+  oggstream_cut_first_page_fails
 )
 
 enable_testing()

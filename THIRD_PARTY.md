@@ -5,13 +5,13 @@ third-party code with its own terms, summarized from SoLoud's
 `docsrc/legal.mmd`. When SoLouder ports one of these components, its notice
 must be kept with the port and the component's row updated here.
 
-None of this code has been translated. The C++ reference checkout under
+Rows saying "ported" name the SoLouder code translated from them; the rest has not been translated. The C++ reference checkout under
 `reference/soloud` is git-ignored and keeps its original notices.
 
 | Component | SoLoud location | Origin and license | SoLouder plan |
 |---|---|---|---|
-| Ogg Vorbis decoding | `src/audiosource/wav/stb_vorbis.c` | stb_vorbis by Sean Barrett, public domain | Not translated; use a maintained Rust decoder |
-| MP3 decoding | `src/audiosource/wav/dr_mp3.h` | dr_mp3 by David Reid, Unlicense (based on minimp3, CC0) | Not translated |
+| Ogg Vorbis decoding | `src/audiosource/wav/stb_vorbis.c` | stb_vorbis 1.22 by Sean Barrett and contributors, public domain or MIT | Pull-mode decoding path ported to `solouder-decoders` (`decoded_audio/vorbis/`), credited in its files |
+| MP3 decoding | `src/audiosource/wav/dr_mp3.h` | dr_mp3 0.6.31 by David Reid, public domain (Unlicense) or MIT No Attribution, based on minimp3 by lieff, CC0 | Decoding path ported to `solouder-decoders` (`decoded_audio/mp3/`), credited in its files |
 | WAV decoding | `src/audiosource/wav/dr_wav.h` | dr_wav by David Reid, Unlicense | Not translated; `solouder-decoders` has its own RIFF reader and reuses dr_wav's conversion formulas and G.711 tables (credited in `convert.rs`) |
 | FLAC decoding | `src/audiosource/wav/dr_flac.h` | dr_flac by David Reid, Unlicense or MIT No Attribution | Decoding path ported to `solouder-decoders` (`decoded_audio/flac/`), credited in its files |
 | Freeverb | `src/filter/soloud_freeverbfilter.cpp` | Jezar at Dreampoint, public domain (original release, not GPL Freeverb3) | Port with attribution |
@@ -36,4 +36,4 @@ are MIT, Apache-2.0, Zlib, Unicode-3.0 or CC0 variants; check again with `cargo 
 | `bevy` 0.20 (`std`, `bevy_asset`) | `bevy_solouder` | MIT OR Apache-2.0 | |
 | `stats_alloc` 0.1 | `solouder-core` tests only | MIT | Counts allocations in `realtime_no_alloc`. |
 
-WAV and FLAC are decoded by first-party code.
+WAV, FLAC, Ogg Vorbis and MP3 are decoded by first-party code (the last three ported from the libraries above).

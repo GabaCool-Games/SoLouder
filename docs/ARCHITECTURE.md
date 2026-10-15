@@ -187,12 +187,13 @@ The crates are dependency/execution boundaries, not horizontal business layers.
 - Start core with ordinary Rust `std`; `no_std` is not an initial goal.
 - CPAL is the initial device-output adapter, not a core DSP dependency. Isolate
   negotiation and target-specific stream requirements in that adapter.
-- WAV and FLAC are decoded by first-party code: a RIFF reader with dr_wav's
-  conversions, and a port of dr_flac, which matches the reference bit for bit.
-  For Ogg Vorbis and MP3, weigh maintained Rust decoders (Symphonia among them)
-  against a port: check channel layouts, seek behavior, numerical differences,
-  panics on damaged files, and licenses before committing to a library.
-  Ogg container support does not automatically include every Ogg codec.
+- Audio files are decoded by first-party code: a RIFF reader with dr_wav's
+  conversions, and ports of dr_flac, stb_vorbis and dr_mp3 that match the
+  reference bit for bit. Symphonia decoded FLAC for a while and was dropped
+  because damaged files made it panic; other lossy decoders would not match
+  the reference's samples. A port must reproduce the reference's arithmetic
+  exactly (dr_mp3's SSE operation order, the C library's double-precision
+  math), never panic, and fail safely where the C is undefined.
 - Use Bevy's asset/task facilities for Bevy loading. A separate async runtime is
   not required simply to decode an asset.
 - Make codecs, output, and extended sources opt-in where useful. Document and

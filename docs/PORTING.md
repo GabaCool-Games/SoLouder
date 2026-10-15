@@ -403,6 +403,8 @@ unpatched reference, and each needs a matching Rust test.
 | 0055 | — (found reviewing milestone E) | After 0053 a stream without a file reported itself ended, but the mixer never stops a looping voice, so a looping `WavStream` whose file was gone played silence forever. `hasEnded` now also clears the instance's looping flag, so the voice ends. | `wavstream_missing_file_ends` |
 | 0056 | — (found reviewing milestone E) | `voiceHasFinished` checked the looping flag before asking the source, so 0055's flag clearing only happened when a block was read; a voice that cannot advance (a step of a whole block or more) never reads one and stayed alive. The source is now asked first; for every other source the result is unchanged. | `wavstream_missing_file_ends` |
 | 0057 | dr_libs 713ffe6, a4774b5 (dr_flac 0.12.35) | dr_flac summed an LPC prediction in 32 bits whenever the sample size plus the prediction shift was at most 32, ignoring the coefficient precision and order, so a predictor that overshoots full scale wrapped around and decoded wrong samples (found porting milestone E on a 20-bit stereo file's side channel). Backported upstream's test, `bitsPerSample + precision + ilog2(order) > 32`, in the scalar, SSE4.1 and NEON paths. | `flac_lpc_prediction_uses_64_bits` |
+| 0058 | — | A rewound Ogg Vorbis stream kept the Vorbis frame it was reading, whose buffers stb_vorbis reuses, so a looping Ogg stream played the rest of that frame, by then holding other audio, before its start; `stb_vorbis_seek` leaves the rest of the frame holding its target in a buffer that `stb_vorbis_get_frame_float` skips, so a seek went on after its target. Seeks now land where the generic seek does (from the frames read, or from the start after a rewind) via `stb_vorbis_seek_frame`, decoding up to the target when that fails; a seek past the end ends the stream; a packet that fails to decode ends the data, as in `Wav::loadogg` (the end also counted the last read twice). | `oggstream_rewind_restarts`, `oggstream_seek_lands_on_target`, `oggstream_seek_past_end_ends` |
+| 0059 | — (found porting milestone E) | stb_vorbis reads an Ogg page without segments as `fread(data, 0, 1)`, and `Soloud_Filehack_fread` divided the bytes read by the element size of 0, so a `WavStream` of an Ogg file cut inside its first page crashed with an integer division by zero. An empty request now reads nothing, as `fread` does, and the file fails to load. | `oggstream_cut_first_page_fails` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -770,10 +772,47 @@ last); each ends with passing scenarios, ledger rows and a commit:
    its C buffer handling and Ogg/seek-table code, which the port does not
    have.
 5. **Ogg Vorbis and MP3**, resident and streamed, with `Wav::load`'s format
-   detection (WAV, Ogg, FLAC, then MP3), file loading and Bevy loaders for
-   `.ogg`, `.flac` and `.mp3`. Lossy decoders differ from stb_vorbis and
-   dr_mp3, so these scenarios declare a measured tolerance; MP3 encoder
-   delay and padding must line up with dr_mp3.
+   detection (`OggS`, `RIFF`, `fLaC`, anything else tried as MPEG audio)
+   and Bevy loaders for `.ogg` and `.mp3`. As for FLAC (4b), the decoders
+   are ports, not crates, so the scenarios are bit-exact instead of
+   declaring a tolerance: stb_vorbis 1.22's pull-mode decoder in
+   `decoded_audio/vorbis/` and dr_mp3 0.6.31 (minimp3) in
+   `decoded_audio/mp3/`, with layers 1 to 3. On x64 dr_mp3 always runs its
+   SSE path, whose float operations are not ordered like its scalar path;
+   the port follows the SSE order. dr_mp3 0.6.31 reads no Xing/LAME or ID3
+   headers, so encoder delay and padding stay in the audio, as in SoLoud.
+   Fixtures come from `scripts/gen_lossy_fixtures.py` (ffmpeg with
+   libvorbis, libmp3lame and libtwolame; the encoded files are committed,
+   the damaged ones derived). Scenarios `ogg_decode`, `mp3_decode`,
+   `stream_ogg` and `stream_mp3`. Patch 0058 fixes the reference's Ogg
+   stream: a rewind kept the Vorbis frame it was reading, so loops replayed
+   the rest of it (holding other audio by then) before the start, and
+   `stb_vorbis_seek` skipped the rest of the frame holding its target.
+   Seeks now land where the generic seek would, found with
+   `stb_vorbis_seek_frame` instead of decoding up to them; a packet that
+   fails to decode ends the data, as it ends `Wav::loadogg`, and a seek
+   past the end ends the stream. Patch 0059: an Ogg file cut inside its
+   first page crashed `WavStream` (a division by zero in SoLoud's file
+   wrapper).
+
+   Done: both ports are bit-exact in all four scenarios and against wider
+   C++ harnesses (MP3: 95 generated files through memory and reader paths;
+   Vorbis: 20 more ffmpeg files, a 10-channel file and over 1,000 mutated
+   ones). In release builds MP3 decodes about 10% slower than the C++ (5
+   minutes of 192 kbps stereo in about 190 ms against 172 ms, 11 ms of it
+   zeroing the output) and Vorbis slightly faster (200 seconds of stereo
+   in about 123 ms against 135 ms). The SSE order matters in dr_mp3's
+   `DCT_II` sums and its mono output stores. stb_vorbis reads SoLoud's
+   `DiskFile` and `MemoryFile` differently at the end of the data (a
+   `DiskFile` reads one phantom zero byte past it), so streams from a file
+   and from memory read through the matching kind. stb_vorbis's inverse
+   MDCT is wrong for block sizes 64 and 128; the port keeps that for
+   parity. Undefined behaviour on damaged input is not reproduced: dr_mp3
+   decodes damaged frames into stack memory it never initialised (26 of
+   7,790 mutated files differ; the port zeroes it), and stb_vorbis reads
+   and writes out of bounds or asserts on some damaged files, where the
+   port fails the packet or the file. Fuzzing found no panics. Vorbis setup
+   headers needing more than 256 MiB are refused.
 6. **3D core, offline:** listener and source state, attenuation models with
    min/max distance and rolloff, listener-relative sources, speaker positions
    and per-speaker gains for 1 to 8 channels, `update3dAudio` and its 0.001

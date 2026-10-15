@@ -250,6 +250,52 @@ fn flac_files_load_and_stream_through_the_asset_server() {
 }
 
 #[test]
+fn ogg_and_mp3_files_load_and_stream_through_the_asset_server() {
+    let mut app = headless_app();
+    let server = app.world().resource::<AssetServer>().clone();
+    let stream = |server: &AssetServer, path: &'static str| -> Handle<AudioClip> {
+        server
+            .load_builder()
+            .with_settings(|settings: &mut WavSettings| settings.stream = true)
+            .load(path)
+    };
+    let clips = [
+        server.load("ogg/vorbis_short_mono_44100.ogg"),
+        stream(&server, "ogg/vorbis_mono_22050_q0.ogg"),
+        server.load("mp3/mpeg2_stereo_16000.mp3"),
+        stream(&server, "mp3/mpeg25_mono_8000.mp3"),
+    ];
+    let players: Vec<Entity> = clips
+        .iter()
+        .map(|clip| app.world_mut().spawn(SoundPlayer(clip.clone())).id())
+        .collect();
+    update_until(&mut app, |app| {
+        players
+            .iter()
+            .all(|&player| state(app, player) != PlaybackState::Loading)
+    });
+    let assets = app.world().resource::<Assets<AudioClip>>();
+    assert_eq!(assets.get(&clips[1]).unwrap().duration_seconds(), 1.0);
+    assert_eq!(
+        assets.get(&clips[3]).unwrap().duration_seconds(),
+        9792.0 / 8000.0
+    );
+    for _ in 0..64 {
+        app.world_mut()
+            .resource_mut::<HeadlessStreamWorker>()
+            .service();
+        render(&mut app, 1024);
+    }
+    app.update();
+    for player in players {
+        assert_eq!(
+            state(&app, player),
+            PlaybackState::Finished(FinishReason::Ended)
+        );
+    }
+}
+
+#[test]
 fn a_bad_file_fails_the_player() {
     let mut app = headless_app();
     let clip = app

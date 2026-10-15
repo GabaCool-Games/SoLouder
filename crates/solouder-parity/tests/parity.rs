@@ -3,7 +3,8 @@
 //!
 //! C++ output is read from `SOLOUDER_PARITY_DIR` (default
 //! `build/parity/cpp`, relative to the repository root). With `SOLOUDER_REQUIRE_PARITY=1`, missing C++ output
-//! is a failure; `scripts/run_parity.py` sets both.
+//! is a failure; `scripts/run_parity.py` sets both. `SOLOUDER_SCENARIO`, a
+//! comma-separated list of scenario names, runs only those.
 
 use std::path::{Path, PathBuf};
 
@@ -18,6 +19,11 @@ fn scenario_files(dir: &Path) -> Vec<PathBuf> {
         .unwrap_or_else(|error| panic!("cannot read {}: {error}", dir.display()))
         .map(|entry| entry.expect("directory entry").path())
         .filter(|path| path.extension().is_some_and(|ext| ext == "scn"))
+        .filter(|path| {
+            let only = std::env::var("SOLOUDER_SCENARIO").unwrap_or_default();
+            let stem = path.file_stem().unwrap_or_default().to_string_lossy();
+            only.is_empty() || only.split(',').any(|name| name.trim() == stem)
+        })
         .collect();
     files.sort();
     files
@@ -33,7 +39,10 @@ fn scenarios_match_the_cpp_reference() {
     let require = std::env::var("SOLOUDER_REQUIRE_PARITY").is_ok_and(|value| value == "1");
 
     let files = scenario_files(&root.join("tests/scenarios"));
-    assert!(!files.is_empty(), "no .scn files in tests/scenarios");
+    assert!(
+        !files.is_empty(),
+        "no matching .scn files in tests/scenarios"
+    );
 
     let mut failures = Vec::new();
     let mut skipped = Vec::new();

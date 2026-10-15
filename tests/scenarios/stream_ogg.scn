@@ -1,0 +1,63 @@
+# Streamed Ogg Vorbis files (WavStream with stb_vorbis and reference patch
+# 0058), loaded from a file, into memory and from bytes: stereo, resampled
+# mono, 5.1 and 7.1 folded down to stereo, a long mono file looping from a
+# loop point, a file whose data is garbled (a packet that fails to decode
+# ends the data) and files that fail to load (one cut inside its first
+# page, which crashed the reference before patch 0059); seeks backwards, forwards
+# across many Vorbis frames, inside one, and past the end, mixed in calls
+# that cross block and loop boundaries until the non-looping streams end.
+init channels=2 rate=44100 buffer=1024
+stream name=music file=ogg/vorbis_stereo_44100.ogg volume=0.5
+stream name=voice file=ogg/vorbis_mono_22050_q0.ogg from=memory
+stream name=surround file=ogg/vorbis_5.1_48000.ogg from=bytes volume=0.4
+stream name=wide file=ogg/vorbis_7.1_32000.ogg volume=0.3
+stream name=loop file=ogg/vorbis_mono_8000_long.ogg looping=1 loop_point=0.5
+stream name=tiny file=ogg/vorbis_short_mono_44100.ogg from=memory
+stream name=garbled file=ogg/bad_payload_stereo_44100.ogg volume=0.2
+stream name=cut file=ogg/bad_truncated_stereo_44100.ogg
+stream name=headers file=ogg/bad_headers_only.ogg from=bytes
+stream name=setup file=ogg/bad_setup.ogg
+stream name=cut1 file=ogg/bad_cut_header.ogg
+stream name=cut2 file=ogg/bad_cut_header.ogg from=bytes
+sound_query name=music
+sound_query name=loop
+sound_query name=tiny
+play sound=music as=m
+play sound=voice as=v volume=0.3 pan=-0.5
+mix frames=700
+play sound=surround as=s
+play sound=loop as=l volume=0.25 pan=0.75
+play sound=wide as=w
+play sound=tiny as=t
+mix frames=1023
+set h=m seek=0.01
+play sound=garbled as=g pan=0.25
+mix frames=1500
+set h=v speed=1.5
+set h=l seek=3.9
+set h=s seek=100
+mix frames=900
+query h=l
+query h=m
+counts
+set h=l seek=4.55
+mix frames=4096
+set h=w seek=0.002
+set h=m seek=0.0005
+mix frames=4096
+counts
+query h=l
+play sound=music as=m2
+play sound=music as=m3 volume=0.2
+mix frames=333
+set h=m2 seek=1.2
+mix frames=2048
+stop_sound name=music
+counts
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+counts
+query h=l

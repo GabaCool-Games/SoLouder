@@ -31,6 +31,7 @@ def main(argv: list[str] | None = None) -> int:
         [python, "scripts/gen_parity_ledger.py", "--check"],
         [python, "scripts/gen_wav_fixtures.py", "--check"],
         [python, "scripts/gen_flac_fixtures.py", "--check"],
+        [python, "scripts/gen_lossy_fixtures.py", "--check"],
         ["cargo", "fmt", "--all", "--", "--check"],
         ["cargo", "clippy", "--workspace", "--all-targets", "--", "-D", "warnings"],
         ["cargo", "test", "--workspace"],

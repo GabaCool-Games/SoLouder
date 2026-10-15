@@ -1,0 +1,61 @@
+# Streamed MPEG audio files (WavStream with dr_mp3), loaded from a file, into
+# memory and from bytes: MPEG-1 stereo, resampled MPEG-2 mono, MPEG-1 with
+# an ID3v2 tag, layer 2 mono, a long MPEG-2.5 stereo file looping from a loop
+# point, a short file, damaged frame data, a file cut off mid-frame, junk
+# before the first frame and bytes that hold no audio; seeks backwards,
+# forwards and past the end (decoding up to the target, as SoLoud's generic
+# seek does), mixed in calls that cross block and loop boundaries until the
+# non-looping streams end.
+init channels=2 rate=44100 buffer=1024
+stream name=music file=mp3/mpeg1_stereo_44100_cbr128.mp3 volume=0.5
+stream name=voice file=mp3/mpeg2_mono_22050_vbr.mp3 from=memory
+stream name=surround file=mp3/mpeg1_stereo_48000_vbr_id3.mp3 from=bytes volume=0.4
+stream name=wide file=mp3/layer2_mono_24000.mp3 volume=0.3
+stream name=loop file=mp3/mpeg25_stereo_11025_long.mp3 looping=1 loop_point=0.5
+stream name=tiny file=mp3/mpeg25_mono_8000.mp3 from=memory
+stream name=garbled file=mp3/bad_payload_stereo_44100.mp3 volume=0.2
+stream name=cut file=mp3/bad_truncated_stereo_44100.mp3
+stream name=headers file=mp3/bad_junk_prefix_stereo_44100.mp3 from=bytes
+stream name=setup file=mp3/bad_not_audio.mp3
+sound_query name=music
+sound_query name=loop
+sound_query name=tiny
+play sound=music as=m
+play sound=voice as=v volume=0.3 pan=-0.5
+mix frames=700
+play sound=surround as=s
+play sound=loop as=l volume=0.25 pan=0.75
+play sound=wide as=w
+play sound=tiny as=t
+mix frames=1023
+set h=m seek=0.01
+play sound=garbled as=g pan=0.25
+mix frames=1500
+set h=v speed=1.5
+set h=l seek=3.9
+set h=s seek=100
+mix frames=900
+query h=l
+query h=m
+counts
+set h=l seek=4.55
+mix frames=4096
+set h=w seek=0.002
+set h=m seek=0.0005
+mix frames=4096
+counts
+query h=l
+play sound=music as=m2
+play sound=music as=m3 volume=0.2
+mix frames=333
+set h=m2 seek=1.2
+mix frames=2048
+stop_sound name=music
+counts
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+counts
+query h=l

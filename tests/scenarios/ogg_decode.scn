@@ -1,0 +1,30 @@
+# Ogg Vorbis files decoded by SoLoud's Wav::load (stb_vorbis) and by
+# solouder-decoders: 1 to 8 channels at 8 to 48 kHz, qualities 0 to 10, a
+# file shorter than one Vorbis block, then damaged files: a page whose data
+# is garbled under a valid checksum, a page with a wrong checksum (not
+# checked when reading in order), a file cut short (its length cannot be
+# found, so it fails, as in SoLoud), headers without audio, a broken setup
+# header and a file cut inside its first page.
+init
+load name=st file=ogg/vorbis_stereo_44100.ogg
+samples name=st
+load name=q0 file=ogg/vorbis_mono_22050_q0.ogg
+samples name=q0
+load name=s51 file=ogg/vorbis_5.1_48000.ogg
+samples name=s51
+load name=s71 file=ogg/vorbis_7.1_32000.ogg
+samples name=s71
+load name=quad file=ogg/vorbis_quad_16000_q10.ogg
+samples name=quad
+load name=long file=ogg/vorbis_mono_8000_long.ogg
+samples name=long
+load name=short file=ogg/vorbis_short_mono_44100.ogg
+samples name=short
+load name=garbled file=ogg/bad_payload_stereo_44100.ogg
+samples name=garbled
+load name=crc file=ogg/bad_crc_stereo_44100.ogg
+samples name=crc
+load name=cut file=ogg/bad_truncated_stereo_44100.ogg
+load name=headers file=ogg/bad_headers_only.ogg
+load name=setup file=ogg/bad_setup.ogg
+load name=tiny file=ogg/bad_cut_header.ogg

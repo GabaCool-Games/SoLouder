@@ -1,0 +1,34 @@
+# MPEG audio files decoded by SoLoud's Wav::load (dr_mp3) and by
+# solouder-decoders: MPEG-1, 2 and 2.5 layer 3 at 8 to 48 kHz, mono, joint
+# and plain stereo, constant and variable bit rates, with and without a
+# Xing/LAME frame (decoded as a silent frame, as dr_mp3 0.6.31 does) and an
+# ID3v2 tag (skipped by the frame search); layer 2; then damaged files: cut
+# off mid-frame, junk before the first frame, damaged frame data, and bytes
+# that hold no audio. Every file not tagged OggS, RIFF or fLaC is tried as
+# MPEG audio, so none of these needs an extension.
+init
+load name=m1 file=mp3/mpeg1_stereo_44100_cbr128.mp3
+samples name=m1
+load name=m2 file=mp3/mpeg1_stereo_48000_vbr_id3.mp3
+samples name=m2
+load name=m3 file=mp3/mpeg1_mono_32000_noxing.mp3
+samples name=m3
+load name=m4 file=mp3/mpeg2_mono_22050_vbr.mp3
+samples name=m4
+load name=m5 file=mp3/mpeg2_stereo_16000.mp3
+samples name=m5
+load name=m6 file=mp3/mpeg25_mono_8000.mp3
+samples name=m6
+load name=m7 file=mp3/mpeg25_stereo_11025_long.mp3
+samples name=m7
+load name=l2s file=mp3/layer2_stereo_44100.mp3
+samples name=l2s
+load name=l2m file=mp3/layer2_mono_24000.mp3
+samples name=l2m
+load name=cut file=mp3/bad_truncated_stereo_44100.mp3
+samples name=cut
+load name=junk file=mp3/bad_junk_prefix_stereo_44100.mp3
+samples name=junk
+load name=damaged file=mp3/bad_payload_stereo_44100.mp3
+samples name=damaged
+load name=none file=mp3/bad_not_audio.mp3

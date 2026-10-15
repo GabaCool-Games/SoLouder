@@ -1365,6 +1365,139 @@ namespace
 		check(shared.getVoiceCount() == 0, "every destroyed sound was stopped");
 	}
 
+	// Ogg Vorbis streams kept the decoded Vorbis frame they were reading
+	// across a rewind or seek. stb_vorbis reuses its buffers, so a looping
+	// stream played the rest of that frame, now holding other audio, before
+	// the start; a seek also landed after the frame holding its target.
+	struct OggFixture
+	{
+		Wav wav;
+		WavStream stream;
+		bool ok;
+		OggFixture(const char *aName)
+		{
+			std::string path = std::string(SOLOUDER_FIXTURE_DIR) + "/ogg/" + aName;
+			ok = wav.load(path.c_str()) == SO_NO_ERROR && stream.load(path.c_str()) == SO_NO_ERROR;
+			check(ok, "Ogg fixture loads as Wav and WavStream");
+		}
+	};
+
+	// Reads aFrames of channel 0 in calls of at most aCall frames.
+	std::vector<float> readChannel0(AudioSourceInstance *aInstance, unsigned int aFrames, unsigned int aCall)
+	{
+		std::vector<float> out;
+		std::vector<float> buffer(aCall * MAX_CHANNELS);
+		while (out.size() < aFrames)
+		{
+			unsigned int n = aFrames - (unsigned int)out.size() < aCall ? aFrames - (unsigned int)out.size() : aCall;
+			unsigned int got = aInstance->getAudio(buffer.data(), n, aCall);
+			out.insert(out.end(), buffer.begin(), buffer.begin() + got);
+			if (got < n)
+				break;
+		}
+		return out;
+	}
+
+	unsigned int countMismatches(const std::vector<float> &aGot, const Wav &aWav, unsigned int aFrom)
+	{
+		unsigned int wrong = 0;
+		for (size_t i = 0; i < aGot.size(); i++)
+		{
+			if (aFrom + i >= aWav.mSampleCount || aGot[i] != aWav.mData[aFrom + i])
+				wrong++;
+		}
+		return wrong;
+	}
+
+	void oggstream_rewind_restarts()
+	{
+		OggFixture f("vorbis_stereo_44100.ogg");
+		if (!f.ok)
+			return;
+		AudioSourceInstance *instance = f.stream.createInstance();
+		instance->init(f.stream, 0);
+		check(countMismatches(readChannel0(instance, 1000, 300), f.wav, 0) == 0, "first frames match the Wav");
+		instance->rewind();
+		std::vector<float> again = readChannel0(instance, 2048, 512);
+		check(again.size() == 2048, "2048 frames after the rewind");
+		unsigned int wrong = countMismatches(again, f.wav, 0);
+		if (wrong)
+			std::printf("  %u of 2048 frames differ after the rewind\n", wrong);
+		check(wrong == 0, "a rewound stream starts over");
+		delete instance;
+	}
+
+	void oggstream_seek_lands_on_target()
+	{
+		OggFixture f("vorbis_stereo_44100.ogg");
+		if (!f.ok)
+			return;
+		AudioSourceInstance *instance = f.stream.createInstance();
+		instance->init(f.stream, 0);
+		std::vector<float> scratch(512 * MAX_CHANNELS);
+		// Forward from the start: frame floor(44100 * 0.5) = 22050.
+		instance->seek(0.5, scratch.data(), (unsigned int)scratch.size());
+		std::vector<float> got = readChannel0(instance, 1500, 512);
+		unsigned int wrong = countMismatches(got, f.wav, 22050);
+		if (wrong)
+			std::printf("  forward seek: %u of %u frames differ\n", wrong, (unsigned int)got.size());
+		check(got.size() == 1500 && wrong == 0, "a forward seek plays from its target");
+		// Backward: rewinds, then frame 11025.
+		instance->seek(0.25, scratch.data(), (unsigned int)scratch.size());
+		got = readChannel0(instance, 700, 300);
+		wrong = countMismatches(got, f.wav, 11025);
+		if (wrong)
+			std::printf("  backward seek: %u of %u frames differ\n", wrong, (unsigned int)got.size());
+		check(got.size() == 700 && wrong == 0, "a backward seek plays from its target");
+		// Forward again counts from the frames read since: 11025 + 700, plus
+		// floor(44100 * 0.25) for the quarter second from 0.25 to 0.5.
+		instance->seek(0.5, scratch.data(), (unsigned int)scratch.size());
+		got = readChannel0(instance, 1000, 512);
+		wrong = countMismatches(got, f.wav, 11025 + 700 + 11025);
+		if (wrong)
+			std::printf("  relative seek: %u of %u frames differ\n", wrong, (unsigned int)got.size());
+		check(got.size() == 1000 && wrong == 0, "a seek counts from the frames read, as the generic seek does");
+		check(!instance->hasEnded(), "not ended");
+		delete instance;
+	}
+
+	void oggstream_seek_past_end_ends()
+	{
+		OggFixture f("vorbis_stereo_44100.ogg");
+		if (!f.ok)
+			return;
+		AudioSourceInstance *instance = f.stream.createInstance();
+		instance->init(f.stream, 0);
+		std::vector<float> scratch(512 * MAX_CHANNELS);
+		readChannel0(instance, 333, 333);
+		instance->seek(10.0, scratch.data(), (unsigned int)scratch.size());
+		check(instance->hasEnded(), "a seek past the end ends the stream");
+		std::vector<float> buffer(512 * MAX_CHANNELS, 1.0f);
+		check(instance->getAudio(buffer.data(), 512, 512) == 0, "nothing more is read");
+		// The last frames, from a seek just before the end.
+		instance->rewind();
+		instance->seek(1.49, scratch.data(), (unsigned int)scratch.size());
+		unsigned int from = (unsigned int)std::floor(44100 * 1.49);
+		std::vector<float> got = readChannel0(instance, 2000, 512);
+		check(got.size() == f.wav.mSampleCount - from, "the frames to the end, and no more");
+		check(countMismatches(got, f.wav, from) == 0, "the last frames match the Wav");
+		check(instance->hasEnded(), "ended at the end");
+		delete instance;
+	}
+
+	// stb_vorbis reads an Ogg page with no segments through SoLoud's File
+	// as fread(data, 0, 1), and Soloud_Filehack_fread divided the bytes
+	// read by the element size of 0: an Ogg file cut inside its first page
+	// crashed WavStream (integer division by zero).
+	void oggstream_cut_first_page_fails()
+	{
+		std::string path = std::string(SOLOUDER_FIXTURE_DIR) + "/ogg/bad_cut_header.ogg";
+		WavStream fromFile;
+		check(fromFile.load(path.c_str()) == FILE_LOAD_FAILED, "load fails");
+		WavStream inMemory;
+		check(inMemory.loadToMem(path.c_str()) == FILE_LOAD_FAILED, "loadToMem fails");
+	}
+
 	// dr_flac 0.12.35 (upstream 713ffe6): the LPC sum was taken in 32 bits
 	// whenever bitsPerSample + shift <= 32, ignoring the coefficient precision
 	// and order. A predictor that overshoots full scale wrapped around. This
@@ -1471,6 +1604,10 @@ namespace
 		{ "bus_moved_to_another_engine", bus_moved_to_another_engine },
 		{ "sources_and_engines_on_two_threads", sources_and_engines_on_two_threads },
 		{ "flac_lpc_prediction_uses_64_bits", flac_lpc_prediction_uses_64_bits },
+		{ "oggstream_rewind_restarts", oggstream_rewind_restarts },
+		{ "oggstream_seek_lands_on_target", oggstream_seek_lands_on_target },
+		{ "oggstream_seek_past_end_ends", oggstream_seek_past_end_ends },
+		{ "oggstream_cut_first_page_fails", oggstream_cut_first_page_fails },
 	};
 }
 
