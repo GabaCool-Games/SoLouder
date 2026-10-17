@@ -1,0 +1,38 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:22:45 +0300
+Subject: [PATCH] Monotone: refuse more than 12 tracks or hardware channels
+
+Voices keep 12 channels, one a track, and 12 hardware channels, but
+loadFile took up to 255 tracks and setParams any number of hardware
+channels, and getAudio indexed both arrays with them. loadFile now
+fails on more than 12 tracks, and setParams returns INVALID_PARAMETER
+for more than 12 hardware channels.
+---
+ src/audiosource/monotone/soloud_monotone.cpp | 6 ++++--
+ 1 file changed, 4 insertions(+), 2 deletions(-)
+
+diff --git a/src/audiosource/monotone/soloud_monotone.cpp b/src/audiosource/monotone/soloud_monotone.cpp
+index 77ba3fc..543891c 100644
+--- a/src/audiosource/monotone/soloud_monotone.cpp
++++ b/src/audiosource/monotone/soloud_monotone.cpp
+@@ -363,7 +363,8 @@ namespace SoLoud
+ 
+ 	result Monotone::setParams(int aHardwareChannels, int aWaveform)
+ 	{
+-		if (aHardwareChannels <= 0 || aWaveform < 0)
++		// Voices have 12 hardware channels.
++		if (aHardwareChannels <= 0 || aHardwareChannels > 12 || aWaveform < 0)
+ 			return INVALID_PARAMETER;
+ 		mHardwareChannels = aHardwareChannels;
+ 		mWaveform = aWaveform;
+@@ -421,7 +422,8 @@ namespace SoLoud
+ 		mSong.mTotalPatterns = temp[1];
+ 		mSong.mTotalTracks = temp[2];
+ 		mSong.mCellSize = temp[3];
+-		if (mSong.mVersion != 1 || mSong.mCellSize != 2)
++		// Voices have 12 channels, one a track.
++		if (mSong.mVersion != 1 || mSong.mCellSize != 2 || mSong.mTotalTracks > 12)
+ 		{
+ 			clear();
+ 			return FILE_LOAD_FAILED;

@@ -414,6 +414,14 @@ unpatched reference, and each needs a matching Rust test.
 | 0065 | — (found porting milestone F) | `Sfxr::loadParamsFile` read fields one after another into the settings and succeeded whatever the file held, so a short file loaded with some settings changed. Fields are now read into a copy kept only when the file holds all of them; otherwise `FILE_LOAD_FAILED`. | `sfxr_short_file_fails` |
 | 0066 | — (found porting milestone F) | `Sfxr::loadParamsFile` read the filter flag's byte straight into a `bool`, so a byte other than 0 or 1 made a `bool` that is neither. It is now read as a byte; any value but 0 is true. | `sfxr_filter_flag_is_a_bool` |
 | 0067 | — (found porting milestone F) | `SfxrInstance::getAudio` called again after the sound's end, as the generic seek does while discarding, went on past the envelope's last stage and read `env_length[3]`. An ended sound now returns 0 frames. | `sfxr_ended_sound_stays_silent` |
+| 0068 | — (found porting milestone F) | `Monotone`'s constructor left the song's track count and order uninitialised, and a failed load kept the track count it had read (or the previous song's) without pattern data: playing either read through a null pointer. The song now starts empty and a failed load empties it. | `monotone_empty_song_is_silent` |
+| 0069 | — (found porting milestone F) | `Monotone::loadFile` ignored how many bytes each read gave, so a short file loaded with its missing bytes taken from the buffer's earlier, or uninitialised, contents. A short read now fails with `FILE_LOAD_FAILED`. | `monotone_short_file_fails` |
+| 0070 | — (found porting milestone F) | `Monotone::loadFile` ended a Pascal title or comment at the length in its first byte, up to 255, in a 200-byte buffer holding the 41 bytes read: over 40 it took stale bytes, over 198 it wrote past the buffer. The length is now at most 40. | `monotone_long_title_is_cut` |
+| 0071 | — (found porting milestone F) | Voices keep 12 channels and 12 hardware channels, but a song could have 255 tracks and `setParams` took any number of hardware channels: both overran the arrays. More than 12 now fail (`FILE_LOAD_FAILED`, `INVALID_PARAMETER`). | `monotone_at_most_12_channels` |
+| 0072 | — (found porting milestone F) | `MonotoneInstance::getAudio` indexed the 800-entry note table with notes up to 126 (and arpeggios 7 above) times 8, read the order past its 256 entries when a song had no end marker, and read patterns the song does not have. The table's last entry is used past its end, the order starts again after its last entry, and a missing pattern plays as empty rows. | `monotone_indices_in_range` |
+| 0073 | — (found porting milestone F) | `Monotone`'s constructor filled the note table below note 1 down to entry 2 only; vibrato on note 1 reads entry 1, which was uninitialised. The table now continues to entry 1. | `monotone_note_table_is_filled` |
+| 0074 | — (found porting milestone F) | `MonotoneInstance::getAudio` took `floor(rate / 60)` samples a tick, so below 60 Hz (a slow play speed) it took the sample count modulo 0. A tick is now at least a sample. | `monotone_slow_rate_does_not_divide_by_zero` |
+| 0075 | — (found porting milestone F) | `MonotoneInstance`'s constructor left each channel's frequencies and slide uninitialised, and a slide to a note on a channel's first row started from them. They now start at 0. | `monotone_first_slide_starts_at_zero` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -980,13 +988,28 @@ Rules for units 1 to 8:
    `scripts/gen_source_fixtures.py`; prefixes and corrupted bytes of a
    file are tested to load or fail with a typed error, and extreme
    settings to render without panicking.
-4. **Monotone** (434 + h 109; SoLoud proper): uses `generateWaveform` (already
+4. **Monotone** (done; patches 0068 to 0075; 434 + h 109; SoLoud proper): uses `generateWaveform` (already
    ported); tempo follows `mSamplerate`, which includes play speed. Rows:
    `Monotone::*` (5). Several memory-safety defects (patch them): a Pascal title
    length over 199 writes past `temp[200]`; the song is uninitialised before
    load (`mTotalTracks`); more than 12 tracks or hardware channels overrun the
    12-entry arrays; order, pattern and note indices are unchecked
    (`mNotesHz[800]`); a rate below 60 Hz gives `% 0`. Scenario `monotone`.
+   Done: `solouder_sources::Monotone` (feature `monotone`) with
+   `MonotoneSong`, `MonotoneError` and `MONOTONE_CHANNELS`. A song is
+   parsed into an immutable `MonotoneSong` shared by its voices, so
+   Rust has constructors instead of reloading (`load` stopped the voices
+   in SoLoud); hardware channels and the waveform are atomics read every
+   block. Patches: an empty song before and after a failed load (0068),
+   short files failing (0069), titles cut at 40 bytes (0070), at most 12
+   tracks and hardware channels (0071), note indices clamped to the
+   table, the order wrapping after 256 entries and missing patterns
+   playing empty rows (0072), and at least a sample a tick (0074). Found
+   while porting: the note table's entry 1 was never set, and vibrato on
+   note 1 reads it (0073); channel frequencies started uninitialised, and
+   a slide to a note on a channel's first row starts from them (0075).
+   The sample counter and slides wrap on overflow (after 13 hours, or
+   days of sliding), as MSVC does. Bit-exact.
 5. **TedSid, then Ay**, as 5a and 5b. TedSid: `soloud_tedsid` 222, sid 623+180,
    ted 236+43, tedplay (Unlicense). AY: `soloud_ay` 179, chipplayer, sndbuffer,
    sndchip and sndrender together 991 lines (SMT, public domain). Both use zx7

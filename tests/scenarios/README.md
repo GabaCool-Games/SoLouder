@@ -114,6 +114,9 @@ names: a sound, stream, bus or queue of the same name is found first.
 | `sfxr_load` | `name` (an sfxr), then as for `sfxr` without source settings | The same load on an existing sfxr: later plays use the new settings. | `sfxr_load <name> <code>` |
 | `sfxr_reset` | `name` | `Sfxr::resetParams`. | — |
 | `sfxr_query` | `name` | Reads `mParams`. | `sfxr_query <name> wave=<int> filter=<0/1> params=<f32 bits>,...` with the floats in `SfxrParams` order from `p_base_freq` to `sound_vol` |
+| `monotone` | `name`, `file` with `from` (`path`, default, `memory` or `file`; without `file` the song is empty), `hardware` and `waveform` (unsigned, passed as `int`s; each the current value when only the other is given), source settings | A new `Monotone`, then `load` of the path, `loadMem` of the bytes (copied) or `loadFile` of a `DiskFile`, then `setParams` if `hardware` or `waveform` is given. A failed load leaves an empty, silent song. | `monotone <name> <load code> <setParams code>` (0 when not called) |
+| `monotone_set` | `name` (a monotone), `hardware`, `waveform` | `Monotone::setParams`, as for `monotone`; playing voices use the new values from their next block. | `monotone_set <name> <code>` |
+| `monotone_query` | `name` | Reads `mHardwareChannels`, `mWaveform` and `mSong`. | `monotone_query <name> hardware=<n> waveform=<n> patterns=<n> tracks=<n> title=<hex> comment=<hex> order=<256 bytes in hex>` |
 
 Every operation except `tolerance`, `init`, `samples` and `fft` needs a
 successful `init`. Unknown sound or handle names are scenario errors. `<code>` is the

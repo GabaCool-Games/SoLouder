@@ -1,0 +1,100 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:22:57 +0300
+Subject: [PATCH] MonotoneInstance::getAudio: keep note, order and pattern
+ indices in range
+
+Notes up to 126, and arpeggios up to 7 notes above them, indexed the
+800 entries of mNotesHz with up to 133 * 8; a song whose order has no
+end marker, or a row jump from its last entry, read the order past its
+256 entries; and order entries named patterns the song does not have.
+Indices past mNotesHz now read its last entry, the order starts again
+after its last entry, and a missing pattern plays as empty rows.
+---
+ src/audiosource/monotone/soloud_monotone.cpp | 29 +++++++++++++++-----
+ 1 file changed, 22 insertions(+), 7 deletions(-)
+
+diff --git a/src/audiosource/monotone/soloud_monotone.cpp b/src/audiosource/monotone/soloud_monotone.cpp
+index 543891c..3791c13 100644
+--- a/src/audiosource/monotone/soloud_monotone.cpp
++++ b/src/audiosource/monotone/soloud_monotone.cpp
+@@ -31,6 +31,16 @@ freely, subject to the following restrictions:
+ 
+ namespace SoLoud
+ {
++	// mNotesHz[aIndex], with indices past the table (notes over 99, or
++	// arpeggios above them) reading its last entry.
++	static int noteHz(const Monotone *aParent, int aIndex)
++	{
++		if (aIndex < 0)
++			aIndex = 0;
++		if (aIndex > 799)
++			aIndex = 799;
++		return aParent->mNotesHz[aIndex];
++	}
+ 
+ 	MonotoneInstance::MonotoneInstance(Monotone *aParent)
+ 	{
+@@ -85,7 +95,8 @@ namespace SoLoud
+ 					int j;
+ 					for (j = 0; j < mParent->mSong.mTotalTracks; j++)
+ 					{
+-						unsigned int d = mParent->mSong.mPatternData[(pattern * 64 + mRow) * mParent->mSong.mTotalTracks + j];
++						// A pattern the song does not have plays as empty rows.
++						unsigned int d = pattern < mParent->mSong.mTotalPatterns ? mParent->mSong.mPatternData[(pattern * 64 + mRow) * mParent->mSong.mTotalTracks + j] : 0;
+ 						unsigned int note = (d >> 9) & 127;
+ 						unsigned int effect = (d >> 6) & 7;
+ 						unsigned int effectdata = (d)& 63;
+@@ -113,7 +124,7 @@ namespace SoLoud
+ 						if (note != 0)
+ 						{
+ 							mChannel[j].mActive = 1;
+-							mChannel[j].mFreq[0] = mParent->mNotesHz[note * 8];
++							mChannel[j].mFreq[0] = noteHz(mParent, note * 8);
+ 							mChannel[j].mFreq[1] = mChannel[j].mFreq[0];
+ 							mChannel[j].mFreq[2] = mChannel[j].mFreq[0];
+ 							mChannel[j].mPortamento = 0;
+@@ -130,8 +141,8 @@ namespace SoLoud
+ 						{
+ 						case 0x0:
+ 							// arp
+-							mChannel[j].mFreq[1] = mParent->mNotesHz[(note + effectdata1) * 8];
+-							mChannel[j].mFreq[2] = mParent->mNotesHz[(note + effectdata2) * 8];
++							mChannel[j].mFreq[1] = noteHz(mParent, (note + effectdata1) * 8);
++							mChannel[j].mFreq[2] = noteHz(mParent, (note + effectdata2) * 8);
+ 							if (effectdata1 || effectdata2)
+ 								mChannel[j].mArp = 1;
+ 							break;
+@@ -145,7 +156,7 @@ namespace SoLoud
+ 							break;
+ 						case 0x3:
+ 							// portamento to note
+-							mChannel[j].mPortamentoToNote = mParent->mNotesHz[note * 8];
++							mChannel[j].mPortamentoToNote = noteHz(mParent, note * 8);
+ 							if (oldhz != mChannel[j].mPortamentoToNote)
+ 							{
+ 								mChannel[j].mFreq[0] = oldhz;
+@@ -193,9 +204,13 @@ namespace SoLoud
+ 					{
+ 						mRow = 0;
+ 						mOrder++;
+-						if (mParent->mSong.mOrder[mOrder] == 0xff)
++						if (mOrder < 256 && mParent->mSong.mOrder[mOrder] == 0xff)
+ 							mOrder = 0;
+ 					}
++					// Past the order's last entry (no end marker, or a row jump
++					// from it), start again.
++					if (mOrder >= 256)
++						mOrder = 0;
+ 				}
+ 
+ 				int j;
+@@ -207,7 +222,7 @@ namespace SoLoud
+ 					{
+ 						if (mChannel[j].mVibrato)
+ 						{
+-							mChannel[j].mFreq[0] = mParent->mNotesHz[mChannel[j].mLastNote * 8 + (mParent->mVibTable[mChannel[j].mVibratoIndex] * mChannel[j].mVibratoDepth) / 64];
++							mChannel[j].mFreq[0] = noteHz(mParent, mChannel[j].mLastNote * 8 + (mParent->mVibTable[mChannel[j].mVibratoIndex] * mChannel[j].mVibratoDepth) / 64);
+ 							mChannel[j].mVibratoIndex += mChannel[j].mVibratoSpeed;
+ 							mChannel[j].mVibratoIndex %= 32;
+ 						}

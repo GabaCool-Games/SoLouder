@@ -45,6 +45,12 @@ repository's license and contain no third-party audio.
   versions 100, 101 and 102, every wave type and one without a waveform
   (`wave_7`), a filter flag byte of 2 and trailing bytes; `bad_cut_*` ends
   inside the fields, `bad_version_*` has an unknown version and `bad_empty`
-  is empty.
+  is empty. Monotone songs: `demo` uses every effect, notes past 99 and
+  vibrato on note 1; `jumps` jumps into a missing pattern; `twelve` has
+  the most tracks; `no_end` has no end marker in its order; `long_title`
+  has title and comment lengths past their 40 bytes and a NUL;
+  `trailing` has bytes after its last cell. `bad_magic`, `bad_version_2`,
+  `bad_cell_size_1` and `bad_13_tracks` are refused; `bad_cut_*` end in
+  the title, the order and the cells; `bad_empty` is empty.
 
 Change a fixture by editing the generator and rerunning it, never by hand.

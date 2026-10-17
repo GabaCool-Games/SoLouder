@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:23:05 +0300
+Subject: [PATCH] Monotone::Monotone: fill mNotesHz from entry 1
+
+The table below note 1 was filled down to entry 2, leaving entry 1
+uninitialised; vibrato on note 1 reads it. The loop now runs down to
+entry 1, continuing the table.
+---
+ src/audiosource/monotone/soloud_monotone.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/audiosource/monotone/soloud_monotone.cpp b/src/audiosource/monotone/soloud_monotone.cpp
+index 3791c13..e31ffda 100644
+--- a/src/audiosource/monotone/soloud_monotone.cpp
++++ b/src/audiosource/monotone/soloud_monotone.cpp
+@@ -308,7 +308,7 @@ namespace SoLoud
+ 		mNotesHz[0] = 440;
+ 		mNotesHz[1 * IBN] = (int)floor(temphz + 0.5f);
+ 
+-		for (i = (1 * IBN) - 1; i > 1; i--)
++		for (i = (1 * IBN) - 1; i > 0; i--)
+ 		{
+ 			temphz = temphz / interval;
+ 			if (temphz < 19) temphz = 19; // orig limitation, we could go lower though

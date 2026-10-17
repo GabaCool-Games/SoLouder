@@ -12,6 +12,7 @@ mod files;
 mod filter_kinds;
 mod filter_ops;
 mod generator_ops;
+mod monotone_ops;
 mod ops;
 pub mod pattern;
 mod queue_ops;

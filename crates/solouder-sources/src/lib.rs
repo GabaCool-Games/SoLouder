@@ -10,6 +10,8 @@ mod features;
 #[cfg(feature = "prg")]
 mod prg;
 
+#[cfg(feature = "monotone")]
+pub use features::monotone::{MONOTONE_CHANNELS, Monotone, MonotoneError, MonotoneSong};
 #[cfg(feature = "noise")]
 pub use features::noise::{Noise, NoiseType, OCTAVES};
 #[cfg(feature = "sfxr")]

@@ -37,6 +37,9 @@ pub(crate) fn is_generator_op(op: &str) -> bool {
             | "sfxr_load"
             | "sfxr_reset"
             | "sfxr_query"
+            | "monotone"
+            | "monotone_set"
+            | "monotone_query"
     )
 }
 
@@ -95,6 +98,7 @@ impl State {
             }
             op if op.starts_with("vic") => self.vic_op(step),
             op if op.starts_with("sfxr") => self.sfxr_op(step),
+            op if op.starts_with("monotone") => self.monotone_op(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }

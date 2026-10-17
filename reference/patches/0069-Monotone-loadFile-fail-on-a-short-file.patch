@@ -1,0 +1,68 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:22:28 +0300
+Subject: [PATCH] Monotone::loadFile: fail on a short file
+
+Reads were not checked, so a short file loaded with its missing bytes
+taken from the buffer's earlier contents, uninitialised for the first
+reads. A read that gives fewer bytes than asked now clears the song and
+returns FILE_LOAD_FAILED.
+---
+ src/audiosource/monotone/soloud_monotone.cpp | 15 +++++++++------
+ 1 file changed, 9 insertions(+), 6 deletions(-)
+
+diff --git a/src/audiosource/monotone/soloud_monotone.cpp b/src/audiosource/monotone/soloud_monotone.cpp
+index 6a9a655..f0269bf 100644
+--- a/src/audiosource/monotone/soloud_monotone.cpp
++++ b/src/audiosource/monotone/soloud_monotone.cpp
+@@ -395,7 +395,9 @@ namespace SoLoud
+ 		clear();
+ 		int i;
+ 		unsigned char temp[200];
+-		aFile->read(temp, 9);
++		// Every read must give all its bytes; a short file loads nothing.
++#define MONOTONE_READ(dst, n) if (aFile->read((dst), (n)) != (unsigned int)(n)) { clear(); return FILE_LOAD_FAILED; }
++		MONOTONE_READ(temp, 9);
+ 		char magic[] = "\bMONOTONE";
+ 		for (i = 0; i < 9; i++)
+ 		{
+@@ -404,13 +406,13 @@ namespace SoLoud
+ 				return FILE_LOAD_FAILED;
+ 			}
+ 		}
+-		aFile->read(temp, 41);
++		MONOTONE_READ(temp, 41);
+ 		temp[temp[0] + 1] = 0; // pascal -> asciiz: pascal strings have length as first byte
+ 		mSong.mTitle = mystrdup((char*)temp + 1);
+-		aFile->read(temp, 41);
++		MONOTONE_READ(temp, 41);
+ 		temp[temp[0] + 1] = 0; // pascal -> asciiz: pascal strings have length as first byte
+ 		mSong.mComment = mystrdup((char*)temp + 1);
+-		aFile->read(temp, 4);
++		MONOTONE_READ(temp, 4);
+ 		mSong.mVersion = temp[0];
+ 		mSong.mTotalPatterns = temp[1];
+ 		mSong.mTotalTracks = temp[2];
+@@ -420,12 +422,12 @@ namespace SoLoud
+ 			clear();
+ 			return FILE_LOAD_FAILED;
+ 		}
+-		aFile->read(mSong.mOrder, 256);
++		MONOTONE_READ(mSong.mOrder, 256);
+ 		int totalnotes = 64 * mSong.mTotalPatterns * mSong.mTotalTracks;
+ 		mSong.mPatternData = new unsigned int[totalnotes];
+ 		for (i = 0; i < totalnotes; i++)
+ 		{
+-			aFile->read(temp, 2);
++			MONOTONE_READ(temp, 2);
+ 			unsigned int datavalue = temp[0] | (temp[1] << 8);
+ 			mSong.mPatternData[i] = datavalue;
+ 			//unsigned int note = (datavalue >> 9) & 127;
+@@ -435,6 +437,7 @@ namespace SoLoud
+ 			//unsigned int effectdata2 = (datavalue >> 0) & 7;
+ 		}
+ 
++#undef MONOTONE_READ
+ 		return SO_NO_ERROR;
+ 	}
+ 

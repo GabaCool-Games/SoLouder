@@ -25,6 +25,7 @@
 #include "soloud_flangerfilter.h"
 #include "soloud_freeverbfilter.h"
 #include "soloud_lofifilter.h"
+#include "soloud_monotone.h"
 #include "soloud_noise.h"
 #include "soloud_robotizefilter.h"
 #include "soloud_sfxr.h"
@@ -1062,6 +1063,230 @@ namespace
 		delete instance;
 	}
 
+	// A Monotone cell: a note (1 to 126, 127 ends the note, 0 keeps the
+	// last), an effect (0 to 7) and its 6 bits of data.
+	unsigned short monotoneCell(unsigned int aNote, unsigned int aEffect = 0, unsigned int aData = 0)
+	{
+		return (unsigned short)((aNote << 9) | (aEffect << 6) | aData);
+	}
+
+	// A Monotone song titled "Test": aPatterns patterns of 64 rows of
+	// aTracks cells, the first cells from aCells and the rest 0, played in
+	// aOrder (the remaining order entries are 0xff).
+	std::vector<unsigned char> monotoneSong(unsigned int aPatterns, unsigned int aTracks,
+		const std::vector<unsigned char> &aOrder, const std::vector<unsigned short> &aCells)
+	{
+		static const char magic[] = "\bMONOTONE";
+		std::vector<unsigned char> out(magic, magic + 9);
+		unsigned char title[41] = { 4, 'T', 'e', 's', 't' };
+		unsigned char comment[41] = { 0 };
+		out.insert(out.end(), title, title + 41);
+		out.insert(out.end(), comment, comment + 41);
+		out.push_back(1);
+		out.push_back((unsigned char)aPatterns);
+		out.push_back((unsigned char)aTracks);
+		out.push_back(2);
+		for (unsigned int i = 0; i < 256; i++)
+			out.push_back(i < aOrder.size() ? aOrder[i] : 0xff);
+		for (unsigned int i = 0; i < aPatterns * 64 * aTracks; i++)
+		{
+			unsigned short cell = i < aCells.size() ? aCells[i] : 0;
+			out.push_back((unsigned char)(cell & 0xff));
+			out.push_back((unsigned char)(cell >> 8));
+		}
+		return out;
+	}
+
+	result loadMonotone(Monotone &aSong, const std::vector<unsigned char> &aBytes)
+	{
+		return aSong.loadMem(aBytes.data(), (unsigned int)aBytes.size(), true, false);
+	}
+
+	// aFrames of a new voice of aSong read straight from its instance, in
+	// 512-frame calls, at aRate.
+	std::vector<float> monotoneAudio(Monotone &aSong, unsigned int aFrames, float aRate = 44100.0f)
+	{
+		AudioSourceInstance *instance = aSong.createInstance();
+		instance->init(aSong, 0);
+		instance->mSamplerate = aRate;
+		std::vector<float> out(aFrames, 0.0f);
+		for (unsigned int f = 0; f < aFrames; f += 512)
+			instance->getAudio(&out[f], aFrames - f < 512 ? aFrames - f : 512, 512);
+		delete instance;
+		return out;
+	}
+
+	// A Monotone built over bytes of 0xab, so members its constructor does
+	// not set hold garbage that is the same on every run.
+	Monotone *newMonotoneOverGarbage()
+	{
+		void *memory = std::malloc(sizeof(Monotone));
+		std::memset(memory, 0xab, sizeof(Monotone));
+		return new (memory) Monotone();
+	}
+
+	void deleteMonotoneOverGarbage(Monotone *aSong)
+	{
+		aSong->~Monotone();
+		std::free(aSong);
+	}
+
+	// Monotone's constructor left the song's track count and order
+	// uninitialised, and a failed load kept the track count it had read
+	// (or the previous song's) without any pattern data: playing either
+	// read through a null pointer.
+	void monotone_empty_song_is_silent()
+	{
+		Monotone *song = newMonotoneOverGarbage();
+		std::vector<float> out = monotoneAudio(*song, 4096);
+		check(maxAbsChannel(out, 0, 1) == 0, "a song never loaded is silent");
+		std::vector<unsigned char> bytes = monotoneSong(1, 1, { 0 }, { monotoneCell(40) });
+		check(loadMonotone(*song, bytes) == SO_NO_ERROR, "a song loads");
+		out = monotoneAudio(*song, 4096);
+		check(maxAbsChannel(out, 0, 1) > 0.1f, "the song plays");
+		bytes[9 + 41 + 41] = 2; // version
+		check(loadMonotone(*song, bytes) == FILE_LOAD_FAILED, "version 2 fails");
+		check(song->mSong.mTotalTracks == 0 && song->mSong.mPatternData == NULL, "a failed load leaves no song");
+		out = monotoneAudio(*song, 4096);
+		check(maxAbsChannel(out, 0, 1) == 0, "a failed load is silent");
+		deleteMonotoneOverGarbage(song);
+	}
+
+	// Monotone::loadFile ignored how many bytes each read gave, so a short
+	// file loaded with the rest of its bytes taken from earlier reads (or
+	// uninitialised ones).
+	void monotone_short_file_fails()
+	{
+		std::vector<unsigned char> bytes = monotoneSong(2, 3, { 0, 1 }, { monotoneCell(40), monotoneCell(50) });
+		Monotone song;
+		check(loadMonotone(song, bytes) == SO_NO_ERROR, "a whole song loads");
+		const unsigned int cuts[] = { 1, 8, 9, 49, 50, 91, 95, 350, 351, 352, (unsigned int)bytes.size() - 1 };
+		for (unsigned int cut : cuts)
+		{
+			std::vector<unsigned char> part(bytes.begin(), bytes.begin() + cut);
+			check(loadMonotone(song, part) == FILE_LOAD_FAILED, "a short song fails");
+			check(song.mSong.mTotalTracks == 0, "a short song leaves no song");
+		}
+	}
+
+	// Monotone::loadFile ended a Pascal title or comment at the length in
+	// its first byte, up to 255, in a 200-byte buffer holding 41 bytes from
+	// the file: a length over 40 read stale bytes, and over 198 wrote past
+	// the buffer.
+	void monotone_long_title_is_cut()
+	{
+		std::vector<unsigned char> bytes = monotoneSong(1, 1, { 0 }, {});
+		bytes[9] = 255;
+		std::memset(&bytes[10], 'T', 40);
+		bytes[50] = 41;
+		std::memset(&bytes[51], 'C', 40);
+		Monotone song;
+		check(loadMonotone(song, bytes) == SO_NO_ERROR, "the song loads");
+		check(std::strlen(song.mSong.mTitle) == 40 && song.mSong.mTitle[39] == 'T', "the title is its 40 bytes");
+		check(std::strlen(song.mSong.mComment) == 40 && song.mSong.mComment[39] == 'C', "the comment is its 40 bytes");
+	}
+
+	// Voices keep 12 channels and 12 hardware channels, but a song could
+	// have up to 255 tracks and setParams took any number of hardware
+	// channels: both overran the arrays.
+	void monotone_at_most_12_channels()
+	{
+		Monotone song;
+		check(loadMonotone(song, monotoneSong(1, 12, { 0 }, {})) == SO_NO_ERROR, "12 tracks load");
+		check(loadMonotone(song, monotoneSong(1, 13, { 0 }, {})) == FILE_LOAD_FAILED, "13 tracks fail");
+		check(song.setParams(12) == SO_NO_ERROR, "12 hardware channels are allowed");
+		check(song.setParams(13) == INVALID_PARAMETER, "13 hardware channels are refused");
+		check(song.mHardwareChannels == 12, "a refused count changes nothing");
+	}
+
+	// MonotoneInstance::getAudio indexed mNotesHz (800 entries) with notes
+	// up to 126 times 8, read the order past its 256 entries when the song
+	// had no end marker, and read patterns the song does not have.
+	void monotone_indices_in_range()
+	{
+		Monotone high;
+		check(loadMonotone(high, monotoneSong(1, 1, { 0 }, { monotoneCell(120) })) == SO_NO_ERROR, "note 120 loads");
+		Monotone top;
+		check(loadMonotone(top, monotoneSong(1, 1, { 0 }, { monotoneCell(100) })) == SO_NO_ERROR, "note 100 loads");
+		std::vector<float> a = monotoneAudio(high, 8192);
+		std::vector<float> b = monotoneAudio(top, 8192);
+		check(a == b, "notes past the table play its last entry");
+
+		// Every order entry is pattern 0; at 60 Hz a tick is one sample.
+		std::vector<unsigned char> order(256, 0);
+		Monotone endless;
+		check(loadMonotone(endless, monotoneSong(1, 1, order, { monotoneCell(40) })) == SO_NO_ERROR, "the song loads");
+		MonotoneInstance *instance = (MonotoneInstance *)endless.createInstance();
+		instance->init(endless, 0);
+		instance->mSamplerate = 60.0f;
+		std::vector<float> buffer(512);
+		bool inRange = true;
+		for (int i = 0; i < 300 && inRange; i++)
+		{
+			instance->getAudio(buffer.data(), 512, 512);
+			inRange = instance->mOrder >= 0 && instance->mOrder < 256;
+		}
+		check(inRange, "the order position stays in the order");
+		delete instance;
+
+		Monotone missing;
+		check(loadMonotone(missing, monotoneSong(1, 1, { 3 }, { monotoneCell(40) })) == SO_NO_ERROR, "the song loads");
+		Monotone empty;
+		check(loadMonotone(empty, monotoneSong(1, 1, { 0 }, {})) == SO_NO_ERROR, "the song loads");
+		check(monotoneAudio(missing, 8192) == monotoneAudio(empty, 8192), "a missing pattern plays as empty rows");
+	}
+
+	// Monotone's constructor filled mNotesHz down to entry 2 only; vibrato
+	// on note 1 reads entry 1.
+	void monotone_note_table_is_filled()
+	{
+		Monotone *song = newMonotoneOverGarbage();
+		const float interval = 1.00724641222f;
+		float hz = 27.5f;
+		for (int i = 0; i < 7; i++)
+			hz = hz / interval;
+		check(song->mNotesHz[1] == (int)std::floor(hz + 0.5f), "entry 1 continues the table");
+		check(song->mNotesHz[1] <= song->mNotesHz[2], "the table rises");
+		deleteMonotoneOverGarbage(song);
+	}
+
+	// MonotoneInstance::getAudio took floor(rate / 60) samples per tick, so
+	// below 60 Hz (a slow play speed) it divided by zero.
+	void monotone_slow_rate_does_not_divide_by_zero()
+	{
+		Monotone song;
+		check(loadMonotone(song, monotoneSong(1, 1, { 0 }, { monotoneCell(40) })) == SO_NO_ERROR, "the song loads");
+		MonotoneInstance *instance = (MonotoneInstance *)song.createInstance();
+		instance->init(song, 0);
+		instance->mSamplerate = 30.0f;
+		std::vector<float> buffer(512);
+		check(instance->getAudio(buffer.data(), 300, 512) == 300, "the voice plays");
+		// 4 ticks a row: 75 rows, the 11th of the second pattern.
+		check(instance->mRow == 11, "rows advance a tick a sample");
+		delete instance;
+	}
+
+	// MonotoneInstance's constructor left each channel's frequencies
+	// uninitialised, and a portamento to a note on a channel's first note
+	// slides from the frequency it had.
+	void monotone_first_slide_starts_at_zero()
+	{
+		Monotone song;
+		check(loadMonotone(song, monotoneSong(1, 1, { 0 }, { monotoneCell(40, 3, 5) })) == SO_NO_ERROR, "the song loads");
+		void *memory = std::malloc(sizeof(MonotoneInstance));
+		std::memset(memory, 0xab, sizeof(MonotoneInstance));
+		MonotoneInstance *instance = new (memory) MonotoneInstance(&song);
+		instance->init(song, 0);
+		instance->mSamplerate = 60.0f;
+		std::vector<float> buffer(4);
+		// The first row is read on the 4th tick, a sample each at 60 Hz.
+		instance->getAudio(buffer.data(), 4, 4);
+		check(instance->mChannel[0].mFreq[0] == 0 && instance->mChannel[0].mPortamento == 5,
+			"the slide starts from 0 Hz");
+		instance->~MonotoneInstance();
+		std::free(memory);
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -1790,6 +2015,14 @@ namespace
 		{ "sfxr_short_file_fails", sfxr_short_file_fails },
 		{ "sfxr_filter_flag_is_a_bool", sfxr_filter_flag_is_a_bool },
 		{ "sfxr_ended_sound_stays_silent", sfxr_ended_sound_stays_silent },
+		{ "monotone_empty_song_is_silent", monotone_empty_song_is_silent },
+		{ "monotone_short_file_fails", monotone_short_file_fails },
+		{ "monotone_long_title_is_cut", monotone_long_title_is_cut },
+		{ "monotone_at_most_12_channels", monotone_at_most_12_channels },
+		{ "monotone_indices_in_range", monotone_indices_in_range },
+		{ "monotone_note_table_is_filled", monotone_note_table_is_filled },
+		{ "monotone_slow_rate_does_not_divide_by_zero", monotone_slow_rate_does_not_divide_by_zero },
+		{ "monotone_first_slide_starts_at_zero", monotone_first_slide_starts_at_zero },
 	};
 }
 

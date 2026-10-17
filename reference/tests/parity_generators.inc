@@ -142,10 +142,63 @@
 			throw ScenarioError(step.line, "unknown from `" + from + "`");
 		}
 
+		// `file` with `from` (`path`, default: load; `memory`: loadMem of the
+		// bytes, copied; `file`: loadFile of a DiskFile). The result code, or
+		// SO_NO_ERROR when no file is given.
+		SoLoud::result loadMonotone(const Step &step, SoLoud::Monotone &song)
+		{
+			if (step.get("from") && !step.get("file"))
+				throw ScenarioError(step.line, "`from` needs `file`");
+			if (!step.get("file"))
+				return SoLoud::SO_NO_ERROR;
+			std::string path = fixtureArg(step);
+			std::string from = step.get("from") ? textArg(step, "from") : "path";
+			if (from == "path")
+				return song.load(path.c_str());
+			if (from == "memory")
+			{
+				std::ifstream in(path.c_str(), std::ios::binary);
+				std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+				return song.loadMem(bytes.empty() ? 0 : bytes.data(), (unsigned int)bytes.size(), true, false);
+			}
+			if (from == "file")
+			{
+				SoLoud::DiskFile file;
+				SoLoud::result code = file.open(path.c_str());
+				return code != SoLoud::SO_NO_ERROR ? code : song.loadFile(&file);
+			}
+			throw ScenarioError(step.line, "unknown from `" + from + "`");
+		}
+
+		// `hardware` and `waveform` (unsigned, passed as `int`s; each the
+		// current value when not given) for Monotone::setParams, if either
+		// is given. The result code, or SO_NO_ERROR.
+		SoLoud::result monotoneParams(const Step &step, SoLoud::Monotone &song)
+		{
+			if (!step.get("hardware") && !step.get("waveform"))
+				return SoLoud::SO_NO_ERROR;
+			int hardware = (int)uintArg(step, "hardware", false, (unsigned int)song.mHardwareChannels);
+			int waveform = (int)uintArg(step, "waveform", false, (unsigned int)song.mWaveform);
+			return song.setParams(hardware, waveform);
+		}
+
+		static std::string hexText(const char *aText)
+		{
+			std::string out;
+			char digits[4];
+			for (const char *c = aText ? aText : ""; *c; c++)
+			{
+				std::snprintf(digits, sizeof(digits), "%02x", (unsigned int)(unsigned char)*c);
+				out += digits;
+			}
+			return out;
+		}
+
 		static bool isGeneratorOp(const std::string &op)
 		{
 			return op == "noise" || op == "noise_set" || op == "vic" || op == "vic_set" || op == "vic_query" ||
-				op == "sfxr" || op == "sfxr_load" || op == "sfxr_reset" || op == "sfxr_query";
+				op == "sfxr" || op == "sfxr_load" || op == "sfxr_reset" || op == "sfxr_query" || op == "monotone" ||
+				op == "monotone_set" || op == "monotone_query";
 		}
 
 		void generatorOp(const Step &step)
@@ -253,6 +306,56 @@
 					line << (i ? "," : "") << (unsigned int)vic.getRegister(i);
 				if (step.get("reg"))
 					line << " reg=" << (unsigned int)vic.getRegister((int)uintArg(step, "reg", true, 0));
+				logLine(line);
+			}
+			static const char *const monotoneKeys[] = { "name", "file", "from", "hardware", "waveform" };
+			if (step.op == "monotone")
+			{
+				checkGeneratorKeys(step, monotoneKeys, 5);
+				engine(step);
+				std::string name = textArg(step, "name");
+				SoLoud::Monotone *song = new SoLoud::Monotone;
+				SoLoud::result code, params;
+				try
+				{
+					code = loadMonotone(step, *song);
+					params = monotoneParams(step, *song);
+				}
+				catch (...)
+				{
+					delete song;
+					throw;
+				}
+				sourceSettings(step, *song);
+				storeGenerator(name, song);
+				std::ostringstream line;
+				line << "monotone " << name << " " << code << " " << params;
+				logLine(line);
+			}
+			else if (step.op == "monotone_set")
+			{
+				static const char *const keys[] = { "name", "hardware", "waveform" };
+				checkKeys(step, keys, 3);
+				SoLoud::result code = monotoneParams(step, generatorArg<SoLoud::Monotone>(step, "name", "monotone"));
+				std::ostringstream line;
+				line << "monotone_set " << textArg(step, "name") << " " << code;
+				logLine(line);
+			}
+			else if (step.op == "monotone_query")
+			{
+				checkKeys(step, monotoneKeys, 1);
+				SoLoud::Monotone &song = generatorArg<SoLoud::Monotone>(step, "name", "monotone");
+				std::ostringstream line;
+				line << "monotone_query " << textArg(step, "name") << " hardware=" << song.mHardwareChannels
+					<< " waveform=" << song.mWaveform << " patterns=" << (unsigned int)song.mSong.mTotalPatterns
+					<< " tracks=" << (unsigned int)song.mSong.mTotalTracks << " title=" << hexText(song.mSong.mTitle)
+					<< " comment=" << hexText(song.mSong.mComment) << " order=";
+				char digits[4];
+				for (int i = 0; i < 256; i++)
+				{
+					std::snprintf(digits, sizeof(digits), "%02x", (unsigned int)song.mSong.mOrder[i]);
+					line << digits;
+				}
 				logLine(line);
 			}
 		}

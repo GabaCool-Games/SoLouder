@@ -115,6 +115,14 @@ set(REFERENCE_TESTS
   sfxr_short_file_fails
   sfxr_filter_flag_is_a_bool
   sfxr_ended_sound_stays_silent
+  monotone_empty_song_is_silent
+  monotone_short_file_fails
+  monotone_long_title_is_cut
+  monotone_at_most_12_channels
+  monotone_indices_in_range
+  monotone_note_table_is_filled
+  monotone_slow_rate_does_not_divide_by_zero
+  monotone_first_slide_starts_at_zero
 )
 
 enable_testing()

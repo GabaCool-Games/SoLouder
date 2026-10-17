@@ -1,9 +1,11 @@
 //! Generators through the real-time split: `Renderer::render` must not
 //! allocate or free memory while synths play, loop, seek, end and play in
-//! a queue, and while a Vic's registers and model change under its voice
-//! (noise, Vic and sfxr voices, looping and not), and must render exactly
-//! what an offline [`Mixer`] given the same calls renders. Generator instances are built when a voice is prepared,
-//! on the game thread, so only the reads run on the audio thread.
+//! a queue, and while a Vic's registers and model and a Monotone's
+//! settings change under their voices (noise, Vic, sfxr and Monotone
+//! voices, looping and not), and must render exactly what an offline
+//! [`Mixer`] given the same calls renders. Generator instances are built
+//! when a voice is prepared, on the game thread, so only the reads run on
+//! the audio thread.
 //!
 //! The counting allocator is global, so this file holds a single test.
 
@@ -15,7 +17,7 @@ use solouder_core::{
     Controller, Generator, GeneratorContext, GeneratorInstance, Mixer, MixerConfig, Queue,
     Renderer, Synth,
 };
-use solouder_sources::{Noise, NoiseType, Sfxr, SfxrPreset, Vic, VicModel};
+use solouder_sources::{Monotone, Noise, NoiseType, Sfxr, SfxrPreset, Vic, VicModel};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 #[global_allocator]
@@ -94,6 +96,38 @@ fn looping_sfxr() -> Synth {
     synth
 }
 
+/// A Monotone song: four tracks of notes with a slide, an arpeggio and
+/// vibrato, at 2 ticks a row.
+fn monotone_song() -> Vec<u8> {
+    let mut out = b"MONOTONE".to_vec();
+    out.extend_from_slice(&[0; 82]);
+    out.extend_from_slice(&[1, 1, 4, 2]);
+    out.push(0);
+    out.extend_from_slice(&[0xff; 255]);
+    for row in 0..64_u16 {
+        let cells: [u16; 4] = [
+            (30 + row % 12) << 9 | 7 << 6 | 2,
+            if row % 8 == 0 {
+                (40 + row / 8) << 9 | 3 << 6 | 9
+            } else {
+                0
+            },
+            if row % 4 == 0 {
+                50 << 9 | 3 << 3 | 7
+            } else {
+                0
+            },
+            if row % 16 == 0 {
+                20 << 9 | 4 << 6 | 3 << 3 | 5
+            } else {
+                4 << 6
+            },
+        ];
+        out.extend(cells.iter().flat_map(|cell| cell.to_le_bytes()));
+    }
+    out
+}
+
 fn ramp(frames: usize, rewinds: bool, looping: bool) -> Synth {
     let mut synth = Synth::new(Arc::new(Ramp { frames, rewinds })).unwrap();
     synth.set_looping(looping);
@@ -131,6 +165,7 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
     let vic = Vic::new();
     vic.set_register(Vic::BASS, 220).unwrap();
     let mut chip = Synth::new(Arc::new(vic.clone())).unwrap();
+    let song = Monotone::from_bytes(&monotone_song()).unwrap();
     chip.set_looping(true);
     let sounds = [
         chip,
@@ -141,6 +176,7 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
         ramp(700, true, false),
         Synth::new(Arc::new(Sfxr::from_preset(SfxrPreset::Explosion, 5))).unwrap(),
         looping_sfxr(),
+        Synth::new(Arc::new(song.clone())).unwrap(),
     ];
     let mut ids = Vec::new();
     let mut handles = Vec::new();
@@ -166,6 +202,9 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
         if round == 7 {
             vic.set_model(VicModel::Ntsc);
         }
+        // Hardware channels and the waveform too.
+        song.set_params(1 + round as u32 % 4, round as i32 % 9)
+            .unwrap();
         if round == 3 {
             // Forward through the generic seek's discard passes, and back
             // with a rewind.
@@ -175,6 +214,8 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
             offline.seek(handles[3], 0.02).unwrap();
             controller.seek(ids[0], 0.3).unwrap();
             offline.seek(handles[0], 0.3).unwrap();
+            controller.seek(ids[8], 0.9).unwrap();
+            offline.seek(handles[8], 0.9).unwrap();
         }
         let frames = [1500, 700, 333][round % 3];
         measured_render(&mut renderer, &mut output[..2 * frames], "playing synths");
