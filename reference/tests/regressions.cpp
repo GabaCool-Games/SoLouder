@@ -1000,6 +1000,36 @@ namespace
 		check(std::fabs(soloud.getStreamPosition(sonic) - 512.0 / kRate) < 1e-9, "slower than sound it plays on");
 	}
 
+	// Patch 0063 held a voice only when its Doppler value came out infinite
+	// or NaN. Clamped to the speed of sound over the Doppler factor, a source
+	// past it divides by the speed of sound minus factor times that clamp,
+	// which f32 rounding can leave a hair above 0: with a factor of 1.032 a
+	// source approaching at 400 played about 11 million times too fast, its
+	// position racing ahead while the mixer rendered silence. A source or
+	// listener at or past the speed of sound over the factor now holds the
+	// voice, decided on the projected velocities before dividing.
+	void doppler_past_sound_speed_holds_despite_rounding()
+	{
+		Wav wav;
+		check(loadWav(wav, makeConstantWav(1, 44100, 0.25f)) == SO_NO_ERROR, "wav loads");
+		wav.set3dDopplerFactor(1.032f);
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle h = soloud.play3d(wav, 0.0f, 0.0f, -1.0f, 0.0f, 0.0f, 400.0f);
+		render(soloud, 512);
+		double held = soloud.getStreamPosition(h);
+		std::printf("  position past the speed of sound %g\n", held);
+		check(held == 0.0, "a source past the speed of sound is held");
+		soloud.update3dAudio();
+		render(soloud, 512);
+		check(soloud.getStreamPosition(h) == 0.0, "and stays held after an update");
+		soloud.set3dSourceVelocity(h, 0.0f, 0.0f, 0.0f);
+		soloud.update3dAudio();
+		render(soloud, 512);
+		std::printf("  position after slowing %g\n", soloud.getStreamPosition(h));
+		check(std::fabs(soloud.getStreamPosition(h) - 512.0 / kRate) < 1e-9, "slower than sound it plays on");
+	}
+
 	// set3dSoundSpeed rejected values not above 0 but took NaN and infinity,
 	// which made every 3D voice's Doppler NaN (infinity over infinity).
 	void sound_speed_rejects_nan_and_infinity()
@@ -1767,6 +1797,7 @@ namespace
 		{ "doppler_at_sound_speed_stays_finite", doppler_at_sound_speed_stays_finite },
 		{ "sound_speed_rejects_nan_and_infinity", sound_speed_rejects_nan_and_infinity },
 		{ "play3d_clocked_distance_delay_from_listener", play3d_clocked_distance_delay_from_listener },
+		{ "doppler_past_sound_speed_holds_despite_rounding", doppler_past_sound_speed_holds_despite_rounding },
 		{ "pan_ramp_leftover_frames", pan_ramp_leftover_frames },
 		{ "surround_to_quad_center_follows_volume", surround_to_quad_center_follows_volume },
 		{ "quad_to_7_1_rear_uses_rear_volume", quad_to_7_1_rear_uses_rear_volume },

@@ -11,7 +11,7 @@ use crate::dsp::Resampler;
 use crate::dsp::clip::clip;
 use crate::dsp::fader::{Fader, FaderState};
 use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
-use crate::features::spatial::Scene;
+use crate::features::spatial::{Gains, Scene};
 
 /// The SoLouder mixer: plays [`Sound`](super::Sound)s and
 /// [`Bus`](super::Bus)es and renders interleaved
@@ -43,6 +43,9 @@ pub struct Mixer {
     pub(super) global_filters: [Option<Box<dyn FilterInstance>>; FILTERS_PER_STREAM],
     /// The listener and speakers for 3D voices.
     pub(crate) scene: Scene,
+    /// Each 3D voice's slot and gains during `update_3d_audio`, kept to be
+    /// reused.
+    pub(crate) spatial_updates: Vec<(usize, Gains)>,
 }
 
 impl Mixer {
@@ -66,6 +69,7 @@ impl Mixer {
             last_clocked_time: 0.0,
             global_filters: Default::default(),
             scene: Scene::new(config.channels as usize, config.left_handed_3d),
+            spatial_updates: Vec::new(),
         })
     }
 

@@ -34,21 +34,7 @@ pub struct Rendered {
 
 /// Runs `scenario` and returns its samples and log.
 pub fn run(scenario: &Scenario) -> Result<Rendered, ScenarioError> {
-    let mut state = State {
-        mixer: None,
-        sounds: HashMap::new(),
-        streams: HashMap::new(),
-        buses: HashMap::new(),
-        queues: HashMap::new(),
-        played: HashMap::new(),
-        handles: HashMap::new(),
-        filters: HashMap::new(),
-        rendered: Rendered {
-            samples: Vec::new(),
-            log: Vec::new(),
-            tolerance: 0.0,
-        },
-    };
+    let mut state = State::new();
     for step in &scenario.steps {
         state.apply(step)?;
     }
@@ -76,7 +62,25 @@ pub(crate) struct State {
 }
 
 impl State {
-    fn apply(&mut self, step: &Step) -> Result<(), ScenarioError> {
+    pub(crate) fn new() -> Self {
+        State {
+            mixer: None,
+            sounds: HashMap::new(),
+            streams: HashMap::new(),
+            buses: HashMap::new(),
+            queues: HashMap::new(),
+            played: HashMap::new(),
+            handles: HashMap::new(),
+            filters: HashMap::new(),
+            rendered: Rendered {
+                samples: Vec::new(),
+                log: Vec::new(),
+                tolerance: 0.0,
+            },
+        }
+    }
+
+    pub(crate) fn apply(&mut self, step: &Step) -> Result<(), ScenarioError> {
         match step.op.as_str() {
             "tolerance" => self.tolerance(step),
             "init" => self.init(step),

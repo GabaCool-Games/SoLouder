@@ -62,11 +62,11 @@ impl Mixer {
     /// 0064); otherwise nothing changes and
     /// [`ControlError::InvalidSoundSpeed`] is returned.
     pub fn set_3d_sound_speed(&mut self, speed: f32) -> Result<(), ControlError> {
-        if !(speed > 0.0 && speed <= f32::MAX) {
-            return Err(ControlError::InvalidSoundSpeed);
+        if self.scene.set_sound_speed(speed) {
+            Ok(())
+        } else {
+            Err(ControlError::InvalidSoundSpeed)
         }
-        self.scene.sound_speed = speed;
-        Ok(())
     }
 
     /// Moves a 3D voice and sets its velocity
@@ -132,8 +132,7 @@ impl Mixer {
     /// at z = -1, and 5.1's and 7.1's subwoofer at the zero vector, which
     /// hears every direction at full volume.
     pub fn speaker_position(&self, channel: u32) -> Option<[f32; 3]> {
-        let channel = channel as usize;
-        (channel < self.scene.channels()).then(|| self.scene.speakers[channel].into())
+        self.scene.speaker(channel)
     }
 
     /// Moves the speaker of output channel `channel`
@@ -143,12 +142,11 @@ impl Mixer {
         channel: u32,
         position: [f32; 3],
     ) -> Result<(), ControlError> {
-        let channel = channel as usize;
-        if channel >= self.scene.channels() {
-            return Err(ControlError::NoSuchSpeaker);
+        if self.scene.set_speaker(channel, position) {
+            Ok(())
+        } else {
+            Err(ControlError::NoSuchSpeaker)
         }
-        self.scene.speakers[channel] = position.into();
-        Ok(())
     }
 
     fn with_3d_voice(&mut self, handle: Handle, mut change: impl FnMut(&mut VoiceSpatial)) {

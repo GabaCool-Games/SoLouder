@@ -2,6 +2,7 @@
 
 mod components;
 mod records;
+mod spatial_sync;
 mod sync;
 
 use bevy::prelude::*;
@@ -19,6 +20,8 @@ pub(crate) fn build(app: &mut App) {
         .add_message::<SoundFailed>()
         .add_systems(
             PostUpdate,
-            sync::sync_playback.in_set(SolouderSystems::Sync),
+            sync::sync_playback
+                .in_set(SolouderSystems::Sync)
+                .after(crate::features::spatial::take_snapshot),
         );
 }

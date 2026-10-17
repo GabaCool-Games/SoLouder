@@ -10,6 +10,13 @@
 //! what the mixer has applied, and [`SoundFinished`] / [`SoundFailed`]
 //! messages report endings.
 //!
+//! A sound whose entity also has a [`SpatialEmitter`] plays in 3D at the
+//! entity's `GlobalTransform`, heard from the entity with the
+//! [`AudioListener`]; see [`SpatialAudioSettings`], [`AudioVelocity`],
+//! [`AudioTeleport`] and [`ListenerState`] for the speed of sound,
+//! velocities, teleports and the listener policy. Bevy's axes (right-handed,
+//! +Y up, -Z forward) are SoLoud's defaults; units are metres.
+//!
 //! The mixer runs on the audio device's thread. Systems never wait for it:
 //! one system in [`SolouderSystems::Sync`] (in `PostUpdate`, after transform
 //! propagation) sends each frame's changes as one batch of commands and
@@ -33,7 +40,11 @@ pub use features::playback::{
     FinishBehavior, PlaybackError, PlaybackSettings, PlaybackState, SoundFailed, SoundFinished,
     SoundPlayer, SoundStatus,
 };
-pub use solouder_core::{FinishReason, MixerConfig, VoiceId};
+pub use features::spatial::{
+    AudioListener, AudioTeleport, AudioVelocity, ListenerState, SpatialAudioSettings,
+    SpatialEmitter,
+};
+pub use solouder_core::{Attenuation, FinishReason, MixerConfig, VoiceId};
 pub use solouder_cpal::{OutputConfig, OutputInfo, StreamPreferences};
 
 /// Adds SoLouder audio: the clip asset and loader, the output, and playback.
@@ -61,5 +72,6 @@ impl Plugin for SolouderPlugin {
         features::decoded_audio::build(app, self.decode_limits);
         features::output_lifecycle::build(app, &self.output);
         features::playback::build(app);
+        features::spatial::build(app);
     }
 }

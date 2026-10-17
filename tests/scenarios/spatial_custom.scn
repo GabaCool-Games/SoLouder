@@ -6,7 +6,13 @@
 # attenuator silencing a voice past its maximum, killing it or letting it
 # tick; removing them. Then LEFT_HANDED_3D on stereo and 5.1 outputs:
 # lookatLH mirrors the listener's side axis, so a left-handed scene renders
-# like the right-handed one with every z negated.
+# like the right-handed one with every z negated. Then what colliders and
+# attenuators are given: every voice's gains are computed before any
+# applies, so a 3D bus killed for being inaudible stops its voices after
+# their colliders ran (the counting collider); a collider sees the voice's
+# velocity, listener-relative flag, distances, rolloff and Doppler factor,
+# also in a slot a stopped voice left, and its handle; an attenuator gets
+# the distance unclamped.
 init channels=2
 sound name=n frames=30000 pattern=noise seed=17 amp=0.5
 sound name=s frames=30000 pattern=saw period=31 amp=0.5
@@ -143,3 +149,65 @@ mix frames=300
 listener ax=1 ay=0 az=0
 update3d
 mix frames=300
+
+# update3dAudio computes every voice's gains, running its collider, before
+# applying any. The bus is killed for being inaudible; its child's collider
+# still runs, so the next call, the surviving voice's, is the fourth.
+init channels=2
+sound name=c frames=30000 pattern=saw period=29 amp=0.5
+sound3d name=c collider=count
+bus name=b
+sound3d name=b attenuator=cutoff min=1 max=20
+play3d sound=c as=keep x=1 y=0 z=-3
+play3d sound=b as=bv x=0 y=0 z=-5
+set h=bv tick=0 kill=1
+play3d sound=c as=child x=-1 y=0 z=-2 bus=b
+mix frames=200
+set3d h=bv x=0 y=0 z=-30
+update3d
+query h=bv
+query h=child
+mix frames=200
+update3d
+query h=keep
+mix frames=200
+update3d
+query h=keep
+mix frames=200
+stop h=keep
+
+# What a collider sees, per source and per voice, also in a slot a stopped
+# voice left and for a listener-relative voice; the attenuator's distance
+# is below the minimum, then past the maximum, unclamped.
+sound name=m frames=30000 pattern=noise seed=31 amp=0.5
+sound3d name=m collider=meta data=7 attenuator=raw min=2 max=40 model=1 rolloff=0.75 doppler=1.25
+play3d sound=m as=m1 x=0.5 y=0 z=-0.5 vx=3 vy=-4 vz=5
+query h=m1
+mix frames=200
+set3d h=m1 x=3 y=1 z=-60 vx=-1 vy=2 vz=-3 min=1.5 max=30 model=2 rolloff=0.4 doppler=0.5
+update3d
+query h=m1
+mix frames=200
+stop h=m1
+sound3d name=m relative=1 doppler=2
+play3d sound=m as=m2 x=1 y=0 z=-1 vx=0 vy=0 vz=-2
+query h=m2
+mix frames=200
+listener x=5 y=0 z=0 vx=1 vy=0 vz=0
+update3d
+query h=m2
+mix frames=200
+stop h=m2
+
+# The handle a collider sees is the voice's, also in a reused slot. Last:
+# through the real-time controller a collider sees no handle.
+sound3d name=m relative=0 collider=handle attenuator=none
+play3d sound=m as=h1 x=0 y=0 z=-2
+mix frames=100
+stop h=h1
+play3d sound=m as=h2 x=0 y=0 z=-2
+query h=h2
+mix frames=200
+update3d
+mix frames=200
+stop h=h2

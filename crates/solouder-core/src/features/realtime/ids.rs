@@ -1,33 +1,8 @@
 //! Voice IDs handed out by the controller before the mixer has a voice, and
 //! the renderer's table from those IDs to mixer handles.
 
-use std::fmt;
-
+pub use crate::contracts::VoiceId;
 use crate::features::playback::{Handle, VOICE_COUNT};
-
-/// A play request and, once started, its voice.
-///
-/// The controller reserves the ID when the request is queued, so commands can
-/// address the voice before the audio thread has created it. IDs are
-/// generation-checked: once the voice's final event has been read, commands
-/// with the old ID do nothing, even after the index is reused.
-#[derive(Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
-pub struct VoiceId {
-    index: u32,
-    generation: u32,
-}
-
-impl VoiceId {
-    pub(crate) fn index(self) -> usize {
-        self.index as usize
-    }
-}
-
-impl fmt::Debug for VoiceId {
-    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "VoiceId({}v{})", self.index, self.generation)
-    }
-}
 
 /// Controller side: which IDs are reserved.
 #[derive(Debug)]

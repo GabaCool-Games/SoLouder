@@ -13,8 +13,10 @@ use super::components::{
     SoundPlayer, SoundStatus,
 };
 use super::records::{Playback, Record};
+use super::spatial_sync::{play, send_emitters, send_listener};
 use crate::features::decoded_audio::AudioClip;
 use crate::features::output_lifecycle::{AudioOutput, AudioOutputState, SolouderController};
+use crate::features::spatial::{EmitterPose, SpatialSnapshot};
 
 /// Loaded clips and their load states.
 #[derive(SystemParam)]
@@ -64,8 +66,11 @@ impl Reports<'_, '_> {
 }
 
 /// Stops discarded voices, reads mixer events into records and messages,
-/// starts loaded sounds, and sends changed settings. Everything goes out as
-/// one batch of commands; a full queue defers the rest to the next frame.
+/// starts loaded sounds (in 3D for emitters), sends changed settings, and
+/// sends the frame's listener and emitters with one 3D update. Everything
+/// goes out as one batch of commands; a full queue defers the rest to the
+/// next frame.
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn sync_playback(
     controller: Option<ResMut<SolouderController>>,
     output: Res<AudioOutput>,
@@ -73,6 +78,7 @@ pub(crate) fn sync_playback(
     clips: Clips,
     players: Query<(&SoundPlayer, Option<&PlaybackSettings>)>,
     changed: Query<Entity, (With<SoundPlayer>, Changed<PlaybackSettings>)>,
+    snapshot: Res<SpatialSnapshot>,
     mut reports: Reports,
 ) {
     let playback = &mut *playback;
@@ -99,6 +105,7 @@ pub(crate) fn sync_playback(
         playback.stops.pop();
     }
     read_events(controller, playback, &mut reports);
+    send_listener(controller, &snapshot);
     for entity in &changed {
         playback.queue(entity);
     }
@@ -119,12 +126,14 @@ pub(crate) fn sync_playback(
             continue;
         };
         let settings = settings.copied().unwrap_or_default();
+        let emitter = snapshot.emitters.get(&entity);
         let done = match record.state {
-            PlaybackState::Loading => match start(controller, player, settings, &clips) {
+            PlaybackState::Loading => match start(controller, player, settings, &clips, emitter) {
                 Ok(Some((voice, sent))) => {
                     record.state = PlaybackState::Starting;
                     record.voice = Some(voice);
                     record.sent = Some(sent);
+                    record.spatial = emitter.is_some();
                     owners.insert(voice, entity);
                     reports.show(entity, record);
                     true
@@ -137,7 +146,7 @@ pub(crate) fn sync_playback(
             },
             PlaybackState::Starting | PlaybackState::Playing => match (record.voice, record.sent) {
                 (Some(voice), Some(sent)) => {
-                    let (now, complete) = apply(controller, voice, sent, settings);
+                    let (now, complete) = apply(controller, voice, sent, settings, record.spatial);
                     record.sent = Some(now);
                     complete
                 }
@@ -151,6 +160,7 @@ pub(crate) fn sync_playback(
         }
     }
     *work = again;
+    send_emitters(controller, &snapshot, records);
 }
 
 fn read_events(controller: &mut Controller, playback: &mut Playback, reports: &mut Reports) {
@@ -223,13 +233,14 @@ fn valid_speed(speed: f32) -> bool {
 }
 
 /// Sends the play for a loaded clip, with every setting applied from its
-/// first frame. `None` means "not yet": still loading, or the command queue
-/// is full this frame.
+/// first frame, in 3D at `emitter` if given. `None` means "not yet": still
+/// loading, or the command queue is full this frame.
 fn start(
     controller: &mut Controller,
     player: &SoundPlayer,
     settings: PlaybackSettings,
     clips: &Clips,
+    emitter: Option<&EmitterPose>,
 ) -> Result<Option<(VoiceId, PlaybackSettings)>, PlaybackError> {
     let Some(clip) = clips.assets.get(&player.0) else {
         if clips.server.load_state(&player.0).is_failed() {
@@ -259,12 +270,12 @@ fn start(
         (Some(pcm), _) => {
             let mut sound = Sound::new(pcm.clone());
             sound.set_looping(sent.looping);
-            controller.play_with(&sound, options)
+            play(controller, &mut sound, options, emitter)
         }
         (None, Some(stream)) => {
             let mut stream = stream.clone();
             stream.set_looping(sent.looping);
-            controller.play_with(&stream, options)
+            play(controller, &mut stream, options, emitter)
         }
         (None, None) => return Err(PlaybackError::AssetFailed),
     };
@@ -297,13 +308,15 @@ fn update<T: Copy + PartialEq>(
     true
 }
 
-/// Sends the settings that differ from `sent`. Returns what the mixer will
-/// have once the accepted commands run, and whether that is everything.
+/// Sends the settings that differ from `sent`; the pan of a 3D sound is
+/// left alone. Returns what the mixer will have once the accepted commands
+/// run, and whether that is everything.
 fn apply(
     controller: &mut Controller,
     voice: VoiceId,
     sent: PlaybackSettings,
     wanted: PlaybackSettings,
+    spatial: bool,
 ) -> (PlaybackSettings, bool) {
     let mut now = PlaybackSettings {
         on_finish: wanted.on_finish,
@@ -316,7 +329,8 @@ fn apply(
         wanted.volume.is_finite(),
         |v| controller.set_volume(voice, v),
     );
-    complete &= update(&mut now.pan, wanted.pan, wanted.pan.is_finite(), |p| {
+    let pan_usable = wanted.pan.is_finite() && !spatial;
+    complete &= update(&mut now.pan, wanted.pan, pan_usable, |p| {
         controller.set_pan(voice, p)
     });
     complete &= update(

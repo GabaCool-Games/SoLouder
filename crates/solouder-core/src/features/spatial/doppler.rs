@@ -7,11 +7,16 @@ use super::vector::Vec3;
 /// position minus the listener's) with the OpenAL 1.1 formula SoLoud uses
 /// (`doppler`). The velocities are projected on the source-to-listener
 /// vector, so an approaching source or listener raises the pitch (reference
-/// patch 0062; SoLoud had the direction backwards). Speeds are capped at the
-/// speed of sound over `factor`; reaching it in either direction gives 0,
-/// which holds the voice in place as the mixer does for any speed it cannot
-/// play (patch 0063; SoLoud divided by zero and gave the voice an infinite or
-/// NaN speed).
+/// patch 0062; SoLoud had the direction backwards).
+///
+/// A source approaching, or a listener receding, at or past the speed of
+/// sound over `factor` gives 0, which holds the voice in place as the mixer
+/// does for any speed it cannot play. This is decided on the scaled speeds
+/// before dividing (patch 0066), so the divisor of any other case is above
+/// 0. SoLoud divided by zero at the speed of sound (fixed by patch 0063,
+/// which held only infinite and NaN results), and clamping the speeds left
+/// the divisor a rounding error above 0 for some factors, so a source
+/// faster than sound played millions of times too fast.
 pub(crate) fn doppler(
     offset: Vec3,
     source: Vec3,
@@ -26,21 +31,19 @@ pub(crate) fn doppler(
     }
     let listener_speed = to_listener.dot(listener) / distance;
     let source_speed = to_listener.dot(source) / distance;
-    let max_speed = sound_speed / factor;
-    let source_speed = min(source_speed, max_speed);
-    let listener_speed = min(listener_speed, max_speed);
-    let value = (sound_speed - factor * listener_speed) / (sound_speed - factor * source_speed);
-    // Infinity and NaN (at the speed of sound) hold the voice (patch 0063).
+    let source_speed = factor * source_speed;
+    let listener_speed = factor * listener_speed;
+    // Written so that NaN holds the voice too.
+    if !(source_speed < sound_speed && listener_speed < sound_speed) {
+        return 0.0;
+    }
+    let value = (sound_speed - listener_speed) / (sound_speed - source_speed);
+    // Very near the speed of sound the value can still overflow.
     if (0.0..=f32::MAX).contains(&value) {
         value
     } else {
         0.0
     }
-}
-
-/// SoLoud's `MIN` macro: `b` unless `a < b`, so a NaN `a` gives `b`.
-fn min(a: f32, b: f32) -> f32 {
-    if a < b { a } else { b }
 }
 
 #[cfg(test)]
@@ -91,5 +94,21 @@ mod tests {
         assert_eq!(doppler(ahead, z(f32::NAN), z(0.0), 1.0, 343.3), 0.0);
         assert_eq!(doppler(ahead, z(0.0), z(0.0), f32::INFINITY, 343.3), 0.0);
         assert!(doppler(ahead, z(-1.0e6), z(0.0), 1.0, 343.3) > 0.0);
+    }
+
+    /// Clamped to the speed of sound over a factor of 1.032, a source at
+    /// 400 left the divisor about 3e-5 and a speed of about 11 million.
+    #[test]
+    fn faster_than_sound_holds_whatever_the_rounding() {
+        let ahead = z(-1.0);
+        assert_eq!(doppler(ahead, z(400.0), z(0.0), 1.032, 343.3), 0.0);
+        assert_eq!(doppler(ahead, z(0.0), z(400.0), 1.032, 343.3), 0.0);
+        // Just slower than sound plays, however fast.
+        let speed = doppler(ahead, z(332.0), z(0.0), 1.032, 343.3);
+        assert!(speed > 1.0 && speed.is_finite());
+        // A negative factor turns approach into recession; a still pair is
+        // unchanged.
+        assert_eq!(doppler(ahead, z(0.0), z(0.0), -1.0, 343.3), 1.0);
+        assert!(doppler(ahead, z(400.0), z(0.0), -1.0, 343.3) < 1.0);
     }
 }

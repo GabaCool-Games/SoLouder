@@ -6,6 +6,7 @@ use rtrb::{Consumer, Producer};
 
 use super::command::{Command, PlayRequest};
 use super::ids::LiveTable;
+use super::spatial_mirror::SpatialBatch;
 use super::status::{Event, FinishReason, Shared, Status};
 use crate::features::playback::{Handle, Mixer, MixerConfig, RetiredItem};
 
@@ -27,6 +28,8 @@ pub struct Renderer {
     pub(super) shared: Arc<Shared>,
     pub(super) commands_per_render: usize,
     pub(super) status: Status,
+    /// Applied 3D batches, back to the controller; room for all of them.
+    pub(super) spatial_return: Producer<Box<SpatialBatch>>,
 }
 
 impl Renderer {
@@ -79,6 +82,7 @@ impl Renderer {
                     self.status.rejected_queue_sounds += 1;
                 }
             }
+            Command::Spatial(batch) => self.apply_spatial(batch),
             command => self.apply_control(command),
         }
     }
@@ -90,6 +94,7 @@ impl Renderer {
             options,
             start,
             bus,
+            placement,
         } = request;
         let handle = self.mixer.start_boxed(voice, options, start, bus);
         let stole = self.mixer.take_stolen();
@@ -111,6 +116,25 @@ impl Renderer {
         }
         self.live.insert(id, handle);
         report(&mut self.events, Event::Started(id));
+        if let Some(placement) = placement {
+            self.mixer.place_started_3d(handle, placement);
+            // Too quiet to start, with an inaudible behavior that kills.
+            self.report_gone(FinishReason::Stopped);
+        }
+    }
+
+    /// Applies a 3D update's gains to the voices still playing; those it
+    /// makes inaudible with an inaudible behavior that kills are stopped.
+    fn apply_spatial(&mut self, batch: Box<SpatialBatch>) {
+        for (id, gains) in &batch.entries {
+            if let Some(handle) = self.live.handle(*id) {
+                self.mixer.apply_3d_update(handle, gains);
+            }
+        }
+        self.mixer.finish_3d_update();
+        let returned = self.spatial_return.push(batch);
+        debug_assert!(returned.is_ok(), "the return queue holds every batch");
+        self.report_gone(FinishReason::Stopped);
     }
 
     /// Reports every voice in the table that is no longer playing.

@@ -288,6 +288,55 @@ namespace
 		}
 	};
 
+	// Counts its calls: the n-th (from 0) gives 1 / (1 + n % 4) plus user
+	// data / 1000, so a call skipped or added changes the gains of the voices
+	// computed after it. A new one for each `sound3d collider=count`.
+	struct CountCollider : SoLoud::AudioCollider
+	{
+		unsigned int calls;
+		CountCollider() : calls(0) {}
+		virtual float collide(SoLoud::Soloud *, SoLoud::AudioSourceInstance3dData *, int aUserData)
+		{
+			unsigned int n = calls++;
+			return 1.0f / (1.0f + (float)(n % 4)) + (float)aUserData / 1000.0f;
+		}
+	};
+
+	// Depends on everything a collider sees but the position and handle:
+	// the velocity, the listener-relative flag, the distances, the rolloff
+	// and Doppler factors, and the user data.
+	struct MetaCollider : SoLoud::AudioCollider
+	{
+		virtual float collide(SoLoud::Soloud *, SoLoud::AudioSourceInstance3dData *aData, int aUserData)
+		{
+			float g = 1.0f;
+			for (int i = 0; i < 3; i++)
+			{
+				float v = aData->m3dVelocity[i];
+				if (v < 0)
+					v = -v;
+				g += v * (float)(i + 1) / 100.0f;
+			}
+			if (aData->mFlags & SoLoud::AudioSourceInstance::LISTENER_RELATIVE)
+				g += 0.5f;
+			g += aData->m3dMinDistance / 10.0f;
+			g += aData->m3dMaxDistance / 100000.0f;
+			g += aData->m3dAttenuationRolloff / 5.0f;
+			g += aData->m3dDopplerFactor / 3.0f;
+			g += (float)aUserData / 100.0f;
+			return 2.0f / g;
+		}
+	};
+
+	// Depends on the voice's handle: (handle % 61 + 3) / 64.
+	struct HandleCollider : SoLoud::AudioCollider
+	{
+		virtual float collide(SoLoud::Soloud *, SoLoud::AudioSourceInstance3dData *aData, int)
+		{
+			return (float)(aData->mHandle % 61 + 3) / 64.0f;
+		}
+	};
+
 	// Inverse square of the distance clamped to the minimum and maximum,
 	// times the rolloff factor.
 	struct SquareAttenuator : SoLoud::AudioAttenuator
@@ -309,6 +358,16 @@ namespace
 		}
 	};
 
+	// Depends on the distance as given, unclamped, and on all three
+	// parameters: rolloff * 4 / (4 + distance + min / 2 + max / 1000).
+	struct RawAttenuator : SoLoud::AudioAttenuator
+	{
+		virtual float attenuate(float aDistance, float aMinDistance, float aMaxDistance, float aRolloffFactor)
+		{
+			return aRolloffFactor * 4.0f / (4.0f + aDistance + aMinDistance / 2.0f + aMaxDistance / 1000.0f);
+		}
+	};
+
 	struct Runner
 	{
 		SoLoud::Soloud *soloud;
@@ -322,6 +381,9 @@ namespace
 		// filter created lives until the runner ends; not cleared by init.
 		std::map<std::string, SoLoud::Filter *> filters;
 		std::vector<SoLoud::Filter *> ownedFilters;
+		// Counting colliders, which sources keep pointers to; like filters,
+		// they live until the runner ends.
+		std::vector<CountCollider *> counters;
 		std::vector<float> samples;
 		std::vector<std::string> log;
 		// tests/fixtures/, which `file=` paths are relative to.
@@ -335,6 +397,8 @@ namespace
 			delete soloud;
 			for (size_t i = 0; i < ownedFilters.size(); i++)
 				delete ownedFilters[i];
+			for (size_t i = 0; i < counters.size(); i++)
+				delete counters[i];
 		}
 
 		// A Wav, Bus or Queue stops its voices in the engine when destroyed,
@@ -731,11 +795,22 @@ namespace
 		{
 			static WallCollider wall;
 			static ShellCollider shell;
+			static MetaCollider meta;
+			static HandleCollider handleCollider;
 			const std::string &name = textArg(step, "collider");
 			if (name == "wall")
 				return &wall;
 			if (name == "shell")
 				return &shell;
+			if (name == "meta")
+				return &meta;
+			if (name == "handle")
+				return &handleCollider;
+			if (name == "count")
+			{
+				counters.push_back(new CountCollider);
+				return counters.back();
+			}
 			if (name == "none")
 				return 0;
 			throw ScenarioError(step.line, "unknown collider `" + name + "`");
@@ -746,11 +821,14 @@ namespace
 		{
 			static SquareAttenuator square;
 			static CutoffAttenuator cutoff;
+			static RawAttenuator raw;
 			const std::string &name = textArg(step, "attenuator");
 			if (name == "square")
 				return &square;
 			if (name == "cutoff")
 				return &cutoff;
+			if (name == "raw")
+				return &raw;
 			if (name == "none")
 				return 0;
 			throw ScenarioError(step.line, "unknown attenuator `" + name + "`");

@@ -12,11 +12,15 @@ behavioral compatibility, patch preservation, migration milestones, and parity
 validation. Keep design decisions here rather than maintaining a second copy
 in the porting guide.
 
-**Status:** milestone C. All five crates exist: `solouder-core` (offline
-mixer and the real-time controller/renderer split), `solouder-decoders`
-(WAV), `solouder-cpal` (device output), `bevy_solouder` (assets, playback
-entities, output lifecycle) and `solouder-parity`. Routing, filters,
-spatial audio, streaming and visualization below are still proposed.
+**Status:** milestone E, units 1 to 8 done, its review pending (see
+[port-status.md](port-status.md)). All five crates exist: `solouder-core`
+(the offline mixer with routing, filters, streaming and 3D audio, and the
+real-time controller/renderer split, which reaches all of them except voice
+groups and some queries), `solouder-decoders` (WAV, FLAC, Ogg Vorbis and
+MP3, decoded or streamed), `solouder-cpal` (device output), `bevy_solouder`
+(assets, playback entities, output lifecycle, and spatial listener and
+emitter components) and `solouder-parity`. Buses, filters, visualization
+and the other ECS mappings in the Bevy sections below are still proposed.
 
 The target is a native Rust mixer, not a binding that requires the C++ SoLoud
 library at runtime. Core audio must remain usable without Bevy or a device.
@@ -326,9 +330,12 @@ uses identical prepared PCM so decoder differences do not obscure mixer errors.
 The `bevy_solouder` crate provides `SolouderPlugin`, the immutable
 `AudioClip` asset with a `.wav` loader, the `SolouderController` resource,
 and the playback components `SoundPlayer`, `PlaybackSettings` and
-`SoundStatus` with `SoundFinished`/`SoundFailed` messages. Buses, filters
-and listener/emitter components are still design names. Keep each feature's
-components, systems, validation, and tests within its slice.
+`SoundStatus` with `SoundFinished`/`SoundFailed` messages, and the
+spatial components `AudioListener`, `SpatialEmitter`, `AudioVelocity` and
+`AudioTeleport` with the `SpatialAudioSettings` and `ListenerState`
+resources. Buses and filters are still design names. Keep each feature's
+components, systems, validation, and tests within its slice; the playback
+slice reads the spatial slice's snapshot, never the other way round.
 
 ### ECS model (proposed)
 
@@ -352,7 +359,7 @@ The port has two layers with different jobs:
 | Voice and bus filters (8 slots) | Filter components on the voice or bus entity, in a defined slot order. |
 | Global settings and filters | A settings resource and a master-bus entity. |
 | Voice groups | Usually unnecessary: queries and relationships select sets of sounds. Group operations remain available as bulk commands. |
-| 3D listener and source | Listener and spatial-emitter components read from `GlobalTransform`; velocity explicit or derived. |
+| 3D listener and source | `AudioListener` and `SpatialEmitter` read from `GlobalTransform`; velocity explicit (`AudioVelocity`) or derived, with `AudioTeleport` for jumps. |
 | Playback status, stream time, finished | A status component updated from the status handoff, a finished event, and an opt-in despawn-when-finished policy. |
 | Visualization and FFT | A snapshot component on the bus or master entity. |
 | `playClocked`, scheduling | Explicit commands in audio-clock time. |
@@ -366,6 +373,9 @@ Rules for the mapping:
 - Detached one-shot sounds (no entity) are an explicit, documented choice.
 - Several simultaneous listeners (split-screen) are a deliberate feature with a
   defined mixing policy, not an accident of spawning two listener components.
+  Until then the policy is one listener: of several, the lowest entity index
+  is heard and `ListenerState::Several` says so; with none, the last pose
+  is kept.
 - Bevy is pinned at 0.20. `SoundPlayer` is an immutable component, so its
   `on_insert` and `on_discard` hooks (discard runs on replace, removal and
   despawn) see every change. The hooks keep the plugin's private record of
@@ -408,24 +418,36 @@ Rules for the mapping:
 
 - In the core, `features/spatial` keeps the listener, speakers and per-voice
   3D state on the mixer's owner and computes each voice's gains there, as
-  SoLoud's `update3dAudio` does outside its mixer (offline today). Through
-  the `Controller` the same math runs on the game thread and the per-voice
-  results go to the audio thread in one batched command. Colliders and
+  SoLoud's `update3dAudio` does outside its mixer. Through the `Controller`
+  the same math runs on the game thread, on the controller's own copy of
+  the listener, speakers and each voice's 3D settings, and the per-voice
+  results go to the audio thread in one preallocated batched command,
+  applied only to the voice IDs they were computed for. Every voice is
+  computed before any result applies, as in SoLoud. Colliders and
   attenuators are `Send + Sync` traits (`Collider`, `Attenuator`) held in
   `Arc`s and called with plain values (`SpatialVoice`), never on the audio
   thread. Doppler and distance delay are computed with the gains and reach
   the voice as its speed and start delay. Handedness is a mixer setting
   (`MixerConfig::left_handed_3d`, SoLoud's `LEFT_HANDED_3D`), right-handed
   by default as Bevy is.
-- Read `GlobalTransform` after transform propagation and submit one coherent
-  listener/emitter snapshot. Parent hierarchy changes affect world-space audio.
-- Document/test forward and up axes, handedness, units, speaker layout, and
-  scale in the Bevy-to-mixer mapping. Do not assume C++ defaults match Bevy.
-- Select one active listener initially. Reject ambiguity or specify a
-  deterministic selection policy; multiple-listener mixing is not implicit.
-- Convert units consistently for attenuation, Doppler, and speed of sound.
-  Explicit or derived velocities must handle zero time steps, teleports, and
-  paused simulation.
+- The Bevy `spatial` slice reads `GlobalTransform` after transform
+  propagation into one snapshot of the listener and every emitter per
+  frame; the playback sync then starts new emitters' sounds in 3D, sends
+  the listener and the playing emitters, and asks for one 3D update.
+  Parent hierarchy changes affect world-space audio.
+- Axes: Bevy is right-handed with -Z forward and +Y up, which is SoLoud's
+  default listener (`left_handed_3d` off), so translations, `forward()` and
+  `up()` pass unchanged and a sound to the listener's right (+X) plays on
+  the right speaker; tested headless (`spatial_audio`). Scale is ignored.
+  The default speaker layouts are SoLoud's.
+- One listener: the lowest entity index of several, reported in
+  `ListenerState`; with none, the last pose is kept at rest (SoLoud's
+  default before any). Multiple-listener mixing is not implicit.
+- Units are metres and seconds: the speed of sound is 343.3 m/s by default
+  (`SpatialAudioSettings`), and attenuation distances are in metres.
+  Velocities are `AudioVelocity` or derived from motion over virtual time;
+  a zero or paused time step, an `AudioTeleport` marker, or a derived speed
+  past `max_derived_speed` (200 m/s by default) gives 0.
 - Retain audio-rate smoothing where needed. Do not render device buffers from
   Bevy `Update` or read the ECS world from the callback.
 

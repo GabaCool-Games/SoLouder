@@ -85,7 +85,7 @@ exactly, and a scenario must render at least one sample.
 | `queue` | `name`, `channels`, `rate`, `from`, `volume` (1) | A new `Queue`: `setParams(rate, channels)` if either is given (defaults 44100 and 1), `setParamsFromAudioSource` on the sound `from`, `setVolume`. A queue under an existing name is deleted first, which stops its voices. Play a queue with `play`. | `queue <name> <setParams code>` (0 without `setParams`) |
 | `queue_add` | `queue`, `sound` (a sound, else a stream) | `Queue::play` with the sound or stream. Do not replace or reload a sound while it is queued: the reference then reads the deleted `Wav`. | `queue_add <queue> <code>` |
 | `queue_query` | `queue`, `sound` (optional; a sound, else a stream) | `getQueueCount`, and `isCurrentlyPlaying` for `sound`. | `queue_query <queue> count=<n>`, then ` current=<0 or 1>` with `sound` |
-| `sound3d` | `name` (a sound, stream, bus or queue), `min` and `max`, `model` (an unsigned integer: 0 none, 1 inverse, 2 linear, 3 exponential; others act as none) and `rolloff`, `relative` (paired keys go together), `doppler`, `delay` (a flag), `collider` (`wall`, `shell` or `none`) and `data` (an unsigned integer, 0; needs `collider`), `attenuator` (`square`, `cutoff` or `none`) | Applied in that order: `AudioSource::set3dMinMaxDistance`, `set3dAttenuation`, `set3dListenerRelative`, `set3dDopplerFactor`, `set3dDistanceDelay`, `set3dCollider` (with `data` as the user data), `set3dAttenuator`. Affects later plays. | — |
+| `sound3d` | `name` (a sound, stream, bus or queue), `min` and `max`, `model` (an unsigned integer: 0 none, 1 inverse, 2 linear, 3 exponential; others act as none) and `rolloff`, `relative` (paired keys go together), `doppler`, `delay` (a flag), `collider` (`wall`, `shell`, `count`, `meta`, `handle` or `none`) and `data` (an unsigned integer, 0; needs `collider`), `attenuator` (`square`, `cutoff`, `raw` or `none`) | Applied in that order: `AudioSource::set3dMinMaxDistance`, `set3dAttenuation`, `set3dListenerRelative`, `set3dDopplerFactor`, `set3dDistanceDelay`, `set3dCollider` (with `data` as the user data), `set3dAttenuator`. Affects later plays. | — |
 | `play3d` | `sound` (a sound, stream, bus or queue), `as`, `x`, `y`, `z`, `vx`, `vy`, `vz` (0), `volume` (1), `paused` (0), `via` (a handle name, the `aBus` argument), `bus` (a bus name), `clock` (seconds) | `Bus::play3dClocked` with `bus` and `clock`, `Bus::play3d` with `bus`, `Soloud::play3dClocked` with `clock`, else `Soloud::play3d`. `clock` cannot go with `paused`, nor `bus` with `via`. Stores the handle under `as`. | `play3d <as> <handle>` |
 | `listener` | `x`, `y`, `z`; `ax`, `ay`, `az`; `ux`, `uy`, `uz`; `vx`, `vy`, `vz` (each triple goes together; at least one); `params` (0) | With `params=1` (position, `at` and `up` needed) `set3dListenerParameters`, with the velocity or zero; otherwise `set3dListenerPosition`, `set3dListenerAt`, `set3dListenerUp` and `set3dListenerVelocity` for the triples given, in that order. | — |
 | `set3d` | `h` (may name a voice group), `x`, `y`, `z`, `vx`, `vy`, `vz`, `params` (0; needs the position), `min` and `max`, `model` and `rolloff`, `doppler` | Applied in that order: `set3dSourcePosition` and `set3dSourceVelocity` (`set3dSourceParameters`, with the velocity or zero, with `params=1`), `set3dSourceMinMaxDistance`, `set3dSourceAttenuation`, `set3dSourceDopplerFactor`. | — |
@@ -138,6 +138,18 @@ data):
 - `square`: `min * min / (d * d) * rolloff`, `d` the distance clamped first
   to at least `min`, then to at most `max`.
 - `cutoff`: 1 closer than `max`, else 0.
+- `count`: counts its calls; the n-th (from 0) gives `1 / (1 + n % 4) +
+  data / 1000`, so a call skipped or added changes later gains. Each
+  `sound3d collider=count` makes a new one, starting at 0.
+- `meta`: `2 / g` with `g = 1 + |vx| / 100 + |vy| * 2 / 100 + |vz| * 3 / 100
+  (+ 0.5 if listener-relative) + min / 10 + max / 100000 + rolloff / 5 +
+  doppler / 3 + data / 100`, from the voice's velocity, flag, distances,
+  rolloff and Doppler factor.
+- `handle`: `(handle % 61 + 3) / 64`, from the voice's handle. The
+  real-time replay (`crates/solouder-parity/tests/realtime.rs`) stops at
+  it, since the `Controller` gives colliders no handle.
+- `raw`: `rolloff * 4 / (4 + d + min / 2 + max / 1000)`, `d` the distance as
+  given, unclamped.
 - `none`: removes the collider or attenuator.
 
 `mix` is limited to 4096 frames because the C++ `Soloud::mix` writes past its

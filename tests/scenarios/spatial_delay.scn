@@ -5,7 +5,8 @@
 # play3dClocked spacing plays and adding the distance delay, its first
 # clocked time and the 2048-frame limit; Bus::play3d and
 # Bus::play3dClocked, a bus that is not playing, and 3D voices through a
-# bus moving with velocities.
+# bus moving with velocities; delays of 511, 512 and 513 frames around a
+# 512-frame mix and across 256-frame callbacks.
 init channels=2
 sound name=n frames=30000 pattern=noise seed=7 amp=0.5
 sound name=s frames=30000 pattern=saw period=41 amp=0.5
@@ -101,3 +102,43 @@ sound_speed speed=6866
 play3d sound=s as=v6 x=0 y=0 z=-60 bus=b clock=4.5
 mix frames=600
 query h=v6
+
+# Delays of 511, 512 and 513 frames (a unit is a frame at a speed of sound
+# of 44100): in one 512-frame mix the first starts at its last frame, the
+# second at the next mix and the third a frame into it.
+init channels=2
+sound name=n frames=4000 pattern=noise seed=37 amp=0.3
+sound name=s frames=4000 pattern=saw period=17 amp=0.3
+sound3d name=n delay=1
+sound3d name=s delay=1
+sound_speed speed=44100
+play3d sound=n as=e511 x=0 y=0 z=-511
+play3d sound=s as=e512 x=512 y=0 z=0
+play3d sound=n as=e513 x=0 y=513 z=0
+mix frames=512
+query h=e511
+query h=e512
+query h=e513
+mix frames=64
+query h=e511
+query h=e512
+query h=e513
+stop_all
+
+# The same delays across 256-frame callbacks, then single frames.
+play3d sound=n as=f511 x=0 y=0 z=-511
+play3d sound=s as=f512 x=512 y=0 z=0
+play3d sound=n as=f513 x=0 y=513 z=0
+mix frames=256
+mix frames=255
+query h=f511
+mix frames=1
+query h=f511
+query h=f512
+mix frames=1
+query h=f512
+query h=f513
+mix frames=1
+query h=f513
+mix frames=256
+stop_all

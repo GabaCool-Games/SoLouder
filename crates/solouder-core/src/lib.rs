@@ -10,8 +10,9 @@
 //! voice groups, through buses or queued, mixed into 1 to 8 channels, either
 //! offline through
 //! [`Mixer`] or from an audio callback through the [`realtime`]
-//! controller/renderer pair. Milestone E adds streams and, offline only so
-//! far, [`spatial`] audio.
+//! controller/renderer pair. Milestone E adds streams and [`spatial`] audio,
+//! both offline and through the controller, which computes 3D gains on the
+//! game thread.
 
 pub mod contracts;
 pub mod dsp;

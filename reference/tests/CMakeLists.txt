@@ -95,6 +95,7 @@ set(REFERENCE_TESTS
   doppler_at_sound_speed_stays_finite
   sound_speed_rejects_nan_and_infinity
   play3d_clocked_distance_delay_from_listener
+  doppler_past_sound_speed_holds_despite_rounding
   pan_ramp_leftover_frames
   surround_to_quad_center_follows_volume
   quad_to_7_1_rear_uses_rear_volume

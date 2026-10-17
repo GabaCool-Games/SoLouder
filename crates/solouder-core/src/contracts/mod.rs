@@ -1,8 +1,11 @@
-//! Small contracts shared by feature slices: buffer limits and prepared PCM.
+//! Small contracts shared by feature slices: buffer limits, prepared PCM and
+//! real-time voice IDs.
 
 mod pcm;
+mod voice_id;
 
 pub use pcm::{Pcm, PcmError};
+pub use voice_id::VoiceId;
 
 /// Frames a source renders per block, and the smallest accepted buffer size
 /// (`SAMPLE_GRANULARITY` in SoLoud).

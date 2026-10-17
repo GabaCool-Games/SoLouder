@@ -233,3 +233,51 @@ fn paused_voices_jump_to_their_new_volume() {
     assert_eq!(voice.current_channel_volume[0], ahead() * 0.5);
     assert_eq!(voice.channel_volume[0], 0.5 * ahead());
 }
+
+/// Counts its calls.
+#[derive(Debug, Default)]
+struct Count(std::sync::atomic::AtomicU32);
+
+impl super::Collider for Count {
+    fn collide(&self, _voice: &super::SpatialVoice, _user_data: i32) -> f32 {
+        self.0.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        1.0
+    }
+}
+
+impl Count {
+    fn calls(&self) -> u32 {
+        self.0.load(std::sync::atomic::Ordering::Relaxed)
+    }
+}
+
+/// As in SoLoud, `update_3d_audio` computes every voice's gains before
+/// applying any: a 3D bus killed for being inaudible stops its voice only
+/// after the voice's collider ran, so the voice sharing the collider sees
+/// the same sequence of calls as in C++.
+#[test]
+fn a_killed_bus_stops_its_voices_after_their_colliders_ran() {
+    use std::sync::Arc;
+    let mut mixer = mixer();
+    let count = Arc::new(Count::default());
+    let mut sound = dc(30000, 0.25);
+    sound.set_3d_collider(Some(count.clone()), 0);
+    let mut bus = crate::Bus::new();
+    bus.set_3d_min_max_distance(1.0, 20.0);
+    bus.set_3d_attenuation(Attenuation::LinearDistance, 1.0);
+    bus.set_inaudible_behavior(false, true);
+    let keep = mixer.play_3d(&sound, [1.0, 0.0, -3.0], STILL, options());
+    let bus_voice = mixer.play_3d(&bus, [0.0, 0.0, -5.0], STILL, options());
+    let child = mixer.bus_play_3d(&bus, &sound, [-1.0, 0.0, -2.0], STILL, options());
+    assert!(mixer.is_valid_voice_handle(child));
+    assert_eq!(count.calls(), 2);
+    render(&mut mixer, 64);
+    mixer.set_3d_source_position(bus_voice, [0.0, 0.0, -30.0]);
+    mixer.update_3d_audio();
+    assert_eq!(count.calls(), 4, "the child's collider ran");
+    assert!(!mixer.is_valid_voice_handle(bus_voice));
+    assert!(!mixer.is_valid_voice_handle(child));
+    assert!(mixer.is_valid_voice_handle(keep));
+    mixer.update_3d_audio();
+    assert_eq!(count.calls(), 5);
+}

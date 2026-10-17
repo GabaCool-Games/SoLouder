@@ -18,7 +18,11 @@
 //! speed): nothing moves voices or the listener by them. A source with
 //! distance delay starts late by the time sound takes to reach the listener.
 //!
-//! Through the real-time controller 3D comes in milestone E unit 8.
+//! Through the real-time [`Controller`](crate::Controller) the same math
+//! runs on the game thread: the controller keeps its own copy of the
+//! listener, the speakers and each 3D voice's settings, and sends the
+//! results to the audio thread, so colliders and attenuators never run
+//! there.
 
 mod attenuation;
 mod control;
@@ -31,7 +35,8 @@ mod vector;
 
 pub use attenuation::Attenuation;
 pub use custom::{Attenuator, Collider, SpatialVoice};
-pub(crate) use scene::Scene;
+pub(crate) use play::{Placement, distance_delay};
+pub(crate) use scene::{Gains, Scene};
 pub(crate) use settings::{SpatialSettings, VoiceSpatial, spatial_settings_api};
 
 #[cfg(test)]

@@ -11,7 +11,7 @@ use crate::scenario::{ScenarioError, Step};
 use crate::spatial_custom::{attenuator, collider};
 
 /// Whether all of `keys` are given; some but not all is an error.
-fn group(step: &Step, keys: &[&str], what: &str) -> Result<bool, ScenarioError> {
+pub(crate) fn group(step: &Step, keys: &[&str], what: &str) -> Result<bool, ScenarioError> {
     let given = keys.iter().filter(|key| step.get(key).is_some()).count();
     if given != 0 && given != keys.len() {
         return Err(step.error(format!("{what} go together")));
@@ -20,7 +20,7 @@ fn group(step: &Step, keys: &[&str], what: &str) -> Result<bool, ScenarioError> 
 }
 
 /// Three numbers, 0 when absent.
-fn triple(step: &Step, keys: [&str; 3]) -> Result<[f32; 3], ScenarioError> {
+pub(crate) fn triple(step: &Step, keys: [&str; 3]) -> Result<[f32; 3], ScenarioError> {
     Ok([
         step.number_or(keys[0], 0.0)?,
         step.number_or(keys[1], 0.0)?,
@@ -28,8 +28,8 @@ fn triple(step: &Step, keys: [&str; 3]) -> Result<[f32; 3], ScenarioError> {
     ])
 }
 
-const XYZ: [&str; 3] = ["x", "y", "z"];
-const VELOCITY: [&str; 3] = ["vx", "vy", "vz"];
+pub(crate) const XYZ: [&str; 3] = ["x", "y", "z"];
+pub(crate) const VELOCITY: [&str; 3] = ["vx", "vy", "vz"];
 
 /// Applies the `AudioSource` 3D setters to whichever kind of source it is.
 macro_rules! with_source {

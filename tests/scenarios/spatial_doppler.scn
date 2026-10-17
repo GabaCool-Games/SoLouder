@@ -6,7 +6,9 @@
 # and 0, negative and infinite speeds rejected (patch 0064); Doppler
 # composed with play speed, its fades and sample rate changes (#98);
 # sources and listeners at or past the speed of sound holding the voice in
-# place until they slow down (#97, patch 0063); a source at the listener;
+# place until they slow down (#97, patch 0063), decided before dividing so
+# rounding cannot let a faster source race ahead (patch 0066); a source at
+# the listener;
 # listener-relative sources; Doppler on a 6-channel output.
 init channels=2
 sound name=n frames=40000 pattern=noise seed=5 amp=0.5
@@ -116,6 +118,29 @@ query h=both
 stop h=away
 stop h=both
 stop h=at
+
+# Past the speed of sound by more than rounding can hide: clamped to
+# 343.3 / 1.032, a source approaching at 400 left a divisor of about 3e-5
+# and a speed of about 11 million (patch 0066). It is held, also after an
+# update, and plays on from the start once it slows.
+sound3d name=s doppler=1.032
+play3d sound=s as=hair x=0 y=0 z=-1 vx=0 vy=0 vz=400
+query h=hair
+mix frames=300
+query h=hair
+update3d
+mix frames=300
+query h=hair
+set3d h=hair vx=0 vy=0 vz=300
+update3d
+mix frames=300
+query h=hair
+set3d h=hair vx=0 vy=0 vz=0
+update3d
+mix frames=300
+query h=hair
+stop h=hair
+sound3d name=s doppler=1
 
 # A listener-relative source keeps its offset as the listener moves, and
 # Doppler still uses both velocities.

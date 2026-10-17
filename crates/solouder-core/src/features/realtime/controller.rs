@@ -10,12 +10,14 @@ use super::VoiceId;
 use super::bus_layouts::BusLayouts;
 use super::command::{Command, PlayRequest};
 use super::ids::IdPool;
+use super::spatial_mirror::SpatialMirror;
 use super::status::{Event, Shared, Status};
 use super::stream_worker::StreamWorker;
 use crate::features::playback::{
     Bus, Handle, MixerConfig, PlayOptions, Playable, QUEUE_MAX, RetiredItem, SoundId, Start,
-    WorkerFeed,
+    WorkerFeed, flags,
 };
+use crate::features::spatial::{Placement, distance_delay};
 
 /// Why the controller refused a request. Nothing was queued.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -42,6 +44,10 @@ pub enum ControllerError {
     StreamsFull,
     /// The [`StreamWorker`] was dropped: streams cannot play.
     NoStreamWorker,
+    /// The speed of sound must be finite and greater than 0.
+    InvalidSoundSpeed,
+    /// The output has no such channel, so no speaker for it.
+    NoSuchSpeaker,
 }
 
 impl fmt::Display for ControllerError {
@@ -54,6 +60,10 @@ impl fmt::Display for ControllerError {
             Self::Disconnected => write!(f, "the audio renderer is gone"),
             Self::StreamsFull => write!(f, "the stream worker has not taken the streams played"),
             Self::NoStreamWorker => write!(f, "the stream worker is gone"),
+            Self::InvalidSoundSpeed => {
+                write!(f, "the speed of sound must be finite and greater than 0")
+            }
+            Self::NoSuchSpeaker => write!(f, "the output has no such speaker"),
         }
     }
 }
@@ -95,6 +105,17 @@ pub struct Controller {
     /// Frames of silence streams played because the worker fell behind.
     pub(super) underflow: Arc<AtomicU64>,
     pub(super) worker: Option<StreamWorker>,
+    /// The listener, speakers and 3D voices, whose gains are computed here.
+    pub(super) spatial: SpatialMirror,
+}
+
+/// Where a 3D play starts.
+#[derive(Clone, Copy, Debug)]
+pub(super) struct Start3d {
+    pub position: [f32; 3],
+    pub velocity: [f32; 3],
+    /// The sound time of a clocked play.
+    pub clock: Option<f64>,
 }
 
 impl Controller {
@@ -137,7 +158,7 @@ impl Controller {
         source: &impl Playable,
         options: PlayOptions,
     ) -> Result<VoiceId, ControllerError> {
-        self.start(source, options, Start::Now, None)
+        self.start(source, options, Start::Now, None, None)
     }
 
     /// [`Mixer::play_clocked`](crate::Mixer::play_clocked): starts the voice
@@ -149,7 +170,7 @@ impl Controller {
         source: &impl Playable,
         options: PlayOptions,
     ) -> Result<VoiceId, ControllerError> {
-        self.start(source, options, Start::Clocked(sound_time), None)
+        self.start(source, options, Start::Clocked(sound_time), None, None)
     }
 
     /// [`Mixer::play_background`](crate::Mixer::play_background): full gain
@@ -165,7 +186,7 @@ impl Controller {
             paused,
             ..PlayOptions::default()
         };
-        self.start(source, options, Start::Background, None)
+        self.start(source, options, Start::Background, None, None)
     }
 
     /// Plays `source` through `bus`'s voice (`Bus::play`). The play fails
@@ -176,7 +197,7 @@ impl Controller {
         source: &impl Playable,
         options: PlayOptions,
     ) -> Result<VoiceId, ControllerError> {
-        self.start(source, options, Start::Now, Some(bus.id()))
+        self.start(source, options, Start::Now, Some(bus.id()), None)
     }
 
     /// [`Controller::play_clocked`] through `bus` (`Bus::playClocked`).
@@ -188,15 +209,18 @@ impl Controller {
         options: PlayOptions,
     ) -> Result<VoiceId, ControllerError> {
         let start = Start::Clocked(sound_time);
-        self.start(source, options, start, Some(bus.id()))
+        self.start(source, options, start, Some(bus.id()), None)
     }
 
-    fn start(
+    /// Queues a play. A 3D play starts paused at pan 0 and carries its
+    /// gains and delay, computed here as `Mixer::play_3d` computes them.
+    pub(super) fn start(
         &mut self,
         source: &impl Playable,
         options: PlayOptions,
         start: Start,
         bus: Option<SoundId>,
+        spatial: Option<Start3d>,
     ) -> Result<VoiceId, ControllerError> {
         if options.speed.is_nan() || options.speed <= 0.0 {
             return Err(ControllerError::InvalidSpeed);
@@ -230,30 +254,61 @@ impl Controller {
             }
             None => (source.prepare(), None),
         };
-        prepared.prepare_filters(options.speed);
         let layout = (prepared.voice.channels(), prepared.voice.base_sample_rate);
+        // The speed the voice's filters first run at: a 3D voice's starting
+        // Doppler factor multiplies it.
+        let mut speed = options.speed;
+        let mut sent = PlayOptions {
+            bus: Handle::INVALID,
+            ..options
+        };
+        let mut placement = None;
+        let mut tracked = None;
+        if let Some(at) = spatial {
+            let voice = &mut prepared.voice;
+            voice.set_flag(flags::PROCESS_3D, true);
+            voice.spatial.position = at.position.into();
+            voice.spatial.velocity = at.velocity.into();
+            let relative = voice.has_flag(flags::LISTENER_RELATIVE);
+            let scene = &self.spatial.scene;
+            let gains = scene
+                .frame()
+                .gains(&voice.spatial, relative, Handle::INVALID, Some(id));
+            let rate = self.config.sample_rate;
+            placement = Some(Placement {
+                gains,
+                distance_delay: distance_delay(&voice.spatial, relative, scene, rate),
+                clock: at.clock,
+                paused: options.paused,
+            });
+            tracked = Some((voice.spatial.clone(), relative));
+            sent.pan = 0.0;
+            sent.paused = true;
+            speed *= gains.doppler.max(1.0);
+        }
+        prepared.prepare_filters(speed);
         let request = PlayRequest {
             id,
             voice: prepared.into(),
-            options: PlayOptions {
-                bus: Handle::INVALID,
-                ..options
-            },
+            options: sent,
             start,
             bus,
+            placement,
         };
         if let Err(error) = self.send(Command::Play(request)) {
             self.ids.release(id);
             return Err(error);
         }
         self.retire_credits -= 1;
+        if let Some((spatial, relative)) = tracked {
+            self.spatial.insert(id, spatial, relative);
+        }
         if let Some(feed) = feed {
             // Cannot fail: checked above, and only this thread pushes.
             let _ = self.feeds.push(feed);
         }
         if let Some(bus) = source.bus_id() {
-            self.buses
-                .started(bus, id, layout.0, layout.1, options.speed);
+            self.buses.started(bus, id, layout.0, layout.1, speed);
         }
         Ok(id)
     }
@@ -283,6 +338,7 @@ impl Controller {
         if event.is_final() {
             self.ids.release(event.id());
             self.buses.finished(event.id());
+            self.spatial.forget(event.id());
         }
         Some(event)
     }

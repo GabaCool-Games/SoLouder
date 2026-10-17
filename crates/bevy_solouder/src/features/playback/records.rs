@@ -23,6 +23,8 @@ pub(crate) struct Record {
     pub sent: Option<PlaybackSettings>,
     /// Whether the entity is in [`Playback::work`].
     pub queued: bool,
+    /// Whether the sound was started in 3D.
+    pub spatial: bool,
 }
 
 impl Record {
@@ -32,6 +34,7 @@ impl Record {
             voice: None,
             sent: None,
             queued: false,
+            spatial: false,
         }
     }
 

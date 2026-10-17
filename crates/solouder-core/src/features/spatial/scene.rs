@@ -5,7 +5,7 @@ use super::custom::SpatialVoice;
 use super::doppler::doppler;
 use super::settings::VoiceSpatial;
 use super::vector::{Mat3, Vec3};
-use crate::contracts::MAX_CHANNELS;
+use crate::contracts::{MAX_CHANNELS, VoiceId};
 use crate::features::playback::Handle;
 
 const MAX: usize = MAX_CHANNELS as usize;
@@ -74,8 +74,30 @@ impl Scene {
         }
     }
 
-    pub fn channels(&self) -> usize {
-        self.channels
+    /// Sets the speed of sound, if it is finite and greater than 0 (SoLoud
+    /// took NaN and infinity until reference patch 0064).
+    pub fn set_sound_speed(&mut self, speed: f32) -> bool {
+        let valid = speed > 0.0 && speed <= f32::MAX;
+        if valid {
+            self.sound_speed = speed;
+        }
+        valid
+    }
+
+    /// The speaker of output channel `channel`, if the output has it.
+    pub fn speaker(&self, channel: u32) -> Option<[f32; 3]> {
+        let channel = channel as usize;
+        (channel < self.channels).then(|| self.speakers[channel].into())
+    }
+
+    /// Moves the speaker of output channel `channel`, if the output has it.
+    pub fn set_speaker(&mut self, channel: u32, position: [f32; 3]) -> bool {
+        let channel = channel as usize;
+        let exists = channel < self.channels;
+        if exists {
+            self.speakers[channel] = position.into();
+        }
+        exists
     }
 
     /// What a 3D update needs for every voice, computed once per update.
@@ -120,17 +142,24 @@ pub(crate) struct Gains {
 }
 
 impl Frame {
-    /// The gains of the voice `handle` (the loop body of
-    /// `update3dVoices_internal`). The volume is the collider's factor times
+    /// The gains of the voice `handle` or `voice`, whichever the caller has
+    /// (the loop body of `update3dVoices_internal`). The volume is the collider's factor times
     /// the attenuator's or the attenuation model's. A speaker hears
     /// `(cos θ + 1) / 2` of the voice, θ being the angle between it and the
     /// voice in the listener's frame, times the volume; speakers past the
     /// output's channels hear nothing.
-    pub fn gains(&self, spatial: &VoiceSpatial, listener_relative: bool, handle: Handle) -> Gains {
+    pub fn gains(
+        &self,
+        spatial: &VoiceSpatial,
+        listener_relative: bool,
+        handle: Handle,
+        voice: Option<VoiceId>,
+    ) -> Gains {
         let mut volume = 1.0_f32;
         if let Some((collider, user_data)) = &spatial.collider {
             let voice = SpatialVoice {
                 handle,
+                voice,
                 position: spatial.position.into(),
                 velocity: spatial.velocity.into(),
                 listener_relative,

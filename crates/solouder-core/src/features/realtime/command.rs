@@ -5,9 +5,11 @@
 use std::collections::VecDeque;
 
 use super::VoiceId;
+use super::spatial_mirror::SpatialBatch;
 use crate::dsp::Resampler;
 use crate::features::filters::FilterInstance;
 use crate::features::playback::{BoxedVoice, PlayOptions, Queued, SoundId, Start};
+use crate::features::spatial::Placement;
 
 /// One queued request. Voice commands for an ID without a voice do nothing.
 #[derive(Debug)]
@@ -57,6 +59,9 @@ pub(crate) enum Command {
         queue: SoundId,
         item: Queued,
     },
+    /// A 3D update's results, applied to the voices still playing; the
+    /// batch goes back to the controller.
+    Spatial(Box<SpatialBatch>),
 }
 
 /// A voice to start.
@@ -68,6 +73,9 @@ pub(crate) struct PlayRequest {
     pub start: Start,
     /// Play through this bus's voice.
     pub bus: Option<SoundId>,
+    /// For a 3D play, what the controller computed: the voice starts paused
+    /// and is placed with it.
+    pub placement: Option<Placement>,
 }
 
 /// A change to one voice.

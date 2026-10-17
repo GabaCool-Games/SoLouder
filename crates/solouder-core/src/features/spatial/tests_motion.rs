@@ -254,3 +254,16 @@ fn left_handed_mirrors_z() {
     assert!(left.iter().any(|&s| s != 0.0));
     assert_eq!(left, render_scene(false));
 }
+
+/// A distance delay of `i32::MAX` frames or more becomes `i32::MIN`, as x86
+/// converts it in SoLoud; the voice's unsigned delay then holds it back 2^31
+/// frames (about 13.5 hours), rather than starting it at once.
+#[test]
+fn a_distance_delay_past_i32_waits_2_pow_31_frames() {
+    let mut mixer = mixer();
+    assert!(mixer.set_3d_sound_speed(1.0e-6).is_ok());
+    let mut sound = dc(64, 0.5);
+    sound.set_3d_distance_delay(true);
+    let h = mixer.play_3d(&sound, [0.0, 0.0, -1000.0], STILL, options());
+    assert_eq!(mixer.voices.get(h).unwrap().delay_samples, 1 << 31);
+}

@@ -3,14 +3,16 @@
 
 use std::fmt;
 
+use crate::contracts::VoiceId;
 use crate::features::playback::Handle;
 
 /// Scales a 3D voice's volume by what stands between it and the listener
 /// (`AudioCollider`), for example walls or rooms. Set one on a source with
 /// `set_3d_collider`; it runs for each of the source's 3D voices whenever
 /// their gains are computed ([`Mixer::play_3d`](crate::Mixer::play_3d) and
-/// [`Mixer::update_3d_audio`](crate::Mixer::update_3d_audio)), on the thread
-/// that calls them, never on the audio thread.
+/// [`Mixer::update_3d_audio`](crate::Mixer::update_3d_audio), or the
+/// [`Controller`](crate::Controller)'s calls of the same names), on the
+/// thread that calls them, never on the audio thread.
 pub trait Collider: Send + Sync + fmt::Debug {
     /// The volume factor for `voice`, normally 0 to 1
     /// (`AudioCollider::collide`); `user_data` is the value given with the
@@ -31,8 +33,13 @@ pub trait Attenuator: Send + Sync + fmt::Debug {
 #[derive(Clone, Copy, Debug, PartialEq)]
 #[non_exhaustive]
 pub struct SpatialVoice {
-    /// The voice's handle.
+    /// The voice's handle on a [`Mixer`](crate::Mixer). Through the
+    /// [`Controller`](crate::Controller) the game thread has no handle:
+    /// this is [`Handle::INVALID`] and `voice` names the voice instead.
     pub handle: Handle,
+    /// The voice's ID when its gains are computed by a
+    /// [`Controller`](crate::Controller); `None` on a `Mixer`.
+    pub voice: Option<VoiceId>,
     /// Its position: in world coordinates, or relative to the listener when
     /// `listener_relative`.
     pub position: [f32; 3],

@@ -14,10 +14,12 @@ mod bus_layouts;
 mod command;
 mod controller;
 mod controller_routing;
+mod controller_spatial;
 mod controller_voice;
 mod ids;
 mod renderer;
 mod renderer_control;
+mod spatial_mirror;
 mod status;
 mod stream_worker;
 
@@ -32,6 +34,7 @@ pub use stream_worker::StreamWorker;
 
 use crate::features::playback::Mixer;
 use ids::{IdPool, LiveTable};
+use spatial_mirror::SpatialMirror;
 use status::Shared;
 
 /// Queue sizes and limits for [`split`].
@@ -59,6 +62,11 @@ pub struct RealtimeConfig {
     /// Streams played that the [`StreamWorker`] has not taken yet, before
     /// [`ControllerError::StreamsFull`].
     pub pending_streams: usize,
+    /// 3D updates ([`Controller::update_3d_audio`]) that may be in flight to
+    /// the renderer before the next one fails with
+    /// [`ControllerError::QueueFull`]. Each holds the gains of up to
+    /// `voice_ids` voices, allocated by [`split`].
+    pub spatial_batches: usize,
 }
 
 impl Default for RealtimeConfig {
@@ -71,6 +79,7 @@ impl Default for RealtimeConfig {
             queues: 64,
             stream_chunks: 32,
             pending_streams: 64,
+            spatial_batches: 2,
         }
     }
 }
@@ -101,6 +110,9 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
     let (retired_tx, retired_rx) = rtrb::RingBuffer::new(config.retired_capacity.max(1));
     let shared = Arc::new(Shared::default());
     let (feeds, incoming) = rtrb::RingBuffer::new(config.pending_streams.max(1));
+    let batches = config.spatial_batches.max(1);
+    let (spatial_return, returned) = rtrb::RingBuffer::new(batches);
+    let spatial = SpatialMirror::new(mixer.scene.clone(), voice_ids, batches, returned);
     let worker = StreamWorker {
         incoming,
         feeds: stream_feeds,
@@ -120,6 +132,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
         stream_chunks: config.stream_chunks,
         underflow,
         worker: Some(worker),
+        spatial,
     };
     let renderer = Renderer {
         mixer,
@@ -130,6 +143,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
         shared,
         commands_per_render,
         status: Default::default(),
+        spatial_return,
     };
     (controller, renderer)
 }
@@ -153,3 +167,11 @@ mod stream_tests;
 #[cfg(test)]
 #[path = "stream_edge_tests.rs"]
 mod stream_edge_tests;
+
+#[cfg(test)]
+#[path = "spatial_tests.rs"]
+mod spatial_tests;
+
+#[cfg(test)]
+#[path = "spatial_thread_tests.rs"]
+mod spatial_thread_tests;

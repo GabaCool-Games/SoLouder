@@ -1,0 +1,93 @@
+# 3D streams, queues and buses. Streamed WAV and Ogg files played in 3D,
+# clocked and with distance delay, moving with Doppler, one ticking while
+# inaudible, one sped up, all played to their end in calls that cross stream
+# blocks; a queue played in 3D with a collider, an attenuator and Doppler,
+# fed while it moves until it runs dry; a 3D bus with a collider and an
+# attenuator, its 3D children moving with it, then killed for being
+# inaudible.
+init channels=2 rate=44100 buffer=1024
+stream name=music file=wav/s16_stereo_44100.wav volume=0.5
+stream name=ogg file=ogg/vorbis_mono_22050_q0.ogg volume=0.6
+stream name=voice file=wav/s24_mono_48000.wav
+sound3d name=music min=1 max=60 model=1 rolloff=1 delay=1 doppler=1.5
+sound3d name=ogg collider=shell data=30 attenuator=raw min=2 max=50 model=1 rolloff=0.8
+sound3d name=voice attenuator=cutoff min=1 max=20
+sound_speed speed=3433
+play3d sound=music as=m x=0 y=0 z=-3.433 vx=0 vy=0 vz=120
+play3d sound=ogg as=o x=4 y=2 z=-3 vx=-30 vy=0 vz=0 clock=0.005
+play3d sound=voice as=v x=0 y=0 z=-5 vx=0 vy=0 vz=-60
+set h=v tick=1 kill=0
+query h=m
+query h=o
+mix frames=300
+set3d h=m x=3 y=0 z=-10 vx=-10 vy=0 vz=200
+set3d h=o x=-2 y=-4 z=-1
+set3d h=v x=0 y=0 z=-25
+update3d
+query h=m
+query h=v
+mix frames=1023
+listener x=1 y=0 z=0 vx=0 vy=0 vz=-40
+update3d
+query h=m
+query h=o
+query h=v
+mix frames=1500
+query h=m
+query h=v
+set3d h=o vx=0 vy=0 vz=90
+set h=o speed=3
+update3d
+mix frames=4096
+mix frames=4096
+query h=o
+mix frames=4096
+mix frames=4096
+query h=o
+stop_all
+listener x=0 y=0 z=0 vx=0 vy=0 vz=0
+
+# A 3D queue with a collider, an attenuator and Doppler, fed as it moves.
+sound name=a frames=1000 pattern=saw period=37 amp=0.6
+sound name=b frames=1500 pattern=noise seed=5 amp=0.4
+queue name=q channels=1
+sound3d name=q collider=wall data=10 attenuator=square min=1 max=40 model=1 rolloff=1 doppler=2
+play3d sound=q as=qv x=2 y=0 z=-5 vx=0 vy=0 vz=40
+queue_add queue=q sound=a
+queue_add queue=q sound=b
+mix frames=600
+query h=qv
+set3d h=qv x=-3 y=1 z=-8 vx=20 vy=0 vz=-30
+update3d
+mix frames=600
+queue_add queue=q sound=a
+query h=qv
+mix frames=1200
+set3d h=qv x=1.5 y=0 z=-2
+update3d
+mix frames=1000
+query h=qv
+mix frames=1000
+query h=qv
+
+# A 3D bus with a collider and an attenuator; its 3D children move, and it
+# is killed once inaudible, stopping them.
+bus name=bb
+sound3d name=bb collider=shell data=20 attenuator=cutoff min=1 max=30
+play3d sound=bb as=bv x=0 y=1 z=-4 vx=0 vy=0 vz=25
+set h=bv tick=0 kill=1
+play3d sound=a as=c1 bus=bb x=1 y=0 z=-2 vx=10 vy=0 vz=0
+play3d sound=b as=c2 bus=bb x=-2 y=0 z=-3 vx=0 vy=0 vz=-15 clock=0.3
+mix frames=500
+set3d h=bv x=0 y=-3 z=-6
+set3d h=c1 x=-1 y=0 z=-1 vx=0 vy=0 vz=30
+update3d
+query h=bv
+query h=c1
+mix frames=500
+set3d h=bv x=0 y=0 z=-40
+update3d
+query h=bv
+query h=c1
+query h=c2
+mix frames=300

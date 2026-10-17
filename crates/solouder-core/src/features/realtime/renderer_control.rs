@@ -60,7 +60,8 @@ impl Renderer {
             | Command::Stop(_)
             | Command::StopAll
             | Command::StopSound(_)
-            | Command::QueueAdd { .. } => {
+            | Command::QueueAdd { .. }
+            | Command::Spatial(_) => {
                 unreachable!("handled by Renderer::apply")
             }
         }
