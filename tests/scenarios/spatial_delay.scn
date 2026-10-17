@@ -1,0 +1,103 @@
+# Distance delay: 3D plays of a source with set3dDistanceDelay start late
+# by their distance from the listener over the speed of sound, with play3d
+# and play3dClocked (patch 0065: from the listener, not the origin), for
+# listener-relative sources, at a changed speed of sound and output rate;
+# play3dClocked spacing plays and adding the distance delay, its first
+# clocked time and the 2048-frame limit; Bus::play3d and
+# Bus::play3dClocked, a bus that is not playing, and 3D voices through a
+# bus moving with velocities.
+init channels=2
+sound name=n frames=30000 pattern=noise seed=7 amp=0.5
+sound name=s frames=30000 pattern=saw period=41 amp=0.5
+sound3d name=n delay=1
+sound_speed speed=3433
+
+# 34.33 units from the listener at 3433 units per second: 441 frames.
+listener x=100 y=0 z=0
+play3d sound=n as=d1 x=100 y=0 z=-34.33
+play3d sound=s as=near x=101 y=0 z=0
+mix frames=300
+query h=d1
+mix frames=300
+query h=d1
+stop h=d1
+stop h=near
+
+# play3dClocked counts from the listener too, and adds to the clocked delay.
+play3d sound=n as=c1 x=100 y=0 z=-10.3 clock=1
+play3d sound=n as=c2 x=95 y=0 z=-20.6 clock=1.005
+play3d sound=s as=c3 x=100 y=3 z=0 clock=1.01
+play3d sound=s as=c4 x=100 y=0 z=-1 clock=2
+mix frames=600
+query h=c1
+query h=c2
+query h=c3
+query h=c4
+mix frames=400
+stop h=c1
+stop h=c2
+stop h=c3
+stop h=c4
+
+# A listener-relative source with distance delay counts from its offset;
+# so does play3dClocked's, and paused plays keep their delay.
+sound3d name=n relative=1
+play3d sound=n as=r1 x=0 y=0 z=-17.165
+play3d sound=n as=r2 x=8 y=0 z=-6 clock=3
+play3d sound=n as=r3 x=0 y=5 z=0 paused=1
+mix frames=200
+set h=r3 pause=0
+mix frames=500
+stop h=r1
+stop h=r2
+stop h=r3
+sound3d name=n relative=0
+
+# A slower speed of sound lengthens the delay; moving the voice afterwards
+# does not change it.
+sound_speed speed=1716.5
+play3d sound=n as=slow x=100 y=0 z=-10
+set3d h=slow x=100 y=0 z=-30
+update3d
+mix frames=700
+query h=slow
+stop h=slow
+sound3d name=n delay=0
+play3d sound=n as=none x=100 y=0 z=-30
+mix frames=100
+stop h=none
+
+# At 22050 Hz the same distance is half the frames.
+init channels=1 rate=22050
+sound name=n frames=20000 pattern=noise seed=2 amp=0.5
+sound3d name=n delay=1
+play3d sound=n as=d x=0 y=0 z=-3.433
+mix frames=400
+
+# Bus::play3d and Bus::play3dClocked: through a playing bus, at velocity,
+# moved and updated, and through a bus that is not playing (handle 0).
+init channels=2
+sound name=n frames=30000 pattern=noise seed=13 amp=0.5
+sound name=s frames=30000 pattern=saw period=29 amp=0.5
+bus name=b
+bus name=idle
+play sound=b as=bh
+play3d sound=n as=v1 x=2 y=0 z=-4 vx=0 vy=0 vz=30 bus=b
+play3d sound=s as=v2 x=-3 y=1 z=-2 vx=10 vy=0 vz=0 bus=b clock=4 volume=0.6
+play3d sound=s as=v3 x=-3 y=1 z=-2 bus=b paused=1
+play3d sound=n as=v4 x=1 y=0 z=-1 bus=idle
+play3d sound=n as=v5 x=1 y=0 z=-1 bus=idle clock=4.01
+query h=v1
+query h=v2
+query h=v3
+mix frames=400
+set3d h=v1 x=-6 y=0 z=2 vx=0 vy=0 vz=-50 params=1
+set h=v3 pause=0
+update3d
+mix frames=400
+query h=v1
+sound3d name=s delay=1
+sound_speed speed=6866
+play3d sound=s as=v6 x=0 y=0 z=-60 bus=b clock=4.5
+mix frames=600
+query h=v6

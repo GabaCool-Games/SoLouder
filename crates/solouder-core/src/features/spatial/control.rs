@@ -11,13 +11,22 @@ use crate::features::playback::{ControlError, Handle, Mixer, flags};
 /// [`Mixer::update_3d_audio`] (or `play_3d`).
 impl Mixer {
     /// Places the listener at `position`, facing `at`, with `up` as its up
-    /// direction (`Soloud::set3dListenerParameters`). `at` and `up` need not
-    /// be normalized. By default the listener is at the origin facing -z
-    /// with +y up, in right-handed coordinates.
-    pub fn set_3d_listener_parameters(&mut self, position: [f32; 3], at: [f32; 3], up: [f32; 3]) {
+    /// direction, moving at `velocity` units per second
+    /// (`Soloud::set3dListenerParameters`). `at` and `up` need not be
+    /// normalized. By default the listener is still at the origin facing
+    /// -z with +y up, in right-handed coordinates (see
+    /// [`MixerConfig::left_handed_3d`](crate::MixerConfig::left_handed_3d)).
+    pub fn set_3d_listener_parameters(
+        &mut self,
+        position: [f32; 3],
+        at: [f32; 3],
+        up: [f32; 3],
+        velocity: [f32; 3],
+    ) {
         self.set_3d_listener_position(position);
         self.set_3d_listener_at(at);
         self.set_3d_listener_up(up);
+        self.set_3d_listener_velocity(velocity);
     }
 
     /// Moves the listener (`Soloud::set3dListenerPosition`).
@@ -35,12 +44,62 @@ impl Mixer {
         self.scene.up = up.into();
     }
 
-    /// Moves a 3D voice (`Soloud::set3dSourcePosition` and the position of
-    /// `set3dSourceParameters`). Like every 3D voice setter, it does nothing
-    /// for voices not started with [`Mixer::play_3d`]; a voice group handle
-    /// changes each 3D voice in the group.
+    /// Sets the listener's velocity in units per second, for Doppler
+    /// (`Soloud::set3dListenerVelocity`). Nothing moves the listener by it.
+    pub fn set_3d_listener_velocity(&mut self, velocity: [f32; 3]) {
+        self.scene.velocity = velocity.into();
+    }
+
+    /// The speed of sound in units per second; 343.3 (meters in air) by
+    /// default (`Soloud::get3dSoundSpeed`).
+    pub fn sound_speed_3d(&self) -> f32 {
+        self.scene.sound_speed
+    }
+
+    /// Sets the speed of sound in units per second, for Doppler and
+    /// distance delay (`Soloud::set3dSoundSpeed`). It must be finite and
+    /// greater than 0 (SoLoud took NaN and infinity until reference patch
+    /// 0064); otherwise nothing changes and
+    /// [`ControlError::InvalidSoundSpeed`] is returned.
+    pub fn set_3d_sound_speed(&mut self, speed: f32) -> Result<(), ControlError> {
+        if !(speed > 0.0 && speed <= f32::MAX) {
+            return Err(ControlError::InvalidSoundSpeed);
+        }
+        self.scene.sound_speed = speed;
+        Ok(())
+    }
+
+    /// Moves a 3D voice and sets its velocity
+    /// (`Soloud::set3dSourceParameters`). Like every 3D voice setter, it
+    /// does nothing for voices not started with [`Mixer::play_3d`]; a voice
+    /// group handle changes each 3D voice in the group.
+    pub fn set_3d_source_parameters(
+        &mut self,
+        handle: Handle,
+        position: [f32; 3],
+        velocity: [f32; 3],
+    ) {
+        self.with_3d_voice(handle, |spatial| {
+            spatial.position = position.into();
+            spatial.velocity = velocity.into();
+        });
+    }
+
+    /// Moves a 3D voice (`Soloud::set3dSourcePosition`).
     pub fn set_3d_source_position(&mut self, handle: Handle, position: [f32; 3]) {
         self.with_3d_voice(handle, |spatial| spatial.position = position.into());
+    }
+
+    /// Sets a 3D voice's velocity in units per second, for Doppler
+    /// (`Soloud::set3dSourceVelocity`). Nothing moves the voice by it.
+    pub fn set_3d_source_velocity(&mut self, handle: Handle, velocity: [f32; 3]) {
+        self.with_3d_voice(handle, |spatial| spatial.velocity = velocity.into());
+    }
+
+    /// Sets how strongly a 3D voice's pitch follows Doppler, 0 for not at
+    /// all (`Soloud::set3dSourceDopplerFactor`).
+    pub fn set_3d_source_doppler_factor(&mut self, handle: Handle, factor: f32) {
+        self.with_3d_voice(handle, |spatial| spatial.doppler_factor = factor);
     }
 
     /// Sets the distances between which a 3D voice's attenuation applies

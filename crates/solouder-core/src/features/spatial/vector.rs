@@ -50,6 +50,15 @@ impl Vec3 {
         }
     }
 
+    /// Every component negated (`vec3::neg`).
+    pub fn neg(self) -> Self {
+        Self {
+            x: -self.x,
+            y: -self.y,
+            z: -self.z,
+        }
+    }
+
     pub fn dot(self, a: Self) -> f32 {
         self.x * a.x + self.y * a.y + self.z * a.z
     }
@@ -94,6 +103,14 @@ impl Mat3 {
         let x = up.cross(z).normalize();
         let y = z.cross(x);
         Self { rows: [x, y, z] }
+    }
+
+    /// The basis for `LEFT_HANDED_3D` (`mat3::lookatLH`): the right-handed
+    /// one with its x row negated, after y is computed from it.
+    pub fn look_at_lh(at: Vec3, up: Vec3) -> Self {
+        let mut basis = Self::look_at_rh(at, up);
+        basis.rows[0] = basis.rows[0].neg();
+        basis
     }
 }
 

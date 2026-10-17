@@ -22,6 +22,7 @@ fn without_an_output_players_fail_and_the_app_keeps_running() {
         sample_rate: 48_000,
         buffer_size: 2048,
         clipper: Clipper::Roundoff,
+        left_handed_3d: false,
     }));
     assert!(matches!(
         app.world().resource::<AudioOutput>().state,

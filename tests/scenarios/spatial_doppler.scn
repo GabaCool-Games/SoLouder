@@ -1,0 +1,147 @@
+# Doppler: OpenAL 1.1's formula with the velocities projected on the
+# source-to-listener vector (patch 0062), so approaching sources play higher;
+# velocities from play3d, set3dSourceVelocity, set3dSourceParameters,
+# set3dListenerVelocity and set3dListenerParameters; Doppler factors from
+# the source and per voice, 0 turning it off; the speed of sound changed,
+# and 0, negative and infinite speeds rejected (patch 0064); Doppler
+# composed with play speed, its fades and sample rate changes (#98);
+# sources and listeners at or past the speed of sound holding the voice in
+# place until they slow down (#97, patch 0063); a source at the listener;
+# listener-relative sources; Doppler on a 6-channel output.
+init channels=2
+sound name=n frames=40000 pattern=noise seed=5 amp=0.5
+sound name=s frames=40000 pattern=saw period=37 amp=0.5
+sound_speed
+
+# An approaching and a receding source, from play3d's velocity.
+play3d sound=s as=up x=0 y=0 z=-10 vx=0 vy=0 vz=100
+play3d sound=n as=down x=3 y=0 z=-10 vx=0 vy=0 vz=-100 volume=0.7
+query h=up
+query h=down
+mix frames=300
+query h=up
+query h=down
+
+# The listener approaches them; velocities apply at the next update.
+listener vx=0 vy=0 vz=-50
+mix frames=100
+query h=up
+update3d
+query h=up
+query h=down
+mix frames=300
+
+# set3dSourceVelocity and set3dSourceParameters.
+set3d h=up vx=20 vy=-5 vz=60
+set3d h=down x=-4 y=1 z=-6 vx=-30 vy=0 vz=10 params=1
+update3d
+query h=up
+query h=down
+mix frames=300
+
+# Play speed and Doppler multiply (#98), also during a speed fade and after
+# a sample rate change.
+set h=up speed=1.5
+query h=up
+mix frames=200
+fade h=up param=speed to=0.5 time=0.02
+mix frames=500
+query h=up
+update3d
+mix frames=300
+query h=up
+set h=down rate=22050
+query h=down
+mix frames=200
+
+# Doppler factors per voice: stronger, and 0 for none.
+set3d h=up doppler=2.5
+set3d h=down doppler=0
+update3d
+query h=up
+query h=down
+mix frames=300
+
+# The speed of sound: slower makes Doppler stronger; 0, negative and
+# infinite speeds are rejected and change nothing.
+sound_speed speed=120
+update3d
+query h=up
+query h=down
+mix frames=300
+sound_speed speed=0
+sound_speed speed=-5
+sound_speed speed=1000000000000000000000000000000000000000000
+sound_speed
+
+# At the speed of sound over the Doppler factor (120 / 2.5 = 48), or past
+# it, the source is held in place and silent (#97); slower, it plays on
+# from where it stopped.
+set3d h=up vx=0 vy=0 vz=48
+update3d
+query h=up
+mix frames=300
+query h=up
+set3d h=up vx=0 vy=0 vz=1602.81
+update3d
+mix frames=300
+query h=up
+set3d h=up vx=0 vy=0 vz=10
+update3d
+mix frames=300
+query h=up
+stop h=up
+stop h=down
+
+# A listener receding at the speed of sound hears nothing of the source
+# (its numerator is 0), and with an approaching source it is 0 / 0; both
+# hold the voice. #97's case: a source at the listener has no Doppler.
+sound_speed speed=343.3
+listener x=0 y=0 z=0 ax=0 ay=0 az=-1 ux=0 uy=1 uz=0 vx=0 vy=0 vz=400 params=1
+play3d sound=s as=away x=0 y=0 z=-20
+play3d sound=s as=both x=1 y=0 z=-20 vx=0 vy=0 vz=400
+play3d sound=n as=at x=0 y=0 z=0 vx=5 vy=0 vz=0
+query h=away
+query h=both
+query h=at
+mix frames=300
+query h=away
+query h=both
+query h=at
+listener x=0 y=0 z=0 ax=0 ay=0 az=-1 ux=0 uy=1 uz=0 params=1
+update3d
+mix frames=300
+query h=away
+query h=both
+stop h=away
+stop h=both
+stop h=at
+
+# A listener-relative source keeps its offset as the listener moves, and
+# Doppler still uses both velocities.
+sound3d name=n relative=1 doppler=1.5
+listener x=100 y=0 z=0 vx=-30 vy=0 vz=0
+play3d sound=n as=rel x=-5 y=0 z=-5 vx=0 vy=0 vz=0
+query h=rel
+mix frames=300
+set3d h=rel vx=-10 vy=0 vz=25
+update3d
+query h=rel
+mix frames=300
+stop h=rel
+sound3d name=n relative=0 doppler=1
+
+# Doppler on a 6-channel output with a mono and a stereo source.
+init channels=6
+sound name=n frames=20000 pattern=noise seed=9 amp=0.5
+sound name=st frames=20000 channels=2 pattern=saw period=23 amp=0.5
+play3d sound=n as=a x=4 y=0 z=-3 vx=-20 vy=0 vz=15
+play3d sound=st as=b x=-2 y=1 z=6 vx=5 vy=-5 vz=-40
+query h=a
+query h=b
+mix frames=300
+listener x=1 y=0 z=0 ax=0 ay=0 az=-1 ux=0 uy=1 uz=0 vx=8 vy=0 vz=-8 params=1
+update3d
+query h=a
+query h=b
+mix frames=300

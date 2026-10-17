@@ -65,6 +65,8 @@ pub enum ControlError {
     CannotSeekBack,
     /// The output has no such channel, so no such speaker.
     NoSuchSpeaker,
+    /// The speed of sound must be finite and greater than 0.
+    InvalidSoundSpeed,
 }
 
 impl fmt::Display for ControlError {
@@ -76,6 +78,9 @@ impl fmt::Display for ControlError {
             Self::InvalidChannels => write!(f, "unsupported channel count"),
             Self::CannotSeekBack => write!(f, "a bus or queue cannot seek backwards"),
             Self::NoSuchSpeaker => write!(f, "the output has no such channel"),
+            Self::InvalidSoundSpeed => {
+                write!(f, "the speed of sound must be finite and greater than 0")
+            }
         }
     }
 }

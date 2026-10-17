@@ -936,6 +936,129 @@ namespace
 		check(after == 0.0f, "nothing after the end of the sound");
 	}
 
+	// The play speed Doppler gives a voice, from its stream position after
+	// one 512-frame mix (the position advances by time times play speed).
+	double dopplerSpeed(Soloud &aSoloud, handle aVoice)
+	{
+		render(aSoloud, 512);
+		return aSoloud.getStreamPosition(aVoice) / (512.0 / kRate);
+	}
+
+	// doppler() projected the velocities on the listener-to-source vector,
+	// where OpenAL 1.1 (whose formula SoLoud's docs cite) uses the
+	// source-to-listener one, so approaching sources played lower and
+	// receding ones higher.
+	void doppler_follows_openal()
+	{
+		Wav wav;
+		check(loadWav(wav, makeConstantWav(1, 44100, 0.25f)) == SO_NO_ERROR, "wav loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		// 10 units ahead, approaching at 100 (the speed of sound is 343.3).
+		handle approaching = soloud.play3d(wav, 0.0f, 0.0f, -10.0f, 0.0f, 0.0f, 100.0f);
+		handle receding = soloud.play3d(wav, 0.0f, 0.0f, -10.0f, 0.0f, 0.0f, -100.0f);
+		double up = dopplerSpeed(soloud, approaching);
+		double down = soloud.getStreamPosition(receding) / (512.0 / kRate);
+		std::printf("  approaching %g, receding %g\n", up, down);
+		check(std::fabs(up - 343.3 / 243.3) < 1e-4, "an approaching source plays higher");
+		check(std::fabs(down - 343.3 / 443.3) < 1e-4, "a receding source plays lower");
+
+		Soloud moving;
+		check(initNull(moving), "null driver init");
+		// The listener approaching a still source hears it higher.
+		moving.set3dListenerVelocity(0.0f, 0.0f, -100.0f);
+		handle still = moving.play3d(wav, 0.0f, 0.0f, -10.0f);
+		double heard = dopplerSpeed(moving, still);
+		std::printf("  listener approaching %g\n", heard);
+		check(std::fabs(heard - 443.3 / 343.3) < 1e-4, "an approaching listener hears higher");
+	}
+
+	// At the speed of sound doppler() divided by zero: a source approaching
+	// that fast, or a listener receding while the source approaches, gave
+	// an infinite or NaN play speed. The mixer holds such a voice (patch
+	// 0022), but its stream position became infinite or NaN for good.
+	void doppler_at_sound_speed_stays_finite()
+	{
+		Wav wav;
+		check(loadWav(wav, makeConstantWav(1, 44100, 0.25f)) == SO_NO_ERROR, "wav loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle sonic = soloud.play3d(wav, 0.0f, 0.0f, -10.0f, 0.0f, 0.0f, 400.0f);
+		soloud.set3dListenerVelocity(0.0f, 0.0f, 400.0f);
+		handle both = soloud.play3d(wav, 0.0f, 0.0f, -20.0f, 0.0f, 0.0f, 400.0f);
+		render(soloud, 2048);
+		double a = soloud.getStreamPosition(sonic), b = soloud.getStreamPosition(both);
+		std::printf("  positions %g and %g\n", a, b);
+		check(a == 0.0 && b == 0.0, "voices at the speed of sound are held in place");
+		check(soloud.isValidVoiceHandle(sonic) && soloud.isValidVoiceHandle(both), "and keep playing");
+		// Once slower than sound, the voice plays on from where it was.
+		soloud.set3dListenerVelocity(0.0f, 0.0f, 0.0f);
+		soloud.set3dSourceVelocity(sonic, 0.0f, 0.0f, 0.0f);
+		soloud.update3dAudio();
+		render(soloud, 512);
+		std::printf("  position after slowing %g\n", soloud.getStreamPosition(sonic));
+		check(std::fabs(soloud.getStreamPosition(sonic) - 512.0 / kRate) < 1e-9, "slower than sound it plays on");
+	}
+
+	// set3dSoundSpeed rejected values not above 0 but took NaN and infinity,
+	// which made every 3D voice's Doppler NaN (infinity over infinity).
+	void sound_speed_rejects_nan_and_infinity()
+	{
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		check(soloud.set3dSoundSpeed(std::nanf("")) == INVALID_PARAMETER, "NaN is rejected");
+		check(soloud.set3dSoundSpeed(INFINITY) == INVALID_PARAMETER, "infinity is rejected");
+		check(soloud.set3dSoundSpeed(-1.0f) == INVALID_PARAMETER, "negative speeds are rejected");
+		check(soloud.get3dSoundSpeed() == 343.3f, "the speed is unchanged");
+		check(soloud.set3dSoundSpeed(1497.0f) == SO_NO_ERROR, "finite speeds are taken");
+		check(soloud.get3dSoundSpeed() == 1497.0f, "and kept");
+	}
+
+	// The first frame of the output that is not silent, or aOut.size().
+	size_t firstHeard(const std::vector<float> &aOut, unsigned int aChannels = 2)
+	{
+		for (size_t i = 0; i < aOut.size(); i++)
+			if (aOut[i] != 0.0f)
+				return i / aChannels;
+		return aOut.size();
+	}
+
+	// play3dClocked delayed a sound by its distance from the origin, not
+	// from the listener as play3d does, and ignored listener-relative
+	// sources.
+	void play3d_clocked_distance_delay_from_listener()
+	{
+		Wav wav;
+		check(loadWav(wav, makeConstantWav(1, 44100, 0.25f)) == SO_NO_ERROR, "wav loads");
+		wav.set3dDistanceDelay(true);
+		// 34.33 units at 343.3 per second: 0.1 s, 4410 frames.
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		soloud.set3dListenerPosition(1000.0f, 0.0f, 0.0f);
+		soloud.play3dClocked(1.0, wav, 1000.0f, 0.0f, -34.33f);
+		size_t clocked = firstHeard(render(soloud, 8192));
+		Soloud plain;
+		check(initNull(plain), "null driver init");
+		plain.set3dListenerPosition(1000.0f, 0.0f, 0.0f);
+		plain.play3d(wav, 1000.0f, 0.0f, -34.33f);
+		size_t played = firstHeard(render(plain, 8192));
+		std::printf("  play3dClocked heard at %zu, play3d at %zu\n", clocked, played);
+		check(played >= 4409 && played <= 4412, "play3d delays by the distance from the listener");
+		check(clocked == played, "play3dClocked delays the same");
+
+		Wav relative;
+		check(loadWav(relative, makeConstantWav(1, 44100, 0.25f)) == SO_NO_ERROR, "wav loads");
+		relative.set3dDistanceDelay(true);
+		relative.set3dListenerRelative(true);
+		Soloud moved;
+		check(initNull(moved), "null driver init");
+		moved.set3dListenerPosition(-1000.0f, 0.0f, 0.0f);
+		moved.play3dClocked(1.0, relative, 0.0f, 0.0f, -34.33f);
+		size_t own = firstHeard(render(moved, 8192));
+		std::printf("  listener-relative heard at %zu\n", own);
+		check(own == played, "a listener-relative source delays by its own distance");
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -1640,6 +1763,10 @@ namespace
 		{ "play3d_reused_slot_flags", play3d_reused_slot_flags },
 		{ "inaudible_tick_empty_loop_ends", inaudible_tick_empty_loop_ends },
 		{ "inaudible_tick_clears_short_block", inaudible_tick_clears_short_block },
+		{ "doppler_follows_openal", doppler_follows_openal },
+		{ "doppler_at_sound_speed_stays_finite", doppler_at_sound_speed_stays_finite },
+		{ "sound_speed_rejects_nan_and_infinity", sound_speed_rejects_nan_and_infinity },
+		{ "play3d_clocked_distance_delay_from_listener", play3d_clocked_distance_delay_from_listener },
 		{ "pan_ramp_leftover_frames", pan_ramp_leftover_frames },
 		{ "surround_to_quad_center_follows_volume", surround_to_quad_center_follows_volume },
 		{ "quad_to_7_1_rear_uses_rear_volume", quad_to_7_1_rear_uses_rear_volume },

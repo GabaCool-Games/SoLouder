@@ -169,18 +169,25 @@ impl Mixer {
     /// Delays a voice started paused by `play_clocked` to `sound_time`, and
     /// unpauses it unless `paused`.
     pub(crate) fn clock(&mut self, handle: Handle, sound_time: f64, paused: bool) {
+        let frames = self.clocked_delay(sound_time);
+        self.set_delay_samples(handle, frames);
+        self.set_pause(handle, paused);
+    }
+
+    /// The frames a clocked play at `sound_time` waits: its time after the
+    /// first clocked play since the last mix, which this sets when it is
+    /// the first. Delays outside 0 to 2048 frames are dropped.
+    pub(crate) fn clocked_delay(&mut self, sound_time: f64) -> u32 {
         if self.last_clocked_time == 0.0 {
             self.last_clocked_time = sound_time;
         }
         let frames =
             ((sound_time - self.last_clocked_time) * f64::from(self.config.sample_rate)).floor();
-        let frames = if (0.0..=MAX_CLOCKED_DELAY).contains(&frames) {
+        if (0.0..=MAX_CLOCKED_DELAY).contains(&frames) {
             frames as u32
         } else {
             0
-        };
-        self.set_delay_samples(handle, frames);
-        self.set_pause(handle, paused);
+        }
     }
 }
 

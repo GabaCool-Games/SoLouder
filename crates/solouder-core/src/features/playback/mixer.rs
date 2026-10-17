@@ -65,7 +65,7 @@ impl Mixer {
             global_fader: Fader::default(),
             last_clocked_time: 0.0,
             global_filters: Default::default(),
-            scene: Scene::new(config.channels as usize),
+            scene: Scene::new(config.channels as usize, config.left_handed_3d),
         })
     }
 

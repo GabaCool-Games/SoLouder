@@ -410,8 +410,13 @@ Rules for the mapping:
   3D state on the mixer's owner and computes each voice's gains there, as
   SoLoud's `update3dAudio` does outside its mixer (offline today). Through
   the `Controller` the same math runs on the game thread and the per-voice
-  results go to the audio thread in one batched command; colliders and
-  attenuators are Rust traits that never run on the audio thread.
+  results go to the audio thread in one batched command. Colliders and
+  attenuators are `Send + Sync` traits (`Collider`, `Attenuator`) held in
+  `Arc`s and called with plain values (`SpatialVoice`), never on the audio
+  thread. Doppler and distance delay are computed with the gains and reach
+  the voice as its speed and start delay. Handedness is a mixer setting
+  (`MixerConfig::left_handed_3d`, SoLoud's `LEFT_HANDED_3D`), right-handed
+  by default as Bevy is.
 - Read `GlobalTransform` after transform propagation and submit one coherent
   listener/emitter snapshot. Parent hierarchy changes affect world-space audio.
 - Document/test forward and up axes, handedness, units, speaker layout, and

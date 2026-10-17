@@ -125,6 +125,7 @@ impl State {
             "set3d" => self.set3d(step),
             "update3d" => self.update3d(step),
             "speaker" => self.speaker(step),
+            "sound_speed" => self.sound_speed(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }
@@ -164,7 +165,7 @@ impl State {
     }
 
     fn init(&mut self, step: &Step) -> Result<(), ScenarioError> {
-        step.check_keys(&["channels", "rate", "buffer", "clip"])?;
+        step.check_keys(&["channels", "rate", "buffer", "clip", "left_handed"])?;
         let defaults = MixerConfig::default();
         // 0 means "automatic" in SoLoud's C API, as in `Soloud::init`.
         let auto = |value: u32, default: u32| if value == 0 { default } else { value };
@@ -178,6 +179,7 @@ impl State {
             sample_rate: auto(step.value_or("rate", 0)?, defaults.sample_rate),
             buffer_size: auto(step.value_or("buffer", 0)?, defaults.buffer_size),
             clipper,
+            left_handed_3d: step.flag_or("left_handed", false)?,
         };
         self.sounds.clear();
         self.streams.clear();

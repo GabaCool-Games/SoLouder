@@ -196,6 +196,8 @@ pub fn open(config: &OutputConfig) -> Result<(Output, Controller), OutputError> 
         sample_rate: supported.sample_rate(),
         buffer_size: config.buffer_frames.unwrap_or(0).max(MIN_MIX_FRAMES),
         clipper: config.clipper,
+        // 3D audio is not reachable through the device output yet (unit 8).
+        ..MixerConfig::default()
     })
     .map_err(OutputError::Config)?;
     mixer

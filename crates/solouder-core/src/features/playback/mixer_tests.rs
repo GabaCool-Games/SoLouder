@@ -277,6 +277,7 @@ fn resampled_playhead_does_not_drift() {
             channels: 1,
             buffer_size: 512,
             clipper: Clipper::Hard,
+            left_handed_3d: false,
         })
         .unwrap();
         mixer.set_resampler(Resampler::Point);

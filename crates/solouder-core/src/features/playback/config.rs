@@ -17,6 +17,10 @@ pub struct MixerConfig {
     pub channels: u32,
     /// How the final mix is limited to `[-1, 1]`.
     pub clipper: Clipper,
+    /// Left-handed 3D coordinates (`LEFT_HANDED_3D`): the listener's side
+    /// axis is mirrored, which is the same as right-handed coordinates with
+    /// every z negated. Off by default.
+    pub left_handed_3d: bool,
 }
 
 impl Default for MixerConfig {
@@ -27,6 +31,7 @@ impl Default for MixerConfig {
             buffer_size: 2048,
             channels: 2,
             clipper: Clipper::Roundoff,
+            left_handed_3d: false,
         }
     }
 }

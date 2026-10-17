@@ -42,7 +42,7 @@ exactly, and a scenario must render at least one sample.
 | Operation | Arguments | Effect | Log line |
 |---|---|---|---|
 | `tolerance` | `abs` (float) | Maximum absolute sample difference for this scenario; 0 (the default) asks for identical bits. Rust side only. | — |
-| `init` | `channels` (default 2), `rate` (0 = default 44100), `buffer` (0 = default 2048), `clip` (`roundoff`, default, or `hard`) | A new engine: `Soloud::init` with the null driver and `CLIP_ROUNDOFF` or no flags. Forgets all sounds and handles. | `init <code>` |
+| `init` | `channels` (default 2), `rate` (0 = default 44100), `buffer` (0 = default 2048), `clip` (`roundoff`, default, or `hard`), `left_handed` (0) | A new engine: `Soloud::init` with the null driver and `CLIP_ROUNDOFF` or no flags, plus `LEFT_HANDED_3D` with `left_handed=1`. Forgets all sounds and handles. | `init <code>` |
 | `mix` | `frames` (0 to 4096) | `Soloud::mix` for that many frames. | — |
 | `mix16` | `frames` (0 to 4096) | `Soloud::mixSigned16`; each 16-bit sample is appended as an `f32` of the same integer value. | — |
 | `sound` | `name`, `frames`, `channels` (1), `rate` (44100), `pattern` (`dc`, `saw`, `noise`; default `dc`), `amp` (1), `period` (`saw`, 100), `seed` (`noise`, 1), `volume` (1), `looping` (0), `bits` (32), `loop_point` (0), `auto_stop` (1), `single` (0), `tick` (0), `kill` (0) | Generates planar samples (see below) and loads them with `Wav::loadRawWave` (copied). With `bits=8` or `16` (`amp` from -1 to 1) each sample `v` becomes `(unsigned char)(int)(v * 127 + 128)` or `(short)(v * 32767)` for `loadRawWave8` or `loadRawWave16`. Then applies `setVolume`, `setLooping`, `setLoopPoint`, `setAutoStop`, `setSingleInstance` and `setInaudibleBehavior(tick, kill)`. A failed load registers nothing; a successful one under an existing name deletes the old `Wav`, which stops its voices. `channels * frames` is at most 4194304. | `sound <name> <code>` |
@@ -85,11 +85,12 @@ exactly, and a scenario must render at least one sample.
 | `queue` | `name`, `channels`, `rate`, `from`, `volume` (1) | A new `Queue`: `setParams(rate, channels)` if either is given (defaults 44100 and 1), `setParamsFromAudioSource` on the sound `from`, `setVolume`. A queue under an existing name is deleted first, which stops its voices. Play a queue with `play`. | `queue <name> <setParams code>` (0 without `setParams`) |
 | `queue_add` | `queue`, `sound` (a sound, else a stream) | `Queue::play` with the sound or stream. Do not replace or reload a sound while it is queued: the reference then reads the deleted `Wav`. | `queue_add <queue> <code>` |
 | `queue_query` | `queue`, `sound` (optional; a sound, else a stream) | `getQueueCount`, and `isCurrentlyPlaying` for `sound`. | `queue_query <queue> count=<n>`, then ` current=<0 or 1>` with `sound` |
-| `sound3d` | `name` (a sound, stream, bus or queue), `min` and `max`, `model` (an unsigned integer: 0 none, 1 inverse, 2 linear, 3 exponential; others act as none) and `rolloff`, `relative` (paired keys go together) | Applied in that order: `AudioSource::set3dMinMaxDistance`, `set3dAttenuation`, `set3dListenerRelative`. Affects later plays. | — |
-| `play3d` | `sound` (a sound, stream, bus or queue), `as`, `x`, `y`, `z` (0), `volume` (1), `paused` (0), `via` (a handle name, the `aBus` argument) | `Soloud::play3d` with zero velocity. Stores the handle under `as`. | `play3d <as> <handle>` |
-| `listener` | `x`, `y`, `z`; `ax`, `ay`, `az`; `ux`, `uy`, `uz` (each triple goes together; at least one); `params` (0) | With `params=1` (all three triples needed) `set3dListenerParameters`; otherwise `set3dListenerPosition`, `set3dListenerAt` and `set3dListenerUp` for the triples given, in that order. | — |
-| `set3d` | `h` (may name a voice group), `x`, `y`, `z`, `params` (0; needs the position), `min` and `max`, `model` and `rolloff` | Applied in that order: `set3dSourcePosition` (`set3dSourceParameters` without velocity with `params=1`), `set3dSourceMinMaxDistance`, `set3dSourceAttenuation`. | — |
+| `sound3d` | `name` (a sound, stream, bus or queue), `min` and `max`, `model` (an unsigned integer: 0 none, 1 inverse, 2 linear, 3 exponential; others act as none) and `rolloff`, `relative` (paired keys go together), `doppler`, `delay` (a flag), `collider` (`wall`, `shell` or `none`) and `data` (an unsigned integer, 0; needs `collider`), `attenuator` (`square`, `cutoff` or `none`) | Applied in that order: `AudioSource::set3dMinMaxDistance`, `set3dAttenuation`, `set3dListenerRelative`, `set3dDopplerFactor`, `set3dDistanceDelay`, `set3dCollider` (with `data` as the user data), `set3dAttenuator`. Affects later plays. | — |
+| `play3d` | `sound` (a sound, stream, bus or queue), `as`, `x`, `y`, `z`, `vx`, `vy`, `vz` (0), `volume` (1), `paused` (0), `via` (a handle name, the `aBus` argument), `bus` (a bus name), `clock` (seconds) | `Bus::play3dClocked` with `bus` and `clock`, `Bus::play3d` with `bus`, `Soloud::play3dClocked` with `clock`, else `Soloud::play3d`. `clock` cannot go with `paused`, nor `bus` with `via`. Stores the handle under `as`. | `play3d <as> <handle>` |
+| `listener` | `x`, `y`, `z`; `ax`, `ay`, `az`; `ux`, `uy`, `uz`; `vx`, `vy`, `vz` (each triple goes together; at least one); `params` (0) | With `params=1` (position, `at` and `up` needed) `set3dListenerParameters`, with the velocity or zero; otherwise `set3dListenerPosition`, `set3dListenerAt`, `set3dListenerUp` and `set3dListenerVelocity` for the triples given, in that order. | — |
+| `set3d` | `h` (may name a voice group), `x`, `y`, `z`, `vx`, `vy`, `vz`, `params` (0; needs the position), `min` and `max`, `model` and `rolloff`, `doppler` | Applied in that order: `set3dSourcePosition` and `set3dSourceVelocity` (`set3dSourceParameters`, with the velocity or zero, with `params=1`), `set3dSourceMinMaxDistance`, `set3dSourceAttenuation`, `set3dSourceDopplerFactor`. | — |
 | `update3d` | — | `Soloud::update3dAudio`. | — |
+| `sound_speed` | `speed` (optional) | `set3dSoundSpeed` when `speed` is given, then `get3dSoundSpeed`. | `sound_speed set=<code> get=<speed>` (` set=` only with `speed`; the speed as `f32` bits in 8 hex digits) |
 | `speaker` | `channel`, `x`, `y`, `z` (together, optional) | `setSpeakerPosition` when a position is given, then `getSpeakerPosition` (0, 0, 0 when it fails). | `speaker <channel> set=<code> get=<code> <x> <y> <z>` (` set=` only with a position; coordinates as `f32` bits in 8 hex digits) |
 
 Every operation except `tolerance`, `init`, `samples` and `fft` needs a
@@ -109,6 +110,8 @@ Argument values:
   `-`, digits, and optionally `.` and more digits. Times in seconds (`time`,
   `clock`, `pause`, `stop`, `loop_point`, `seek`) use the same grammar but are parsed as `f64`, like SoLoud's `time`. Counts are unsigned
   integers; flags are `0` or `1`.
+- A decimal too large for `f32` (such as 40 digits) parses to infinity in
+  both runners; the grammar has no way to write NaN.
 - Keep 3D settings away from subnormal intermediate values: once the C++
   runner has mixed, its thread flushes subnormals, also in `play3d` and
   `update3d`, and Rust does not.
@@ -124,6 +127,18 @@ all multiplied by `amp`:
 - `noise`: one xorshift32 generator (`x ^= x << 13; x ^= x >> 17; x ^= x << 5`)
   seeded with `seed` and continued across channels; each sample is
   `(x >> 8) / 2^23 - 1`.
+
+Colliders and attenuators that `sound3d` selects, defined the same way in
+`reference/tests/parity_runner.cpp` and
+`crates/solouder-parity/src/spatial_custom.rs` (all `f32`, `data` the user
+data):
+
+- `wall`: 0.25 when the source's x is greater than `data / 10`, else 1.
+- `shell`: `1 / (1 + |y| * data / 100)`, with `y` the source's.
+- `square`: `min * min / (d * d) * rolloff`, `d` the distance clamped first
+  to at least `min`, then to at most `max`.
+- `cutoff`: 1 closer than `max`, else 0.
+- `none`: removes the collider or attenuator.
 
 `mix` is limited to 4096 frames because the C++ `Soloud::mix` writes past its
 scratch buffer beyond that (the smallest scratch size). The Rust mixer accepts

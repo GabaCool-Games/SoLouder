@@ -264,6 +264,51 @@ namespace
 		return samples;
 	}
 
+	// Colliders and attenuators that `sound3d` selects by name. Keep identical
+	// to crates/solouder-parity/src/spatial_custom.rs.
+
+	// A wall at x = user data / 10: sources past it are heard at a quarter.
+	struct WallCollider : SoLoud::AudioCollider
+	{
+		virtual float collide(SoLoud::Soloud *, SoLoud::AudioSourceInstance3dData *aData, int aUserData)
+		{
+			return aData->m3dPosition[0] > (float)aUserData / 10.0f ? 0.25f : 1.0f;
+		}
+	};
+
+	// Quieter the higher or lower the source: 1 / (1 + |y| * user data / 100).
+	struct ShellCollider : SoLoud::AudioCollider
+	{
+		virtual float collide(SoLoud::Soloud *, SoLoud::AudioSourceInstance3dData *aData, int aUserData)
+		{
+			float y = aData->m3dPosition[1];
+			if (y < 0)
+				y = -y;
+			return 1.0f / (1.0f + y * (float)aUserData / 100.0f);
+		}
+	};
+
+	// Inverse square of the distance clamped to the minimum and maximum,
+	// times the rolloff factor.
+	struct SquareAttenuator : SoLoud::AudioAttenuator
+	{
+		virtual float attenuate(float aDistance, float aMinDistance, float aMaxDistance, float aRolloffFactor)
+		{
+			float d = aDistance > aMinDistance ? aDistance : aMinDistance;
+			d = d < aMaxDistance ? d : aMaxDistance;
+			return aMinDistance * aMinDistance / (d * d) * aRolloffFactor;
+		}
+	};
+
+	// Full volume closer than the maximum distance, silent from there.
+	struct CutoffAttenuator : SoLoud::AudioAttenuator
+	{
+		virtual float attenuate(float aDistance, float, float aMaxDistance, float)
+		{
+			return aDistance < aMaxDistance ? 1.0f : 0.0f;
+		}
+	};
+
 	struct Runner
 	{
 		SoLoud::Soloud *soloud;
@@ -681,23 +726,63 @@ namespace
 			return given == count;
 		}
 
-		// `sound3d`, `play3d`, `listener`, `set3d`, `update3d` and `speaker`.
+		// `sound3d collider=`: a collider by name, or null for `none`.
+		SoLoud::AudioCollider *colliderArg(const Step &step)
+		{
+			static WallCollider wall;
+			static ShellCollider shell;
+			const std::string &name = textArg(step, "collider");
+			if (name == "wall")
+				return &wall;
+			if (name == "shell")
+				return &shell;
+			if (name == "none")
+				return 0;
+			throw ScenarioError(step.line, "unknown collider `" + name + "`");
+		}
+
+		// `sound3d attenuator=`: an attenuator by name, or null for `none`.
+		SoLoud::AudioAttenuator *attenuatorArg(const Step &step)
+		{
+			static SquareAttenuator square;
+			static CutoffAttenuator cutoff;
+			const std::string &name = textArg(step, "attenuator");
+			if (name == "square")
+				return &square;
+			if (name == "cutoff")
+				return &cutoff;
+			if (name == "none")
+				return 0;
+			throw ScenarioError(step.line, "unknown attenuator `" + name + "`");
+		}
+
+		// `sound3d`, `play3d`, `listener`, `set3d`, `update3d`, `speaker` and
+		// `sound_speed`.
 		void spatialOp(const Step &step)
 		{
 			static const char *const xyz[] = { "x", "y", "z" };
+			static const char *const vel[] = { "vx", "vy", "vz" };
 			static const char *const at[] = { "ax", "ay", "az" };
 			static const char *const up[] = { "ux", "uy", "uz" };
 			static const char *const distance[] = { "min", "max" };
 			static const char *const attenuation[] = { "model", "rolloff" };
 			if (step.op == "sound3d")
 			{
-				static const char *const keys[] = { "name", "min", "max", "model", "rolloff", "relative" };
-				checkKeys(step, keys, 6);
+				static const char *const keys[] = { "name", "min", "max", "model", "rolloff", "relative", "doppler", "delay",
+					"collider", "data", "attenuator" };
+				checkKeys(step, keys, 11);
 				SoLoud::AudioSource &source = sourceArg(step, "name");
 				bool hasDistance = groupArg(step, distance, 2, "`min` and `max`");
 				bool hasModel = groupArg(step, attenuation, 2, "`model` and `rolloff`");
 				unsigned int model = uintArg(step, "model", false, 0);
 				bool relative = flagArg(step, "relative", false);
+				float doppler = floatArg(step, "doppler", 1.0f);
+				bool delay = flagArg(step, "delay", false);
+				if (step.get("data") && !step.get("collider"))
+					throw ScenarioError(step.line, "`data` needs `collider`");
+				SoLoud::AudioCollider *collider = step.get("collider") ? colliderArg(step) : 0;
+				int data = (int)uintArg(step, "data", false, 0);
+				SoLoud::AudioAttenuator *attenuator = step.get("attenuator") ? attenuatorArg(step) : 0;
 				engine(step);
 				if (hasDistance)
 					source.set3dMinMaxDistance(floatArg(step, "min", 0.0f), floatArg(step, "max", 0.0f));
@@ -705,18 +790,43 @@ namespace
 					source.set3dAttenuation(model, floatArg(step, "rolloff", 0.0f));
 				if (step.get("relative"))
 					source.set3dListenerRelative(relative);
+				if (step.get("doppler"))
+					source.set3dDopplerFactor(doppler);
+				if (step.get("delay"))
+					source.set3dDistanceDelay(delay);
+				if (step.get("collider"))
+					source.set3dCollider(collider, data);
+				if (step.get("attenuator"))
+					source.set3dAttenuator(attenuator);
 			}
 			else if (step.op == "play3d")
 			{
-				static const char *const keys[] = { "sound", "as", "x", "y", "z", "volume", "paused", "via" };
-				checkKeys(step, keys, 8);
+				static const char *const keys[] = { "sound", "as", "x", "y", "z", "vx", "vy", "vz", "volume", "paused", "via",
+					"bus", "clock" };
+				checkKeys(step, keys, 13);
+				if (step.get("clock") && step.get("paused"))
+					throw ScenarioError(step.line, "`clock` and `paused` cannot be combined");
+				if (step.get("bus") && step.get("via"))
+					throw ScenarioError(step.line, "`bus` and `via` cannot be combined");
 				SoLoud::AudioSource &source = sourceArg(step, "sound");
+				SoLoud::Bus *through = step.get("bus") ? &busArg(step, "bus") : 0;
 				SoLoud::handle via = step.get("via") ? namedHandle(step, "via") : 0;
 				std::string name = textArg(step, "as");
 				float x = floatArg(step, "x", 0.0f), y = floatArg(step, "y", 0.0f), z = floatArg(step, "z", 0.0f);
+				float vx = floatArg(step, "vx", 0.0f), vy = floatArg(step, "vy", 0.0f), vz = floatArg(step, "vz", 0.0f);
 				float volume = floatArg(step, "volume", 1.0f);
 				bool paused = flagArg(step, "paused", false);
-				SoLoud::handle h = engine(step).play3d(source, x, y, z, 0.0f, 0.0f, 0.0f, volume, paused, via);
+				double clock = timeArg(step, "clock", 0);
+				SoLoud::Soloud &s = engine(step);
+				SoLoud::handle h;
+				if (through && step.get("clock"))
+					h = through->play3dClocked(clock, source, x, y, z, vx, vy, vz, volume);
+				else if (through)
+					h = through->play3d(source, x, y, z, vx, vy, vz, volume, paused);
+				else if (step.get("clock"))
+					h = s.play3dClocked(clock, source, x, y, z, vx, vy, vz, volume, via);
+				else
+					h = s.play3d(source, x, y, z, vx, vy, vz, volume, paused, via);
 				handles[name] = h;
 				std::ostringstream line;
 				line << "play3d " << name << " " << h;
@@ -724,23 +834,25 @@ namespace
 			}
 			else if (step.op == "listener")
 			{
-				static const char *const keys[] = { "x", "y", "z", "ax", "ay", "az", "ux", "uy", "uz", "params" };
-				checkKeys(step, keys, 10);
+				static const char *const keys[] = { "x", "y", "z", "ax", "ay", "az", "ux", "uy", "uz", "vx", "vy", "vz", "params" };
+				checkKeys(step, keys, 13);
 				bool hasPosition = groupArg(step, xyz, 3, "`x`, `y` and `z`");
 				bool hasAt = groupArg(step, at, 3, "`ax`, `ay` and `az`");
 				bool hasUp = groupArg(step, up, 3, "`ux`, `uy` and `uz`");
+				bool hasVelocity = groupArg(step, vel, 3, "`vx`, `vy` and `vz`");
 				bool params = flagArg(step, "params", false);
 				if (params && !(hasPosition && hasAt && hasUp))
 					throw ScenarioError(step.line, "`params=1` needs the position, `at` and `up`");
-				if (!hasPosition && !hasAt && !hasUp)
-					throw ScenarioError(step.line, "`listener` needs a position, `at` or `up`");
+				if (!hasPosition && !hasAt && !hasUp && !hasVelocity)
+					throw ScenarioError(step.line, "`listener` needs a position, `at`, `up` or a velocity");
 				float x = floatArg(step, "x", 0.0f), y = floatArg(step, "y", 0.0f), z = floatArg(step, "z", 0.0f);
 				float ax = floatArg(step, "ax", 0.0f), ay = floatArg(step, "ay", 0.0f), az = floatArg(step, "az", 0.0f);
 				float ux = floatArg(step, "ux", 0.0f), uy = floatArg(step, "uy", 0.0f), uz = floatArg(step, "uz", 0.0f);
+				float vx = floatArg(step, "vx", 0.0f), vy = floatArg(step, "vy", 0.0f), vz = floatArg(step, "vz", 0.0f);
 				SoLoud::Soloud &s = engine(step);
 				if (params)
 				{
-					s.set3dListenerParameters(x, y, z, ax, ay, az, ux, uy, uz);
+					s.set3dListenerParameters(x, y, z, ax, ay, az, ux, uy, uz, vx, vy, vz);
 					return;
 				}
 				if (hasPosition)
@@ -749,34 +861,61 @@ namespace
 					s.set3dListenerAt(ax, ay, az);
 				if (hasUp)
 					s.set3dListenerUp(ux, uy, uz);
+				if (hasVelocity)
+					s.set3dListenerVelocity(vx, vy, vz);
 			}
 			else if (step.op == "set3d")
 			{
-				static const char *const keys[] = { "h", "x", "y", "z", "params", "min", "max", "model", "rolloff" };
-				checkKeys(step, keys, 9);
+				static const char *const keys[] = { "h", "x", "y", "z", "vx", "vy", "vz", "params", "min", "max", "model", "rolloff",
+					"doppler" };
+				checkKeys(step, keys, 13);
 				SoLoud::handle h = handleArg(step);
 				bool hasPosition = groupArg(step, xyz, 3, "`x`, `y` and `z`");
+				bool hasVelocity = groupArg(step, vel, 3, "`vx`, `vy` and `vz`");
 				bool hasDistance = groupArg(step, distance, 2, "`min` and `max`");
 				bool hasModel = groupArg(step, attenuation, 2, "`model` and `rolloff`");
 				bool params = flagArg(step, "params", false);
 				if (params && !hasPosition)
 					throw ScenarioError(step.line, "`params=1` needs `x`, `y` and `z`");
 				unsigned int model = uintArg(step, "model", false, 0);
+				float doppler = floatArg(step, "doppler", 1.0f);
 				SoLoud::Soloud &s = engine(step);
 				float x = floatArg(step, "x", 0.0f), y = floatArg(step, "y", 0.0f), z = floatArg(step, "z", 0.0f);
-				if (hasPosition && params)
-					s.set3dSourceParameters(h, x, y, z);
-				else if (hasPosition)
-					s.set3dSourcePosition(h, x, y, z);
+				float vx = floatArg(step, "vx", 0.0f), vy = floatArg(step, "vy", 0.0f), vz = floatArg(step, "vz", 0.0f);
+				if (params)
+				{
+					s.set3dSourceParameters(h, x, y, z, vx, vy, vz);
+				}
+				else
+				{
+					if (hasPosition)
+						s.set3dSourcePosition(h, x, y, z);
+					if (hasVelocity)
+						s.set3dSourceVelocity(h, vx, vy, vz);
+				}
 				if (hasDistance)
 					s.set3dSourceMinMaxDistance(h, floatArg(step, "min", 0.0f), floatArg(step, "max", 0.0f));
 				if (hasModel)
 					s.set3dSourceAttenuation(h, model, floatArg(step, "rolloff", 0.0f));
+				if (step.get("doppler"))
+					s.set3dSourceDopplerFactor(h, doppler);
 			}
 			else if (step.op == "update3d")
 			{
 				checkKeys(step, 0, 0);
 				engine(step).update3dAudio();
+			}
+			else if (step.op == "sound_speed")
+			{
+				static const char *const keys[] = { "speed" };
+				checkKeys(step, keys, 1);
+				SoLoud::Soloud &s = engine(step);
+				std::ostringstream line;
+				line << "sound_speed";
+				if (step.get("speed"))
+					line << " set=" << s.set3dSoundSpeed(floatArg(step, "speed", 0.0f));
+				line << " get=" << hex32(s.get3dSoundSpeed());
+				logLine(line);
 			}
 			else
 			{
@@ -958,8 +1097,8 @@ namespace
 			}
 			else if (step.op == "init")
 			{
-				static const char *const keys[] = { "channels", "rate", "buffer", "clip" };
-				checkKeys(step, keys, 4);
+				static const char *const keys[] = { "channels", "rate", "buffer", "clip", "left_handed" };
+				checkKeys(step, keys, 5);
 				unsigned int channels = uintArg(step, "channels", false, 2);
 				unsigned int rate = uintArg(step, "rate", false, SoLoud::Soloud::AUTO);
 				unsigned int buffer = uintArg(step, "buffer", false, SoLoud::Soloud::AUTO);
@@ -969,6 +1108,8 @@ namespace
 					flags = 0;
 				else if (clip && *clip != "roundoff")
 					throw ScenarioError(step.line, "unknown clip `" + *clip + "`");
+				if (flagArg(step, "left_handed", false))
+					flags |= SoLoud::Soloud::LEFT_HANDED_3D;
 				// A fresh engine per init, like the Rust runner's new Mixer.
 				clearSounds();
 				delete soloud;
@@ -1510,7 +1651,7 @@ namespace
 				queueOp(step);
 			}
 			else if (step.op == "sound3d" || step.op == "play3d" || step.op == "listener" || step.op == "set3d" || step.op == "update3d" ||
-				step.op == "speaker")
+				step.op == "speaker" || step.op == "sound_speed")
 			{
 				spatialOp(step);
 			}

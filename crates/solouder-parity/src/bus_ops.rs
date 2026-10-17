@@ -69,7 +69,7 @@ impl State {
             .ok_or_else(|| step.error(format!("no sound, stream, bus or queue named `{name}`")))
     }
 
-    fn bus_named(&self, step: &Step, key: &str) -> Result<Bus, ScenarioError> {
+    pub(crate) fn bus_named(&self, step: &Step, key: &str) -> Result<Bus, ScenarioError> {
         let name = step.text(key)?;
         self.buses
             .get(name)

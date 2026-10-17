@@ -1,0 +1,145 @@
+# Colliders and attenuators (the runner's test classes, by name): a
+# collider's factor times the attenuation, the collider's user data, a
+# collider set on a source after a voice started (later plays only), an
+# attenuator replacing the model (the model set per voice afterwards is
+# ignored), with the voice's distances and rolloff and no clamping; an
+# attenuator silencing a voice past its maximum, killing it or letting it
+# tick; removing them. Then LEFT_HANDED_3D on stereo and 5.1 outputs:
+# lookatLH mirrors the listener's side axis, so a left-handed scene renders
+# like the right-handed one with every z negated.
+init channels=2
+sound name=n frames=30000 pattern=noise seed=17 amp=0.5
+sound name=s frames=30000 pattern=saw period=31 amp=0.5
+
+# A wall at x = 2.5: past it, a quarter of the volume; with inverse
+# distance attenuation on top.
+sound3d name=n collider=wall data=25 min=1 max=100 model=1 rolloff=1
+play3d sound=n as=w x=1 y=0 z=-3
+query h=w
+mix frames=200
+set3d h=w x=4 y=0 z=-3
+update3d
+query h=w
+mix frames=200
+set3d h=w x=-4 y=0 z=-3
+update3d
+query h=w
+mix frames=200
+
+# The shell collider fades with height; set on the source now, it changes
+# only voices started afterwards.
+sound3d name=n collider=shell data=40
+play3d sound=n as=sh x=0 y=6 z=-2
+set3d h=w x=0 y=6 z=-2
+update3d
+query h=w
+query h=sh
+mix frames=200
+set3d h=sh x=0 y=-12.5 z=-2
+update3d
+query h=sh
+mix frames=200
+stop h=w
+stop h=sh
+sound3d name=n collider=none
+
+# An attenuator replaces the model: the inverse square with the voice's
+# distances and rolloff, also when the voice's model is changed.
+sound3d name=s attenuator=square min=2 max=50 model=2 rolloff=1
+play3d sound=s as=sq x=6 y=0 z=-8
+query h=sq
+mix frames=200
+set3d h=sq model=3 rolloff=0.5
+update3d
+query h=sq
+mix frames=200
+set3d h=sq x=0.5 y=0 z=0 min=1 max=10
+update3d
+query h=sq
+mix frames=200
+set3d h=sq x=0 y=0 z=-80
+update3d
+query h=sq
+mix frames=200
+stop h=sq
+
+# Collider and attenuator together, and an attenuator that silences voices
+# at their maximum distance: play3d's and update3dAudio's thresholds, kill
+# and tick.
+sound3d name=s collider=wall data=0 attenuator=cutoff min=1 max=20
+play3d sound=s as=cut x=3 y=0 z=-10
+query h=cut
+mix frames=200
+set3d h=cut x=3 y=0 z=-30
+update3d
+query h=cut
+mix frames=200
+set3d h=cut x=-3 y=0 z=-10
+update3d
+query h=cut
+mix frames=200
+sound name=k frames=30000 pattern=noise seed=19 amp=0.5 kill=1
+sound3d name=k attenuator=cutoff min=1 max=20
+play3d sound=k as=k1 x=0 y=0 z=-25
+play3d sound=k as=k2 x=0 y=0 z=-5
+query h=k1
+mix frames=200
+set3d h=k2 x=0 y=0 z=-20
+update3d
+query h=k2
+sound name=t frames=30000 pattern=saw period=43 amp=0.5 tick=1
+sound3d name=t attenuator=cutoff min=1 max=20
+play3d sound=t as=t1 x=0 y=0 z=-25
+mix frames=300
+set3d h=t1 x=1 y=0 z=-5
+update3d
+query h=t1
+mix frames=300
+sound3d name=s collider=none attenuator=none
+play3d sound=s as=plain x=3 y=0 z=-30
+mix frames=200
+stop h=cut
+stop h=t1
+stop h=plain
+
+# LEFT_HANDED_3D on stereo: a scene with a turned and tilted listener,
+# then the same scene right-handed with every z negated.
+init channels=2 left_handed=1
+sound name=n frames=20000 pattern=noise seed=23 amp=0.5
+sound name=s frames=20000 pattern=saw period=27 amp=0.5
+sound3d name=n min=1 max=100 model=1 rolloff=0.5
+listener x=1 y=0.5 z=2 ax=0.3 ay=0 az=1 ux=0.1 uy=1 uz=0 params=1
+play3d sound=n as=a x=4 y=0 z=5 vx=0 vy=0 vz=-20
+play3d sound=s as=b x=-2 y=1 z=-1
+mix frames=300
+set3d h=a x=-3 y=0 z=4
+listener ax=-1 ay=0 az=0.5
+update3d
+mix frames=300
+
+init channels=2
+sound name=n frames=20000 pattern=noise seed=23 amp=0.5
+sound name=s frames=20000 pattern=saw period=27 amp=0.5
+sound3d name=n min=1 max=100 model=1 rolloff=0.5
+listener x=1 y=0.5 z=-2 ax=0.3 ay=0 az=-1 ux=0.1 uy=1 uz=0 params=1
+play3d sound=n as=a x=4 y=0 z=-5 vx=0 vy=0 vz=20
+play3d sound=s as=b x=-2 y=1 z=1
+mix frames=300
+set3d h=a x=-3 y=0 z=-4
+listener ax=-1 ay=0 az=-0.5
+update3d
+mix frames=300
+
+# LEFT_HANDED_3D on 5.1, with a listener-relative source.
+init channels=6 left_handed=1
+sound name=n frames=20000 pattern=noise seed=29 amp=0.5
+sound name=r frames=20000 pattern=saw period=19 amp=0.5
+sound3d name=r relative=1
+listener x=0 y=0 z=0 ax=0 ay=0 az=1 ux=0 uy=1 uz=0 params=1
+play3d sound=n as=front x=0 y=0 z=5
+play3d sound=n as=right x=5 y=0 z=0
+play3d sound=r as=rel x=-2 y=0 z=-2
+mix frames=300
+listener ax=1 ay=0 az=0
+update3d
+mix frames=300

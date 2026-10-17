@@ -23,7 +23,7 @@ and `bevy_solouder` plays `.wav` assets from entities that stop when
 despawned. Milestone D added fades, scheduling, the remaining voice
 controls, voice groups, filters, buses and queues, offline and through the
 real-time controller. Milestone E is under way: streamed and decoded WAV,
-FLAC, Ogg Vorbis and MP3, and 3D audio offline (units 1 to 6); see
+FLAC, Ogg Vorbis and MP3, and 3D audio offline (units 1 to 7); see
 [port-status.md](port-status.md).
 
 [ARCHITECTURE.md](ARCHITECTURE.md) owns the target workspace, Vertical Slice
@@ -408,6 +408,10 @@ unpatched reference, and each needs a matching Rust test.
 | 0059 | — (found porting milestone E) | stb_vorbis reads an Ogg page without segments as `fread(data, 0, 1)`, and `Soloud_Filehack_fread` divided the bytes read by the element size of 0, so a `WavStream` of an Ogg file cut inside its first page crashed with an integer division by zero. An empty request now reads nothing, as `fread` does, and the file fails to load. | `oggstream_cut_first_page_fails` |
 | 0060 | — (found porting milestone E) | The inaudible-tick path of `mixBus_internal` called `getAudio` until the block was full; a looping voice whose source gives no audio (a loop point at or past its end) returned 0 every time, so the mix call never returned. It now stops when a read returns nothing, as the mixing path does. | `inaudible_tick_empty_loop_ends` |
 | 0061 | — (found porting milestone E) | The inaudible-tick path did not clear the rest of a block that ended short, as the mixing path does, so a voice ticked to its end and then made audible again (by `update3dAudio`) played the stale samples left in its resample buffer after its last frame. It now clears them. | `inaudible_tick_clears_short_block` |
+| 0062 | — (found porting milestone E) | `doppler()` projected the velocities on the listener-to-source vector, where OpenAL 1.1's formula, which SoLoud's documentation cites, uses source-to-listener: approaching sources played lower and receding ones higher (a source approaching at 100 units per second played at 0.774 instead of 1.41). The offset is negated first, so the shift goes the right way; a source with no velocity on the line between them is unchanged. | `doppler_follows_openal` |
+| 0063 | #97 (follow-up) | Once a source or listener reached the speed of sound over the Doppler factor, `doppler()` divided by 0 or less, or computed 0 / 0, and gave infinity or NaN as the play speed. The mixer renders such a step as silence (patch 0022), but the stream position advanced by infinity or NaN and never recovered. A result that is not a finite value of 0 or more is now 0, which holds the voice in place until it slows down. | `doppler_at_sound_speed_stays_finite` |
+| 0064 | — (found porting milestone E) | `set3dSoundSpeed` rejected only speeds of 0 or less, so NaN and infinity were accepted: either made the Doppler value of every 3D voice away from the listener NaN (infinity over infinity), and NaN made distance delays an undefined `int` conversion. They now return `INVALID_PARAMETER`. | `sound_speed_rejects_nan_and_infinity` |
+| 0065 | — (found porting milestone E) | `play3dClocked` computed the distance delay from the source's position alone, ignoring the listener, where `play3d` subtracts the listener's position (unless the source is listener-relative). It now does the same. | `play3d_clocked_distance_delay_from_listener` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -416,7 +420,7 @@ so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto the working branch. Patches 0018 to
 0050 were pushed on 2026-10-12 (public `master` at `7b91e3b`), and 0051 after
-them (`1784537`). 0052 to 0056 are not pushed yet, nor are 0060 and 0061.
+them (`1784537`). 0052 to 0056 are not pushed yet, nor are 0060 to 0065.
 
 The shipped native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
@@ -454,8 +458,11 @@ or has not decided, with a test either way.
 | #240 | Hard-coded inaudibility thresholds: `0.001` in `update3dAudio` and `0.01` in `play3d`/`play3dClocked` (`soloud_core_3d.cpp`). Rust: preserved (`play_and_update_use_different_thresholds`, scenario `spatial_3d`). |
 | #175, #203 (reported) | Pops or wrong orientation when 3D voices become audible or between `update3dAudio` calls. Volume/pan ramps are per mix call, so change rate depends on device buffer size. Rust: preserved, including a paused voice snapping to the channel volumes it had before `update3dAudio` set the new ones (`paused_voices_jump_to_their_new_volume`, `spatial_3d`). |
 | — (3D volume) | The 3D attenuation multiplies both the voice's overall volume and each channel's speaker gain, so a voice at distance gain `g` plays at `g²`. Rust: preserved for parity (a shipping game is tuned to it; `spatial_3d`). |
-| #94, #105 | `LEFT_HANDED_3D` only flips part of the listener basis; reporters found front/back and Z errors. Derive the Bevy mapping from tests, not the flag. |
-| #98 | Relative play speed and Doppler must compose multiplicatively; verify the reference does. |
+| #94, #105 (open question for the maintainer) | **What they say.** #94 (closed 2015-05-08): the first `lookatLH` negated the `at` vector, so sounds in front of the listener attenuated like sounds behind it; the reporter proposed flipping the side vector instead, and that is the code today (`2d69070`, two days after the flag was added and before any release had it). #105 (open, 2015-06-26, against the fixed code): the flag "negates one column" of the look-at matrix only and gave wrong 3D perception under Direct3D coordinates; the reporter's workaround is to leave the flag off and negate every z passed to sources and the listener, and asks for a z-negation flag; the #94 reporter suggests instead passing the listener's forward, side and up vectors explicitly. **What the code does.** `lookatLH` is `lookatRH` with its side row (`up × at`) negated. That is exactly the right-handed basis of the scene with every z negated: positions, `at`, `up` and velocities, bit for bit (checked by `left_handed_mirrors_z` and in `spatial_custom`, which renders both). With the default speakers (left at +x in the listener's frame) a source to the right in a left-handed, +z-forward, +y-up world plays on the right speaker; so does the right-handed path in a -z-forward world. **Whether a fix is needed.** #105's workaround and the flag give the same output, so the report could not be reproduced and its proposed z-negation flag would duplicate `LEFT_HANDED_3D`; its "one column" is the side row, which is the correct difference between the two conventions. A world with another axis convention (such as +x left) is not served by either. **What a fix would change.** Making the flag negate z on input, as #105 asks, changes no sample. Negating any other axis instead would swap left and right (or front and back) for every caller of the flag, including the shipping game. The explicit forward/side/up API would be an addition, not a change, and would let other conventions work. Rust: preserved as `MixerConfig::left_handed_3d`, bit-exact, no reference patch; the decision to patch or document is the maintainer's. Bevy is right-handed (-z forward), so unit 8 uses the default. |
+| #98 | Relative play speed and Doppler compose: the voice plays at the Doppler factor times its set relative speed, and `setRelativePlaySpeed` keeps the Doppler factor. Rust: preserved, including speed fades and sample rate changes (`doppler_composes_with_play_speed`, `spatial_doppler`). |
+| — (Doppler direction, patch 0062) | The reference shifted pitch the wrong way (approaching lower, receding higher), against OpenAL 1.1 and its own documentation. Fixed on both sides as a defect; for the maintainer: a shipping game that sets source or listener velocities hears the corrected direction after patch 0062. Reverting the patch (and `doppler.rs`) restores the old direction. |
+| #97 | Doppler at or past the speed of sound: the reference never hung (the mixer skips a zero step), but infinite or NaN speeds poisoned the voice's position. Rust holds the voice silent and in place until the source slows down, as patched reference 0063 does (`the_speed_of_sound_holds_the_voice`, `spatial_doppler`). |
+| — (distance delay overflow) | `set3dDistanceDelay` converts the delay to an `int` frame count; a delay of `INT_MAX` frames or more (13.5 hours at 44.1 kHz) is undefined in C++ and wraps to `INT_MIN` on x86, so the voice starts at once. Rust: preserved (`c_int` conversion as x86 does); no reference patch, since only absurd distances or sound speeds reach it. |
 | #76 | A handle can become invalid while audio is still audible on some backends; define validity as "until mixed out". |
 | #117 | `getFilterParameter` returns error codes in the value channel; Rust uses `Result`/`Option`. |
 | #318 | WAV `smpl` loop points are ignored. |
@@ -477,6 +484,8 @@ These fixes were already upstream; Rust must not reintroduce them.
 - **#224, #319:** stream position advances by `buffer time × relative speed`
   and generic seek stores the absolute requested time.
 - **#97:** large Doppler velocities made `step_fixed` zero (division by zero).
+  The Rust mixer renders a zero step as silence; patch 0063 also keeps the
+  Doppler factor finite (`the_speed_of_sound_holds_the_voice`).
 - **#228:** `trimVoiceGroup` deadlocked by relocking the audio mutex.
 - **#135, #229:** `playClocked` offset handling for the first event and `time == 0`.
 - **#160:** reloading a source resets its channel count.
@@ -835,16 +844,33 @@ last); each ends with passing scenarios, ledger rows and a commit:
    now reach the inaudible-tick path, which advances them without
    resampling, filters or panning; it hung on a looping source without
    audio (patch 0060) and left stale samples after a voice's end
-   (patch 0061). The 3D attenuation applies twice (above). Velocities are
-   not taken yet, so `play3d`,
-   `set3dListenerParameters` and `set3dSourceParameters` stay
-   `in-progress`. The `Controller` has no 3D calls until unit 8.
-7. **Doppler, distance delay and the rest:** sound speed and Doppler factors,
+   (patch 0061). The 3D attenuation applies twice (above). The `Controller`
+   has no 3D calls until unit 8.
+7. **Doppler, distance delay and the rest** (done; patches 0062 to 0065):
+   sound speed and Doppler factors,
    Doppler composed with play speed (#98) and at extreme velocities (#97),
    distance delay, `play3dClocked`, `Bus::play3d`, colliders and attenuators
    (Rust traits; test subclasses in the C++ runner), and `LEFT_HANDED_3D`
    (#94, #105; a reference patch only with the maintainer's agreement, since
    a shipping game uses the flag).
+
+   Done: bit-exact in `spatial_doppler`, `spatial_delay` and
+   `spatial_custom`, with `spatial_3d` and `spatial_speakers` unchanged.
+   The reference's Doppler went the wrong way (patch 0062), gave infinite
+   or NaN play speeds at the speed of sound (patch 0063: the voice holds
+   still), accepted NaN and infinite sound speeds (patch 0064), and
+   `play3dClocked` measured distance delay from the origin (patch 0065).
+   Doppler multiplies the voice's set play speed (#98). `play_3d` and its
+   clocked and bus forms take a velocity; `play_3d_clocked` honours
+   `PlayOptions::paused`. Colliders and attenuators are `Arc` traits; the
+   collider sees a `SpatialVoice` instead of the engine and the voice's 3D
+   data. The parity runners pick test colliders and attenuators by name
+   (`wall`, `shell`, `square`, `cutoff`) with the same `f32` math on both
+   sides. `LEFT_HANDED_3D` is ported as it is, as
+   `MixerConfig::left_handed_3d`: it equals the right-handed scene with
+   every z negated, bit for bit, so #105's workaround is the flag; the open
+   question is recorded above. Distance delays past `INT_MAX` frames wrap
+   as on x86. Every 3D ledger row is `ported`, on the offline `Mixer`.
 8. **3D in real time and in Bevy, then the review:** the controller runs the
    3D math on the game thread, as the reference does outside its mixer, and
    sends each voice's result in one batched command, so colliders never run

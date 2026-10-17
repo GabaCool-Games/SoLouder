@@ -35,6 +35,7 @@ impl OutputMode {
             sample_rate: 48_000,
             buffer_size: 2048,
             clipper: Clipper::Roundoff,
+            ..MixerConfig::default()
         })
     }
 }

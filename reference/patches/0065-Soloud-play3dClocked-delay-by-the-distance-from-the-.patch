@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:25:38 +0300
+Subject: [PATCH] Soloud::play3dClocked: delay by the distance from the
+ listener, as play3d does
+
+---
+ src/core/soloud_core_3d.cpp | 7 +++++++
+ 1 file changed, 7 insertions(+)
+
+diff --git a/src/core/soloud_core_3d.cpp b/src/core/soloud_core_3d.cpp
+index d7868d4..2b1c62f 100644
+--- a/src/core/soloud_core_3d.cpp
++++ b/src/core/soloud_core_3d.cpp
+@@ -467,6 +467,13 @@ namespace SoLoud
+ 		pos.mX = aPosX;
+ 		pos.mY = aPosY;
+ 		pos.mZ = aPosZ;
++		// The distance delay counts from the listener, as in play3d.
++		if (!(mVoice[v]->mFlags & AudioSourceInstance::LISTENER_RELATIVE))
++		{
++			pos.mX -= m3dPosition[0];
++			pos.mY -= m3dPosition[1];
++			pos.mZ -= m3dPosition[2];
++		}
+ 		unlockAudioMutex_internal();
+ 		
+ 		int samples = (int)floor((aSoundTime - lasttime) * mSamplerate);		

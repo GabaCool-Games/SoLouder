@@ -86,9 +86,10 @@ pub(crate) struct Voice {
     /// 3D state (`m3dData`), used by voices with [`flags::PROCESS_3D`].
     pub spatial: VoiceSpatial,
     pub base_sample_rate: f32,
-    /// `base_sample_rate` times the relative play speed.
+    /// `base_sample_rate` times the overall relative play speed.
     pub sample_rate: f32,
     pub set_relative_play_speed: f32,
+    /// `set_relative_play_speed` times the Doppler factor (`spatial.doppler`).
     pub overall_relative_play_speed: f32,
     /// Seconds of output rendered while not paused.
     pub stream_time: f64,
@@ -321,9 +322,15 @@ impl Voice {
             return false;
         }
         self.set_relative_play_speed = speed;
-        self.overall_relative_play_speed = speed;
-        self.sample_rate = self.base_sample_rate * speed;
+        self.update_speed();
         true
+    }
+
+    /// `updateVoiceRelativePlaySpeed_internal`: the set speed times the
+    /// Doppler factor of the last 3D update (#98: they compose).
+    pub fn update_speed(&mut self) {
+        self.overall_relative_play_speed = self.spatial.doppler * self.set_relative_play_speed;
+        self.sample_rate = self.base_sample_rate * self.overall_relative_play_speed;
     }
 
     /// Replaces the rate the sound plays at before speed is applied

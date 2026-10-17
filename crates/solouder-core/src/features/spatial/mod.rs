@@ -11,20 +11,30 @@
 //!
 //! The speaker gain includes the attenuation and the voice's overall volume
 //! does too, so the attenuation applies twice to the output, as in SoLoud.
-//! Doppler, distance delay, colliders, attenuators, `LEFT_HANDED_3D` and
-//! clocked or bus 3D plays come in milestone E unit 7; 3D through the
-//! real-time controller in unit 8.
+//! A [`Collider`] and an [`Attenuator`] on a source change its voices'
+//! volume.
+//!
+//! Velocities only change pitch (Doppler, composed with the voice's play
+//! speed): nothing moves voices or the listener by them. A source with
+//! distance delay starts late by the time sound takes to reach the listener.
+//!
+//! Through the real-time controller 3D comes in milestone E unit 8.
 
 mod attenuation;
 mod control;
+mod custom;
+mod doppler;
 mod play;
 mod scene;
 mod settings;
 mod vector;
 
 pub use attenuation::Attenuation;
+pub use custom::{Attenuator, Collider, SpatialVoice};
 pub(crate) use scene::Scene;
 pub(crate) use settings::{SpatialSettings, VoiceSpatial, spatial_settings_api};
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_motion;

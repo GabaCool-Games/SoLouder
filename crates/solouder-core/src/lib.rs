@@ -26,7 +26,7 @@ pub use features::playback::{
     StreamFormat, StreamReader, StreamSource, VOICE_COUNT,
 };
 pub use features::spatial;
-pub use features::spatial::Attenuation;
+pub use features::spatial::{Attenuation, Attenuator, Collider, SpatialVoice};
 
 /// The SoLoud release whose behavior this crate reproduces
 /// (`SOLOUD_VERSION`, returned by `Soloud::getVersion`).

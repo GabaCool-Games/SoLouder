@@ -1,11 +1,17 @@
 // Ported from SoLoud src/core/soloud_core_3d.cpp and src/core/soloud.cpp
 // (zlib/libpng, Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
+use super::custom::SpatialVoice;
+use super::doppler::doppler;
 use super::settings::VoiceSpatial;
 use super::vector::{Mat3, Vec3};
 use crate::contracts::MAX_CHANNELS;
+use crate::features::playback::Handle;
 
 const MAX: usize = MAX_CHANNELS as usize;
+
+/// SoLoud's speed of sound: units per second, 343.3 for meters in air.
+pub(crate) const SOUND_SPEED: f32 = 343.3;
 
 /// The listener and the speakers: the mixer's 3D state outside its voices.
 #[derive(Clone, Debug, PartialEq)]
@@ -14,6 +20,11 @@ pub(crate) struct Scene {
     /// The direction the listener faces; need not be normalized.
     pub at: Vec3,
     pub up: Vec3,
+    pub velocity: Vec3,
+    /// Units per second, for Doppler and distance delay.
+    pub sound_speed: f32,
+    /// `LEFT_HANDED_3D`: the listener basis from `mat3::lookatLH`.
+    pub left_handed: bool,
     /// Speaker directions for the output channels (`m3dSpeakerPosition`);
     /// a zero vector hears every direction at full volume.
     pub speakers: [Vec3; MAX],
@@ -21,9 +32,9 @@ pub(crate) struct Scene {
 }
 
 impl Scene {
-    /// SoLoud's listener at the origin facing -z with +y up, and its speaker
-    /// layout for `channels` outputs (`Soloud::postinit_internal`).
-    pub fn new(channels: usize) -> Self {
+    /// SoLoud's listener at the origin facing -z with +y up, still, and its
+    /// speaker layout for `channels` outputs (`Soloud::postinit_internal`).
+    pub fn new(channels: usize, left_handed: bool) -> Self {
         let v = |x: f32, z: f32| Vec3 { x, y: 0.0, z };
         let (front_l, front_r, center) = (v(2.0, 1.0), v(-2.0, 1.0), v(0.0, 1.0));
         let (back_l, back_r, zero) = (v(2.0, -1.0), v(-2.0, -1.0), Vec3::default());
@@ -55,6 +66,9 @@ impl Scene {
                 y: 1.0,
                 z: 0.0,
             },
+            velocity: Vec3::default(),
+            sound_speed: SOUND_SPEED,
+            left_handed,
             speakers,
             channels,
         }
@@ -70,11 +84,18 @@ impl Scene {
         for (out, speaker) in speakers.iter_mut().zip(&self.speakers[..self.channels]) {
             *out = speaker.normalize();
         }
+        let basis = if self.left_handed {
+            Mat3::look_at_lh(self.at, self.up)
+        } else {
+            Mat3::look_at_rh(self.at, self.up)
+        };
         Frame {
             speakers,
             channels: self.channels,
             listener: self.position,
-            basis: Mat3::look_at_rh(self.at, self.up),
+            listener_velocity: self.velocity,
+            sound_speed: self.sound_speed,
+            basis,
         }
     }
 }
@@ -85,36 +106,58 @@ pub(crate) struct Frame {
     speakers: [Vec3; MAX],
     channels: usize,
     listener: Vec3,
+    listener_velocity: Vec3,
+    sound_speed: f32,
     basis: Mat3,
 }
 
-/// A voice's attenuation and per-speaker gains.
+/// A voice's attenuation, per-speaker gains and Doppler factor.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(crate) struct Gains {
     pub volume: f32,
     pub speakers: [f32; MAX],
+    pub doppler: f32,
 }
 
 impl Frame {
-    /// The gains of one voice (the loop body of `update3dVoices_internal`).
-    /// A speaker hears `(cos θ + 1) / 2` of the voice, θ being the angle
-    /// between it and the voice in the listener's frame, times the
-    /// attenuation; speakers past the output's channels hear nothing.
-    pub fn gains(&self, spatial: &VoiceSpatial, listener_relative: bool) -> Gains {
+    /// The gains of the voice `handle` (the loop body of
+    /// `update3dVoices_internal`). The volume is the collider's factor times
+    /// the attenuator's or the attenuation model's. A speaker hears
+    /// `(cos θ + 1) / 2` of the voice, θ being the angle between it and the
+    /// voice in the listener's frame, times the volume; speakers past the
+    /// output's channels hear nothing.
+    pub fn gains(&self, spatial: &VoiceSpatial, listener_relative: bool, handle: Handle) -> Gains {
         let mut volume = 1.0_f32;
+        if let Some((collider, user_data)) = &spatial.collider {
+            let voice = SpatialVoice {
+                handle,
+                position: spatial.position.into(),
+                velocity: spatial.velocity.into(),
+                listener_relative,
+                min_distance: spatial.min_distance,
+                max_distance: spatial.max_distance,
+                rolloff: spatial.rolloff,
+                doppler_factor: spatial.doppler_factor,
+            };
+            volume *= collider.collide(&voice, *user_data);
+        }
         let mut pos = spatial.position;
         if !listener_relative {
             pos = pos.sub(self.listener);
         }
         let distance = pos.mag();
-        volume *= spatial.attenuation.attenuate(
-            distance,
-            spatial.min_distance,
-            spatial.max_distance,
-            spatial.rolloff,
+        let (min, max, rolloff) = (spatial.min_distance, spatial.max_distance, spatial.rolloff);
+        volume *= match &spatial.attenuator {
+            Some(attenuator) => attenuator.attenuate(distance, min, max, rolloff),
+            None => spatial.attenuation.attenuate(distance, min, max, rolloff),
+        };
+        let doppler = doppler(
+            pos,
+            spatial.velocity,
+            self.listener_velocity,
+            spatial.doppler_factor,
+            self.sound_speed,
         );
-        // TODO(port): Doppler (milestone E unit 7) is computed here from
-        // `pos` and the velocities.
         let pos = self.basis.mul(pos).normalize();
         let mut speakers = [0.0; MAX];
         for (gain, speaker) in speakers.iter_mut().zip(&self.speakers[..self.channels]) {
@@ -125,6 +168,10 @@ impl Frame {
             };
             *gain = volume * heard;
         }
-        Gains { volume, speakers }
+        Gains {
+            volume,
+            speakers,
+            doppler,
+        }
     }
 }

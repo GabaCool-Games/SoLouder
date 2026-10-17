@@ -91,6 +91,10 @@ set(REFERENCE_TESTS
   play3d_reused_slot_flags
   inaudible_tick_empty_loop_ends
   inaudible_tick_clears_short_block
+  doppler_follows_openal
+  doppler_at_sound_speed_stays_finite
+  sound_speed_rejects_nan_and_infinity
+  play3d_clocked_distance_delay_from_listener
   pan_ramp_leftover_frames
   surround_to_quad_center_follows_volume
   quad_to_7_1_rear_uses_rear_volume
