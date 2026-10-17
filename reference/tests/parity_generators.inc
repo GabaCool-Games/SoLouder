@@ -107,9 +107,45 @@
 				vic.setRegister((int)uintArg(step, "reg", true, 0), byteArg(step, "value"));
 		}
 
+		// `preset` (with `seed`, default 0) for Sfxr::loadPreset, or `file`
+		// with `from` (`path`, default: loadParams; `memory`: loadParamsMem
+		// of the bytes, copied; `file`: loadParamsFile of a DiskFile). The
+		// result code, or SO_NO_ERROR when neither is given.
+		SoLoud::result loadSfxr(const Step &step, SoLoud::Sfxr &sfxr)
+		{
+			if (step.get("preset") && step.get("file"))
+				throw ScenarioError(step.line, "`preset` and `file` cannot be combined");
+			if (step.get("seed") && !step.get("preset"))
+				throw ScenarioError(step.line, "`seed` needs `preset`");
+			if (step.get("from") && !step.get("file"))
+				throw ScenarioError(step.line, "`from` needs `file`");
+			if (step.get("preset"))
+				return sfxr.loadPreset((int)uintArg(step, "preset", true, 0), (int)uintArg(step, "seed", false, 0));
+			if (!step.get("file"))
+				return SoLoud::SO_NO_ERROR;
+			std::string path = fixtureArg(step);
+			std::string from = step.get("from") ? textArg(step, "from") : "path";
+			if (from == "path")
+				return sfxr.loadParams(path.c_str());
+			if (from == "memory")
+			{
+				std::ifstream in(path.c_str(), std::ios::binary);
+				std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+				return sfxr.loadParamsMem(bytes.empty() ? 0 : bytes.data(), (unsigned int)bytes.size(), true, false);
+			}
+			if (from == "file")
+			{
+				SoLoud::DiskFile file;
+				SoLoud::result code = file.open(path.c_str());
+				return code != SoLoud::SO_NO_ERROR ? code : sfxr.loadParamsFile(&file);
+			}
+			throw ScenarioError(step.line, "unknown from `" + from + "`");
+		}
+
 		static bool isGeneratorOp(const std::string &op)
 		{
-			return op == "noise" || op == "noise_set" || op == "vic" || op == "vic_set" || op == "vic_query";
+			return op == "noise" || op == "noise_set" || op == "vic" || op == "vic_set" || op == "vic_query" ||
+				op == "sfxr" || op == "sfxr_load" || op == "sfxr_reset" || op == "sfxr_query";
 		}
 
 		void generatorOp(const Step &step)
@@ -129,6 +165,58 @@
 			{
 				checkKeys(step, noiseKeys, 12);
 				applyNoise(step, generatorArg<SoLoud::Noise>(step, "name", "noise"));
+			}
+			static const char *const sfxrKeys[] = { "name", "preset", "seed", "file", "from" };
+			if (step.op == "sfxr")
+			{
+				checkGeneratorKeys(step, sfxrKeys, 5);
+				engine(step);
+				std::string name = textArg(step, "name");
+				SoLoud::Sfxr *sfxr = new SoLoud::Sfxr;
+				SoLoud::result code;
+				try
+				{
+					code = loadSfxr(step, *sfxr);
+				}
+				catch (...)
+				{
+					delete sfxr;
+					throw;
+				}
+				sourceSettings(step, *sfxr);
+				storeGenerator(name, sfxr);
+				std::ostringstream line;
+				line << "sfxr " << name << " " << code;
+				logLine(line);
+			}
+			else if (step.op == "sfxr_load")
+			{
+				checkKeys(step, sfxrKeys, 5);
+				SoLoud::result code = loadSfxr(step, generatorArg<SoLoud::Sfxr>(step, "name", "sfxr"));
+				std::ostringstream line;
+				line << "sfxr_load " << textArg(step, "name") << " " << code;
+				logLine(line);
+			}
+			else if (step.op == "sfxr_reset")
+			{
+				checkKeys(step, sfxrKeys, 1);
+				generatorArg<SoLoud::Sfxr>(step, "name", "sfxr").resetParams();
+			}
+			else if (step.op == "sfxr_query")
+			{
+				checkKeys(step, sfxrKeys, 1);
+				const SoLoud::SfxrParams &p = generatorArg<SoLoud::Sfxr>(step, "name", "sfxr").mParams;
+				const float values[] = { p.p_base_freq, p.p_freq_limit, p.p_freq_ramp, p.p_freq_dramp, p.p_duty,
+					p.p_duty_ramp, p.p_vib_strength, p.p_vib_speed, p.p_vib_delay, p.p_env_attack, p.p_env_sustain,
+					p.p_env_decay, p.p_env_punch, p.p_lpf_resonance, p.p_lpf_freq, p.p_lpf_ramp, p.p_hpf_freq,
+					p.p_hpf_ramp, p.p_pha_offset, p.p_pha_ramp, p.p_repeat_speed, p.p_arp_speed, p.p_arp_mod,
+					p.master_vol, p.sound_vol };
+				std::ostringstream line;
+				line << "sfxr_query " << textArg(step, "name") << " wave=" << p.wave_type << " filter=" << (p.filter_on ? 1 : 0)
+					<< " params=";
+				for (size_t i = 0; i < sizeof(values) / sizeof(values[0]); i++)
+					line << (i ? "," : "") << hex32(values[i]);
+				logLine(line);
 			}
 			static const char *const vicKeys[] = { "name", "model", "bass", "alto", "soprano", "noise", "reg", "value" };
 			if (step.op == "vic")

@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:06:34 +0300
+Subject: [PATCH] Sfxr::loadParamsFile: read the filter flag as a byte
+
+The flag's byte was read straight into a bool, so a file byte other
+than 0 or 1 made a bool that is neither (undefined behaviour). It is
+now read as a byte, and any value but 0 is true.
+---
+ src/audiosource/sfxr/soloud_sfxr.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/audiosource/sfxr/soloud_sfxr.cpp b/src/audiosource/sfxr/soloud_sfxr.cpp
+index f599355..ca948ff 100644
+--- a/src/audiosource/sfxr/soloud_sfxr.cpp
++++ b/src/audiosource/sfxr/soloud_sfxr.cpp
+@@ -566,7 +566,11 @@ namespace SoLoud
+ 		SFXR_READ(p_env_decay);
+ 		SFXR_READ(p_env_punch);
+ 
+-		SFXR_READ(filter_on);
++		// The flag is one byte in the file; any value but 0 is true.
++		unsigned char filter_on = 0;
++		want += 1;
++		got += aFile->read(&filter_on, 1);
++		p.filter_on = filter_on != 0;
+ 		SFXR_READ(p_lpf_resonance);
+ 		SFXR_READ(p_lpf_freq);
+ 		SFXR_READ(p_lpf_ramp);

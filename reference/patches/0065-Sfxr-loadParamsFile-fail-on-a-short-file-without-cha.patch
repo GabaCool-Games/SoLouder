@@ -1,0 +1,108 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:06:15 +0300
+Subject: [PATCH] Sfxr::loadParamsFile: fail on a short file without changing
+ the settings
+
+Fields were read one after another into the settings and the load
+succeeded whatever the file held, so a short file loaded with some
+settings changed and the rest kept. The fields are now read into a
+copy, kept only if the file holds all of them; otherwise the load
+returns FILE_LOAD_FAILED.
+---
+ src/audiosource/sfxr/soloud_sfxr.cpp | 74 +++++++++++++++-------------
+ 1 file changed, 41 insertions(+), 33 deletions(-)
+
+diff --git a/src/audiosource/sfxr/soloud_sfxr.cpp b/src/audiosource/sfxr/soloud_sfxr.cpp
+index 232a71b..f599355 100644
+--- a/src/audiosource/sfxr/soloud_sfxr.cpp
++++ b/src/audiosource/sfxr/soloud_sfxr.cpp
+@@ -538,47 +538,55 @@ namespace SoLoud
+ 			return FILE_LOAD_FAILED;
+ 		}
+ 
+-		aFile->read((unsigned char*)&mParams.wave_type, sizeof(int));
+-
+-
+-		mParams.sound_vol=0.5f;
++		// The settings are read into a copy, kept only if the file holds
++		// every field: a short file loaded with some settings changed.
++		SfxrParams p = mParams;
++		unsigned int want = 0, got = 0;
++#define SFXR_READ(field) { want += sizeof(p.field); got += aFile->read((unsigned char*)&p.field, sizeof(p.field)); }
++		SFXR_READ(wave_type);
++
++		p.sound_vol=0.5f;
+ 		if(version==102)
+-			aFile->read((unsigned char*)&mParams.sound_vol, sizeof(float));
++			SFXR_READ(sound_vol);
+ 
+-		aFile->read((unsigned char*)&mParams.p_base_freq, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_freq_limit, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_freq_ramp, sizeof(float));
++		SFXR_READ(p_base_freq);
++		SFXR_READ(p_freq_limit);
++		SFXR_READ(p_freq_ramp);
+ 		if(version>=101)
+-			aFile->read((unsigned char*)&mParams.p_freq_dramp, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_duty, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_duty_ramp, sizeof(float));
+-
+-		aFile->read((unsigned char*)&mParams.p_vib_strength, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_vib_speed, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_vib_delay, sizeof(float));
+-
+-		aFile->read((unsigned char*)&mParams.p_env_attack, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_env_sustain, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_env_decay, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_env_punch, sizeof(float));
+-
+-		aFile->read((unsigned char*)&mParams.filter_on, sizeof(bool));
+-		aFile->read((unsigned char*)&mParams.p_lpf_resonance, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_lpf_freq, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_lpf_ramp, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_hpf_freq, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_hpf_ramp, sizeof(float));
+-	
+-		aFile->read((unsigned char*)&mParams.p_pha_offset, sizeof(float));
+-		aFile->read((unsigned char*)&mParams.p_pha_ramp, sizeof(float));
++			SFXR_READ(p_freq_dramp);
++		SFXR_READ(p_duty);
++		SFXR_READ(p_duty_ramp);
++
++		SFXR_READ(p_vib_strength);
++		SFXR_READ(p_vib_speed);
++		SFXR_READ(p_vib_delay);
+ 
+-		aFile->read((unsigned char*)&mParams.p_repeat_speed, sizeof(float));
++		SFXR_READ(p_env_attack);
++		SFXR_READ(p_env_sustain);
++		SFXR_READ(p_env_decay);
++		SFXR_READ(p_env_punch);
++
++		SFXR_READ(filter_on);
++		SFXR_READ(p_lpf_resonance);
++		SFXR_READ(p_lpf_freq);
++		SFXR_READ(p_lpf_ramp);
++		SFXR_READ(p_hpf_freq);
++		SFXR_READ(p_hpf_ramp);
++
++		SFXR_READ(p_pha_offset);
++		SFXR_READ(p_pha_ramp);
++
++		SFXR_READ(p_repeat_speed);
+ 
+ 		if(version>=101)
+ 		{
+-			aFile->read((unsigned char*)&mParams.p_arp_speed, sizeof(float));
+-			aFile->read((unsigned char*)&mParams.p_arp_mod, sizeof(float));
++			SFXR_READ(p_arp_speed);
++			SFXR_READ(p_arp_mod);
+ 		}
++#undef SFXR_READ
++		if (got != want)
++			return FILE_LOAD_FAILED;
++		mParams = p;
+ 
+ 		return 0;
+ 	}

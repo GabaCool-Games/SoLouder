@@ -1,7 +1,8 @@
 //! Generators through the real-time split: `Renderer::render` must not
 //! allocate or free memory while synths play, loop, seek, end and play in
-//! a queue, and while a Vic's registers and model change under its voice, and must render exactly what an offline [`Mixer`] given the same
-//! calls renders. Generator instances are built when a voice is prepared,
+//! a queue, and while a Vic's registers and model change under its voice
+//! (noise, Vic and sfxr voices, looping and not), and must render exactly
+//! what an offline [`Mixer`] given the same calls renders. Generator instances are built when a voice is prepared,
 //! on the game thread, so only the reads run on the audio thread.
 //!
 //! The counting allocator is global, so this file holds a single test.
@@ -14,7 +15,7 @@ use solouder_core::{
     Controller, Generator, GeneratorContext, GeneratorInstance, Mixer, MixerConfig, Queue,
     Renderer, Synth,
 };
-use solouder_sources::{Noise, NoiseType, Vic, VicModel};
+use solouder_sources::{Noise, NoiseType, Sfxr, SfxrPreset, Vic, VicModel};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 #[global_allocator]
@@ -86,6 +87,13 @@ fn noise(kind: NoiseType) -> Synth {
     Synth::new(Arc::new(noise)).unwrap()
 }
 
+/// An sfxr sound that restarts inside the source.
+fn looping_sfxr() -> Synth {
+    let mut synth = Synth::new(Arc::new(Sfxr::from_preset(SfxrPreset::Blip, 2))).unwrap();
+    synth.set_looping(true);
+    synth
+}
+
 fn ramp(frames: usize, rewinds: bool, looping: bool) -> Synth {
     let mut synth = Synth::new(Arc::new(Ramp { frames, rewinds })).unwrap();
     synth.set_looping(looping);
@@ -131,6 +139,8 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
         ramp(3000, true, true),
         ramp(2000, false, true),
         ramp(700, true, false),
+        Synth::new(Arc::new(Sfxr::from_preset(SfxrPreset::Explosion, 5))).unwrap(),
+        looping_sfxr(),
     ];
     let mut ids = Vec::new();
     let mut handles = Vec::new();
@@ -142,7 +152,8 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
     queue.set_params(44100.0, 2).unwrap();
     controller.play(&queue).unwrap();
     offline.play(&queue);
-    for sound in [noise(NoiseType::White), ramp(900, true, false)] {
+    let coin = Synth::new(Arc::new(Sfxr::from_preset(SfxrPreset::Coin, 1))).unwrap();
+    for sound in [noise(NoiseType::White), ramp(900, true, false), coin] {
         controller.queue_play(&queue, &sound).unwrap();
         offline.queue_play(&queue, &sound).unwrap();
     }

@@ -110,6 +110,10 @@ names: a sound, stream, bus or queue of the same name is found first.
 | `vic` | `name`, `model` (0 PAL, default, or 1 NTSC), `bass`, `alto`, `soprano`, `noise` (0 to 255), `reg` and `value` (together; any index), source settings | A new `Vic`; `setModel` if `model` is given, `setRegister` for each register given in that order, then `setRegister(reg, value)`; an index past the last is ignored (patch 0064). | — |
 | `vic_set` | `name` (a vic), then as for `vic` without source settings | The same on an existing vic: playing voices read the registers and model at their next block. | — |
 | `vic_query` | `name`, `reg` (optional) | `getModel` and `getRegister` of the four registers, and of `reg` (0 past the last). | `vic_query <name> model=<n> regs=<b>,<a>,<s>,<n>`, then ` reg=<value>` with `reg` |
+| `sfxr` | `name`, then `preset` (an integer; 0 to 6 are coin, laser, explosion, powerup, hurt, jump, blip) with `seed` (0; an unsigned integer passed as an `int`), or `file` with `from` (`path`, default, `memory` or `file`), source settings | A new `Sfxr`, then `loadPreset(preset, seed)`, or `loadParams` of the path, `loadParamsMem` of the bytes (copied) or `loadParamsFile` of a `DiskFile`. The generator is kept whatever the result. | `sfxr <name> <code>` |
+| `sfxr_load` | `name` (an sfxr), then as for `sfxr` without source settings | The same load on an existing sfxr: later plays use the new settings. | `sfxr_load <name> <code>` |
+| `sfxr_reset` | `name` | `Sfxr::resetParams`. | — |
+| `sfxr_query` | `name` | Reads `mParams`. | `sfxr_query <name> wave=<int> filter=<0/1> params=<f32 bits>,...` with the floats in `SfxrParams` order from `p_base_freq` to `sound_vol` |
 
 Every operation except `tolerance`, `init`, `samples` and `fft` needs a
 successful `init`. Unknown sound or handle names are scenario errors. `<code>` is the

@@ -411,6 +411,9 @@ unpatched reference, and each needs a matching Rust test.
 | 0062 | — (found porting milestone F) | `NoiseInstance::getAudio` divided its sum by the sum of the octave weights, so weights summing to 0 (all 0, or 1 and -1) made every sample infinite or NaN, silencing the whole mix. Such weights now give silence. | `noise_zero_octave_sum_is_silent` |
 | 0063 | — (found porting milestone F) | `WavStream::load`, `loadMem`, `loadFile` and `loadFileToMem` replaced the memory file and file name that playing instances read without stopping them, so those voices read freed memory. They now stop the stream's voices first, as `Wav`'s loaders do. | `wavstream_reload_stops_voices` |
 | 0064 | — (found porting milestone F) | `Vic::setRegister` and `getRegister` indexed the 4 registers with any `int`, writing and reading the noise table after them and the clocks before them. An index out of range is now ignored and reads 0. | `vic_register_index_in_range` |
+| 0065 | — (found porting milestone F) | `Sfxr::loadParamsFile` read fields one after another into the settings and succeeded whatever the file held, so a short file loaded with some settings changed. Fields are now read into a copy kept only when the file holds all of them; otherwise `FILE_LOAD_FAILED`. | `sfxr_short_file_fails` |
+| 0066 | — (found porting milestone F) | `Sfxr::loadParamsFile` read the filter flag's byte straight into a `bool`, so a byte other than 0 or 1 made a `bool` that is neither. It is now read as a byte; any value but 0 is true. | `sfxr_filter_flag_is_a_bool` |
+| 0067 | — (found porting milestone F) | `SfxrInstance::getAudio` called again after the sound's end, as the generic seek does while discarding, went on past the envelope's last stage and read `env_length[3]`. An ended sound now returns 0 frames. | `sfxr_ended_sound_stays_silent` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -957,7 +960,7 @@ Rules for units 1 to 8:
    noise table is computed at compile time. `VicModel` replaces the
    `int` model. Through the `Controller` with live register changes in
    the sources' `realtime_no_alloc`.
-3. **Sfxr** (602 + h 158; Tomas Pettersson, zlib by permission): uses `Prg`,
+3. **Sfxr** (done; patches 0065 to 0067; 602 + h 158; Tomas Pettersson, zlib by permission): uses `Prg`,
    seeded `0x792352` per instance and `aRandSeed` for presets; the period is
    `double`, the filters `float`. Rows: `Sfxr::*` (6). Defects:
    `loadParamsFile` reads raw `int`/`bool`/`float` (a bool byte other than 0/1 is
@@ -965,6 +968,18 @@ Rules for units 1 to 8:
    keeps the old `freq_dramp`/`arp` values; the seed arithmetic overflows `int`;
    looping is handled inside the source (the instance's `LOOPING` flag).
    Scenario `sfxr`: all 7 presets × seeds, files, looping.
+   Done: `solouder_sources::Sfxr` (feature `sfxr`) with `SfxrParams`,
+   `SfxrPreset` and `SfxrError`; settings sit behind a mutex read when a
+   voice is prepared, so voices copy them as SoLoud's do. Bit-exact
+   with `pow` of `float`s widened to `double`. The truncated file and
+   the `bool` byte are patched (0065, 0066); v100 keeping old values is
+   preserved. Found while porting: `getAudio` called after the end (the
+   generic seek does) read `env_length[3]` (patch 0067). The seed
+   arithmetic wraps in Rust; MSVC and GCC wrap it too (not patched: no
+   test can observe it without a sanitizer). Fixtures from
+   `scripts/gen_source_fixtures.py`; prefixes and corrupted bytes of a
+   file are tested to load or fail with a typed error, and extreme
+   settings to render without panicking.
 4. **Monotone** (434 + h 109; SoLoud proper): uses `generateWaveform` (already
    ported); tempo follows `mSamplerate`, which includes play speed. Rows:
    `Monotone::*` (5). Several memory-safety defects (patch them): a Pascal title

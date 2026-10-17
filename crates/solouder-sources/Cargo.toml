@@ -8,10 +8,11 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-default = ["noise", "vic"]
+default = ["noise", "sfxr", "vic"]
 # WELL512, shared by noise and sfxr.
 prg = []
 noise = ["prg"]
+sfxr = ["prg"]
 vic = []
 
 [dependencies]

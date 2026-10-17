@@ -27,6 +27,7 @@
 #include "soloud_lofifilter.h"
 #include "soloud_noise.h"
 #include "soloud_robotizefilter.h"
+#include "soloud_sfxr.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_queue.h"
 #include "soloud_vic.h"
@@ -996,6 +997,71 @@ namespace
 		check(vic.getRegister(Vic::NOISE) == 200, "registers in range still work");
 	}
 
+	// An sfxr version 102 file: the version, a wave type, 22 floats with
+	// the filter flag byte after the 14th, then 2 more floats.
+	std::vector<unsigned char> sfxrFile(unsigned char aFilterByte)
+	{
+		std::vector<unsigned char> out;
+		int head[2] = { 102, 1 };
+		const unsigned char *bytes = (const unsigned char *)head;
+		out.insert(out.end(), bytes, bytes + sizeof(head));
+		for (int i = 0; i < 24; i++)
+		{
+			if (i == 14)
+				out.push_back(aFilterByte);
+			float value = 0.05f * (float)(i + 1);
+			bytes = (const unsigned char *)&value;
+			out.insert(out.end(), bytes, bytes + sizeof(value));
+		}
+		return out;
+	}
+
+	// Sfxr::loadParamsFile read field after field and succeeded whatever
+	// the file held, so a short file loaded with some settings changed and
+	// the rest kept.
+	void sfxr_short_file_fails()
+	{
+		std::vector<unsigned char> bytes = sfxrFile(0);
+		Sfxr sfxr;
+		check(sfxr.loadParamsMem(bytes.data(), (unsigned int)bytes.size(), true, false) == SO_NO_ERROR, "a whole file loads");
+		check(sfxr.mParams.wave_type == 1 && sfxr.mParams.p_arp_mod == 0.05f * 24, "every field is read");
+		Sfxr fresh;
+		bytes.resize(bytes.size() - 3);
+		check(fresh.loadParamsMem(bytes.data(), (unsigned int)bytes.size(), true, false) == FILE_LOAD_FAILED, "a short file fails");
+		check(fresh.mParams.wave_type == 0 && fresh.mParams.p_base_freq == 0.3f && fresh.mParams.sound_vol == 0.5f,
+			"a short file changes nothing");
+	}
+
+	// Sfxr::loadParamsFile read the filter flag's byte straight into a bool,
+	// so a byte other than 0 or 1 made a bool that is neither.
+	void sfxr_filter_flag_is_a_bool()
+	{
+		std::vector<unsigned char> bytes = sfxrFile(2);
+		Sfxr sfxr;
+		check(sfxr.loadParamsMem(bytes.data(), (unsigned int)bytes.size(), true, false) == SO_NO_ERROR, "the file loads");
+		unsigned char raw = 0xff;
+		std::memcpy(&raw, &sfxr.mParams.filter_on, 1);
+		check(raw == 1, "a nonzero flag byte reads as true");
+	}
+
+	// SfxrInstance::getAudio went on after the sound's end when called
+	// again, as the generic seek does while discarding: its envelope then
+	// read env_length[3], past the array.
+	void sfxr_ended_sound_stays_silent()
+	{
+		Sfxr sfxr;
+		sfxr.loadPreset(Sfxr::BLIP, 3);
+		AudioSourceInstance *instance = sfxr.createInstance();
+		instance->init(sfxr, 0);
+		std::vector<float> buffer(512);
+		unsigned int total = 0;
+		for (int i = 0; i < 1000 && !instance->hasEnded(); i++)
+			total += instance->getAudio(buffer.data(), 512, 512);
+		check(instance->hasEnded() && total > 0, "the sound ends");
+		check(instance->getAudio(buffer.data(), 512, 512) == 0, "an ended sound gives no more audio");
+		delete instance;
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -1721,6 +1787,9 @@ namespace
 		{ "noise_zero_octave_sum_is_silent", noise_zero_octave_sum_is_silent },
 		{ "wavstream_reload_stops_voices", wavstream_reload_stops_voices },
 		{ "vic_register_index_in_range", vic_register_index_in_range },
+		{ "sfxr_short_file_fails", sfxr_short_file_fails },
+		{ "sfxr_filter_flag_is_a_bool", sfxr_filter_flag_is_a_bool },
+		{ "sfxr_ended_sound_stays_silent", sfxr_ended_sound_stays_silent },
 	};
 }
 

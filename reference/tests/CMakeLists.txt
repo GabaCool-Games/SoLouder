@@ -112,6 +112,9 @@ set(REFERENCE_TESTS
   noise_zero_octave_sum_is_silent
   wavstream_reload_stops_voices
   vic_register_index_in_range
+  sfxr_short_file_fails
+  sfxr_filter_flag_is_a_bool
+  sfxr_ended_sound_stays_silent
 )
 
 enable_testing()

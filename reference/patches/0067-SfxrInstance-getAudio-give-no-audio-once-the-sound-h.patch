@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:12:47 +0300
+Subject: [PATCH] SfxrInstance::getAudio: give no audio once the sound has
+ ended
+
+Called again after the sound's end, as the generic seek does while it
+discards, getAudio went on past the envelope's last stage and read
+env_length[3], past the array. An ended sound now returns 0 frames.
+---
+ src/audiosource/sfxr/soloud_sfxr.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/audiosource/sfxr/soloud_sfxr.cpp b/src/audiosource/sfxr/soloud_sfxr.cpp
+index ca948ff..e3455de 100644
+--- a/src/audiosource/sfxr/soloud_sfxr.cpp
++++ b/src/audiosource/sfxr/soloud_sfxr.cpp
+@@ -44,6 +44,10 @@ namespace SoLoud
+ 
+ 	unsigned int SfxrInstance::getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int /*aBufferSize*/)
+ 	{
++		// Called again after the end (the generic seek does), the envelope
++		// read past env_length: an ended sound gives nothing more.
++		if (!playing_sample)
++			return 0;
+ 		float *buffer = aBuffer;
+ 		unsigned int i;
+ 		for (i = 0; i < aSamplesToRead; i++)

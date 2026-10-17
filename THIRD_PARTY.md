@@ -16,7 +16,7 @@ Rows saying "ported" name the SoLouder code translated from them; the rest has n
 | FLAC decoding | `src/audiosource/wav/dr_flac.h` | dr_flac by David Reid, Unlicense or MIT No Attribution | Decoding path ported to `solouder-decoders` (`decoded_audio/flac/`), credited in its files |
 | Freeverb | `src/filter/soloud_freeverbfilter.cpp` | Jezar at Dreampoint, public domain (original release, not GPL Freeverb3) | Port with attribution |
 | FFT | `src/core/soloud_fft.cpp` | Based on fftreal by Laurent de Soras, WTFPL | Port with attribution |
-| Sfxr | `src/audiosource/sfxr/` | Tomas Pettersson, relicensed to zlib by permission | Port; keep the zlib notice and permission note |
+| Sfxr | `src/audiosource/sfxr/` | Tomas Pettersson, relicensed to zlib by permission | Ported to `solouder-sources` (`features/sfxr/`); each file names him and the permission |
 | Speech synthesizer | `src/audiosource/speech/` | rsynth by Nick Ing-Simmons et al., public domain; SoLoud changes public domain/CC0; `soloud_speech.*` zlib | Port with attribution |
 | Vizsn | `src/audiosource/vizsn/` | Ville-Matias Heikkilä, WTFPL | Port with attribution |
 | VIC 6560/6561 emulator | `src/audiosource/vic/` | Petri Häkkinen, zlib/libpng | Ported to `solouder-sources` (`features/vic/`), with his zlib notice in the file |

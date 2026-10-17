@@ -12,6 +12,8 @@ mod prg;
 
 #[cfg(feature = "noise")]
 pub use features::noise::{Noise, NoiseType, OCTAVES};
+#[cfg(feature = "sfxr")]
+pub use features::sfxr::{Sfxr, SfxrError, SfxrParams, SfxrPreset};
 #[cfg(feature = "vic")]
 pub use features::vic::{RegisterOutOfRange, VIC_REGISTERS, Vic, VicModel};
 #[cfg(feature = "prg")]

@@ -39,4 +39,12 @@ repository's license and contain no third-party audio.
   only part of its first page, `bad_junk_prefix_*` bytes before the first
   MP3 frame, and `bad_not_audio` no audio at all.
 
+- `sfxr/` (and the other generator inputs): written by `python
+  scripts/gen_source_fixtures.py`, field by field in the layouts SoLoud's
+  loaders read; `--check` works as for WAV. Sfxr parameter files cover
+  versions 100, 101 and 102, every wave type and one without a waveform
+  (`wave_7`), a filter flag byte of 2 and trailing bytes; `bad_cut_*` ends
+  inside the fields, `bad_version_*` has an unknown version and `bad_empty`
+  is empty.
+
 Change a fixture by editing the generator and rerunning it, never by hand.

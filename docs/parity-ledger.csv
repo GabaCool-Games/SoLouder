@@ -148,12 +148,12 @@ Queue::lifecycle,source,Queue_create Queue_destroy,routing,D,ported,queues,Queue
 Queue::play,source,Queue_play,routing,D,ported,queues stream_queue,"Mixer::queue_play(&Queue, &impl Queueable) -> Result<(), QueueError>: NotPlaying (INVALID_PARAMETER) unless the queue plays on that mixer, Full (OUT_OF_MEMORY) at QUEUE_MAX = 32. Only a Sound or Stream can be queued (SoLoud takes any AudioSource); it plays once at the queue's rate without its volume or filters. A sound that gives no audio, such as a looping one once read, is dropped (patch 0049); queue channels it lacks are silent (patch 0050). A queued sound holds its samples, where SoLoud reads a destroyed Wav (open reference defect)."
 Queue::setParams,source,Queue_setParams Queue_setParamsEx,routing,D,ported,queues,"Queue::set_params(rate, channels): Err(InvalidChannels) outside 1 to 8 (INVALID_PARAMETER); applies to voices started later."
 Queue::setParamsFromAudioSource,source,Queue_setParamsFromAudioSource,routing,D,ported,queues,Queue::set_params_from(&Sound).
-Sfxr::lifecycle,source,Sfxr_create Sfxr_destroy,sources,F,todo,,
-Sfxr::loadParams,source,Sfxr_loadParams,sources,F,todo,,
-Sfxr::loadParamsFile,source,Sfxr_loadParamsFile,sources,F,todo,,
-Sfxr::loadParamsMem,source,Sfxr_loadParamsMem Sfxr_loadParamsMemEx,sources,F,todo,,
-Sfxr::loadPreset,source,Sfxr_loadPreset,sources,F,todo,,
-Sfxr::resetParams,source,Sfxr_resetParams,sources,F,todo,,
+Sfxr::lifecycle,source,Sfxr_create Sfxr_destroy,sources,F,ported,sfxr,"solouder_sources::Sfxr, played through Synth; mono at 44100 Hz. Each voice copies the settings when it is prepared and seeds its noise with 0x792352; looping restarts inside the source. An ended voice gives no more audio (patch 0067). Dropping a Synth does not stop its voices; the parity runner stops them when a name is replaced."
+Sfxr::loadParams,source,Sfxr_loadParams,sources,F,ported,sfxr,"Sfxr::load_params_file. A short file fails without changing the settings (patch 0065); the filter flag is a byte, any value but 0 true (patch 0066); version 100 keeps freq_dramp and the arpeggio, as in the reference."
+Sfxr::loadParamsFile,source,Sfxr_loadParamsFile,sources,F,ported,sfxr,"Sfxr::load_params_reader(impl Read), reading at most 128 bytes."
+Sfxr::loadParamsMem,source,Sfxr_loadParamsMem Sfxr_loadParamsMemEx,sources,F,ported,sfxr,"Sfxr::load_params(&[u8]) and Sfxr::from_bytes (no aCopy/aTakeOwnership). The reference rejects empty memory with INVALID_PARAMETER; Rust reports an unknown version 0, and the parity runner maps empty memory to INVALID_PARAMETER."
+Sfxr::loadPreset,source,Sfxr_loadPreset,sources,F,ported,sfxr,"Sfxr::load_preset(SfxrPreset, seed) and Sfxr::from_preset; the seed arithmetic wraps as on MSVC. The reference's int preset fails past 6 with INVALID_PARAMETER; SfxrPreset::from_index returns None."
+Sfxr::resetParams,source,Sfxr_resetParams,sources,F,ported,sfxr,Sfxr::reset_params; SfxrParams::default holds the same values.
 Speech::lifecycle,source,Speech_create Speech_destroy,sources,F,todo,,
 Speech::setParams,source,Speech_setParams Speech_setParamsEx,sources,F,todo,,
 Speech::setText,source,Speech_setText,sources,F,todo,,

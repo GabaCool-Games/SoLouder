@@ -19,9 +19,11 @@ pub mod waveform;
 pub use clip::Clipper;
 pub use resample::Resampler;
 
-/// C's `(int)` conversion as x86 performs it: truncation toward zero, and
-/// `INT_MIN` for NaN and for values outside the `int` range.
-pub(crate) fn c_int(value: f64) -> i32 {
+/// C's `(int)` conversion as x86 performs it (`cvttsd2si`): truncation
+/// toward zero, and `INT_MIN` for NaN and for values outside the `int`
+/// range, where Rust's `as` saturates instead. A `float` converts the same
+/// once widened to `f64`.
+pub fn c_int(value: f64) -> i32 {
     let truncated = value.trunc();
     if (-2_147_483_648.0..=2_147_483_647.0).contains(&truncated) {
         truncated as i32

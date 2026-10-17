@@ -26,7 +26,18 @@ const NOISE_KEYS: [&str; 12] = [
 ];
 
 pub(crate) fn is_generator_op(op: &str) -> bool {
-    matches!(op, "noise" | "noise_set" | "vic" | "vic_set" | "vic_query")
+    matches!(
+        op,
+        "noise"
+            | "noise_set"
+            | "vic"
+            | "vic_set"
+            | "vic_query"
+            | "sfxr"
+            | "sfxr_load"
+            | "sfxr_reset"
+            | "sfxr_query"
+    )
 }
 
 /// `check_keys` with the source settings allowed too.
@@ -83,6 +94,7 @@ impl State {
                 apply_noise(step, &noise)
             }
             op if op.starts_with("vic") => self.vic_op(step),
+            op if op.starts_with("sfxr") => self.sfxr_op(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }
