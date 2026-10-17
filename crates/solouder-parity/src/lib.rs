@@ -16,6 +16,7 @@ pub mod pattern;
 mod queue_ops;
 pub mod run;
 pub mod scenario;
+mod spatial_ops;
 mod stream_ops;
 mod voice_ops;
 

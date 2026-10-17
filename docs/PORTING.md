@@ -22,7 +22,8 @@ The mixer runs on the audio thread behind bounded, wait-free queues
 and `bevy_solouder` plays `.wav` assets from entities that stop when
 despawned. Milestone D added fades, scheduling, the remaining voice
 controls, voice groups, filters, buses and queues, offline and through the
-real-time controller; 3D audio and streaming (milestone E) are next; see
+real-time controller. Milestone E is under way: streamed and decoded WAV,
+FLAC, Ogg Vorbis and MP3, and 3D audio offline (units 1 to 6); see
 [port-status.md](port-status.md).
 
 [ARCHITECTURE.md](ARCHITECTURE.md) owns the target workspace, Vertical Slice
@@ -405,6 +406,8 @@ unpatched reference, and each needs a matching Rust test.
 | 0057 | dr_libs 713ffe6, a4774b5 (dr_flac 0.12.35) | dr_flac summed an LPC prediction in 32 bits whenever the sample size plus the prediction shift was at most 32, ignoring the coefficient precision and order, so a predictor that overshoots full scale wrapped around and decoded wrong samples (found porting milestone E on a 20-bit stereo file's side channel). Backported upstream's test, `bitsPerSample + precision + ilog2(order) > 32`, in the scalar, SSE4.1 and NEON paths. | `flac_lpc_prediction_uses_64_bits` |
 | 0058 | — | A rewound Ogg Vorbis stream kept the Vorbis frame it was reading, whose buffers stb_vorbis reuses, so a looping Ogg stream played the rest of that frame, by then holding other audio, before its start; `stb_vorbis_seek` leaves the rest of the frame holding its target in a buffer that `stb_vorbis_get_frame_float` skips, so a seek went on after its target. Seeks now land where the generic seek does (from the frames read, or from the start after a rewind) via `stb_vorbis_seek_frame`, decoding up to the target when that fails; a seek past the end ends the stream; a packet that fails to decode ends the data, as in `Wav::loadogg` (the end also counted the last read twice). | `oggstream_rewind_restarts`, `oggstream_seek_lands_on_target`, `oggstream_seek_past_end_ends` |
 | 0059 | — (found porting milestone E) | stb_vorbis reads an Ogg page without segments as `fread(data, 0, 1)`, and `Soloud_Filehack_fread` divided the bytes read by the element size of 0, so a `WavStream` of an Ogg file cut inside its first page crashed with an integer division by zero. An empty request now reads nothing, as `fread` does, and the file fails to load. | `oggstream_cut_first_page_fails` |
+| 0060 | — (found porting milestone E) | The inaudible-tick path of `mixBus_internal` called `getAudio` until the block was full; a looping voice whose source gives no audio (a loop point at or past its end) returned 0 every time, so the mix call never returned. It now stops when a read returns nothing, as the mixing path does. | `inaudible_tick_empty_loop_ends` |
+| 0061 | — (found porting milestone E) | The inaudible-tick path did not clear the rest of a block that ended short, as the mixing path does, so a voice ticked to its end and then made audible again (by `update3dAudio`) played the stale samples left in its resample buffer after its last frame. It now clears them. | `inaudible_tick_clears_short_block` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -413,7 +416,7 @@ so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto the working branch. Patches 0018 to
 0050 were pushed on 2026-10-12 (public `master` at `7b91e3b`), and 0051 after
-them (`1784537`). 0052 to 0056 are not pushed yet.
+them (`1784537`). 0052 to 0056 are not pushed yet, nor are 0060 and 0061.
 
 The shipped native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with
@@ -448,8 +451,9 @@ or has not decided, with a test either way.
 | #381 | `Soloud::play` defaults `aVolume` to `-1` (use the source volume); `Soloud::play3d` and every `Bus::play*` default to `1.0`. Rust: `PlayOptions::volume` of `None` uses the source volume for every play call: changed (`buses` passes 1 explicitly). |
 | #395 | Nested buses reduce gain compared to direct playback with the same settings. Rust: preserved (each bus voice pans its mix again; `bus_mixes_its_voices_through_its_own_pan`, scenario `buses`). |
 | #280 | Stopping a bus handle tears down every voice playing through that bus. Rust: preserved, including SoLoud's exception for a bus that never looked up its handle (`bus_is_silent_until_its_handle_is_looked_up`, scenario `buses`). |
-| #240 | Hard-coded inaudibility thresholds: `0.001` in `update3dAudio` and `0.01` in `play3d`/`play3dClocked` (`soloud_core_3d.cpp`). |
-| #175, #203 (reported) | Pops or wrong orientation when 3D voices become audible or between `update3dAudio` calls. Volume/pan ramps are per mix call, so change rate depends on device buffer size. |
+| #240 | Hard-coded inaudibility thresholds: `0.001` in `update3dAudio` and `0.01` in `play3d`/`play3dClocked` (`soloud_core_3d.cpp`). Rust: preserved (`play_and_update_use_different_thresholds`, scenario `spatial_3d`). |
+| #175, #203 (reported) | Pops or wrong orientation when 3D voices become audible or between `update3dAudio` calls. Volume/pan ramps are per mix call, so change rate depends on device buffer size. Rust: preserved, including a paused voice snapping to the channel volumes it had before `update3dAudio` set the new ones (`paused_voices_jump_to_their_new_volume`, `spatial_3d`). |
+| — (3D volume) | The 3D attenuation multiplies both the voice's overall volume and each channel's speaker gain, so a voice at distance gain `g` plays at `g²`. Rust: preserved for parity (a shipping game is tuned to it; `spatial_3d`). |
 | #94, #105 | `LEFT_HANDED_3D` only flips part of the listener basis; reporters found front/back and Z errors. Derive the Bevy mapping from tests, not the flag. |
 | #98 | Relative play speed and Doppler must compose multiplicatively; verify the reference does. |
 | #76 | A handle can become invalid while audio is still audible on some backends; define validity as "until mixed out". |
@@ -626,7 +630,8 @@ belong to the milestone that introduces the affected behavior:
   0005), stream seek (patch 0009, #396), decoder metadata validation and
   fuzzing (patch 0012), long-duration drift (#314, patch 0052:
   `resampled_playhead_does_not_drift`, done), 3D initialization (patch
-  0013, #95).
+  0013: `play_3d_in_a_reused_slot_uses_its_own_flags`; #95:
+  `play_3d_attenuates_the_first_frame`; both in `spatial_3d`, done).
 
 ### Milestone D review
 
@@ -813,11 +818,27 @@ last); each ends with passing scenarios, ledger rows and a commit:
    and writes out of bounds or asserts on some damaged files, where the
    port fails the packet or the file. Fuzzing found no panics. Vorbis setup
    headers needing more than 256 MiB are refused.
-6. **3D core, offline:** listener and source state, attenuation models with
+6. **3D core, offline** (done; patches 0060 and 0061): listener and source
+   state, attenuation models with
    min/max distance and rolloff, listener-relative sources, speaker positions
    and per-speaker gains for 1 to 8 channels, `update3dAudio` and its 0.001
    inaudibility threshold, and `play3d` (first frame attenuated, #95; its
    0.01 threshold; slot reuse, patch 0013).
+
+   Done: `features/spatial` in the core, bit-exact in `spatial_3d` and
+   `spatial_speakers`. The vector math stays in `f32` in SoLoud's order,
+   with `sqrt` and `pow` widened to `f64` as MSVC's `math.h` does; the C++
+   runner flushes subnormals once it has mixed, so the scenarios keep the
+   3D math away from them. `play3d` and `update3dAudio` set a voice's
+   volumes in opposite orders, so a paused voice snaps to its old channel
+   volumes in an update; both are kept. Voices made inaudible by distance
+   now reach the inaudible-tick path, which advances them without
+   resampling, filters or panning; it hung on a looping source without
+   audio (patch 0060) and left stale samples after a voice's end
+   (patch 0061). The 3D attenuation applies twice (above). Velocities are
+   not taken yet, so `play3d`,
+   `set3dListenerParameters` and `set3dSourceParameters` stay
+   `in-progress`. The `Controller` has no 3D calls until unit 8.
 7. **Doppler, distance delay and the rest:** sound speed and Doppler factors,
    Doppler composed with play speed (#98) and at extreme velocities (#97),
    distance delay, `play3dClocked`, `Bus::play3d`, colliders and attenuators

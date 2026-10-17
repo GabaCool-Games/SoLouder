@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:59:20 +0300
+Subject: [PATCH] Soloud::mixBus_internal: a ticking voice stops wrapping a
+ loop without audio
+
+An inaudible voice that ticks reads its source without mixing it, and
+wrapped its loop until the block was full without checking that the wrap
+gave any audio, as the mixing path does. A looping sound whose loop point
+is at or past its end gives none, so once 3D attenuation made such a
+voice inaudible, mix spun forever holding the audio mutex. The wrap now
+stops when the source gives no audio, as in the mixing path.
+---
+ src/core/soloud.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 5459915..5ff90c6 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1930,7 +1930,9 @@ namespace SoLoud
+ 									while (readcount < SAMPLE_GRANULARITY && voice->seek(voice->mLoopPoint, mSeekScratch.mData, SAMPLE_GRANULARITY * MAX_CHANNELS) == SO_NO_ERROR)
+ 									{
+ 										voice->mLoopCount++;
+-										readcount += voice->getAudio(voice->mResampleData[0] + readcount, SAMPLE_GRANULARITY - readcount, SAMPLE_GRANULARITY);
++										int inc = voice->getAudio(voice->mResampleData[0] + readcount, SAMPLE_GRANULARITY - readcount, SAMPLE_GRANULARITY);
++										readcount += inc;
++										if (inc == 0) break;
+ 									}
+ 								}
+ 							}

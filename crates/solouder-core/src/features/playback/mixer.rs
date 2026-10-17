@@ -11,6 +11,7 @@ use crate::dsp::Resampler;
 use crate::dsp::clip::clip;
 use crate::dsp::fader::{Fader, FaderState};
 use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
+use crate::features::spatial::Scene;
 
 /// The SoLouder mixer: plays [`Sound`](super::Sound)s and
 /// [`Bus`](super::Bus)es and renders interleaved
@@ -22,7 +23,7 @@ use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
 /// it directly. Mixing does not allocate.
 #[derive(Debug)]
 pub struct Mixer {
-    pub(super) config: MixerConfig,
+    pub(crate) config: MixerConfig,
     /// Frames the scratch buffers hold per channel; the most one internal mix
     /// pass renders (`mScratchSize`).
     pub(super) scratch_frames: usize,
@@ -30,7 +31,7 @@ pub struct Mixer {
     scratch: Vec<f32>,
     /// The accumulated mix before clipping (`mOutputScratch`).
     output_scratch: Vec<f32>,
-    pub(super) voices: Voices,
+    pub(crate) voices: Voices,
     pub(super) global_volume: f32,
     pub(super) post_clip_scaler: f32,
     pub(super) resampler: Resampler,
@@ -40,6 +41,8 @@ pub struct Mixer {
     pub(super) last_clocked_time: f64,
     /// Run on the whole mix before clipping (`mFilterInstance`).
     pub(super) global_filters: [Option<Box<dyn FilterInstance>>; FILTERS_PER_STREAM],
+    /// The listener and speakers for 3D voices.
+    pub(crate) scene: Scene,
 }
 
 impl Mixer {
@@ -62,6 +65,7 @@ impl Mixer {
             global_fader: Fader::default(),
             last_clocked_time: 0.0,
             global_filters: Default::default(),
+            scene: Scene::new(config.channels as usize),
         })
     }
 

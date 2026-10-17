@@ -10,7 +10,8 @@
 //! voice groups, through buses or queued, mixed into 1 to 8 channels, either
 //! offline through
 //! [`Mixer`] or from an audio callback through the [`realtime`]
-//! controller/renderer pair.
+//! controller/renderer pair. Milestone E adds streams and, offline only so
+//! far, [`spatial`] audio.
 
 pub mod contracts;
 pub mod dsp;
@@ -24,6 +25,8 @@ pub use features::playback::{
     Playable, QUEUE_MAX, Queue, QueueError, Queueable, Sound, SoundId, Stream, StreamError,
     StreamFormat, StreamReader, StreamSource, VOICE_COUNT,
 };
+pub use features::spatial;
+pub use features::spatial::Attenuation;
 
 /// The SoLoud release whose behavior this crate reproduces
 /// (`SOLOUD_VERSION`, returned by `Soloud::getVersion`).

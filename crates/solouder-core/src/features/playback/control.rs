@@ -63,6 +63,8 @@ pub enum ControlError {
     InvalidChannels,
     /// A bus or queue cannot seek backwards (`NOT_IMPLEMENTED`).
     CannotSeekBack,
+    /// The output has no such channel, so no such speaker.
+    NoSuchSpeaker,
 }
 
 impl fmt::Display for ControlError {
@@ -73,6 +75,7 @@ impl fmt::Display for ControlError {
             Self::InvalidVoiceGroup => write!(f, "not a voice group"),
             Self::InvalidChannels => write!(f, "unsupported channel count"),
             Self::CannotSeekBack => write!(f, "a bus or queue cannot seek backwards"),
+            Self::NoSuchSpeaker => write!(f, "the output has no such channel"),
         }
     }
 }

@@ -1,0 +1,116 @@
+# 3D speakers: the default speaker positions of 1, 2, 4, 6 and 8-channel
+# outputs (5.1's and 7.1's subwoofer a zero vector that hears everything),
+# channels past the output's rejected, moved and zeroed speakers, 3D voices
+# of 1, 2 and 6 channels around the listener on each layout, a 3D voice
+# through a bus, and a bus played in 3D (inaudible, it ticks its voices).
+init channels=1
+speaker channel=0
+speaker channel=1
+speaker channel=1 x=1 y=0 z=0
+sound name=n frames=20000 pattern=noise seed=11 amp=0.5
+sound3d name=n min=1 max=1000 model=1 rolloff=0.5
+play3d sound=n as=a x=3 y=0 z=-1
+mix frames=100
+set3d h=a x=-2 y=1 z=4
+update3d
+mix frames=100
+speaker channel=0 x=0 y=0 z=0
+update3d
+mix frames=100
+
+init channels=2
+speaker channel=0
+speaker channel=1
+speaker channel=2
+speaker channel=1 x=1 y=0.5 z=-3
+sound name=n frames=20000 pattern=noise seed=11 amp=0.5
+sound name=st channels=2 frames=20000 pattern=saw period=64 amp=0.4
+play3d sound=n as=a x=-4 y=0 z=-1
+play3d sound=st as=b x=1 y=2 z=3
+mix frames=150
+speaker channel=0 x=0 y=0 z=0
+update3d
+mix frames=150
+
+init channels=4
+speaker channel=0
+speaker channel=1
+speaker channel=2
+speaker channel=3
+speaker channel=4
+sound name=n frames=20000 pattern=noise seed=11 amp=0.5
+sound3d name=n min=1 max=1000 model=1 rolloff=1
+sound name=st channels=2 frames=20000 pattern=saw period=64 amp=0.4
+play3d sound=n as=a x=-4 y=0 z=-1
+play3d sound=st as=b x=1 y=0 z=3
+mix frames=150
+set3d h=a x=2 y=-1 z=2
+set3d h=b x=-1 y=0 z=-3
+update3d
+mix frames=150
+
+init channels=6
+speaker channel=0
+speaker channel=1
+speaker channel=2
+speaker channel=3
+speaker channel=4
+speaker channel=5
+speaker channel=6
+sound name=n frames=20000 pattern=noise seed=11 amp=0.5
+sound3d name=n min=1 max=1000 model=3 rolloff=0.8
+sound name=st channels=2 frames=20000 pattern=saw period=64 amp=0.4
+sound name=six channels=6 frames=20000 pattern=saw period=81 amp=0.3
+play3d sound=n as=a x=-4 y=0 z=-1
+play3d sound=st as=b x=1 y=0 z=3
+play3d sound=six as=c x=0 y=3 z=0
+mix frames=150
+listener ax=1 ay=0 az=0
+update3d
+mix frames=150
+speaker channel=2 x=0 y=0 z=-1
+update3d
+mix frames=150
+
+init channels=8
+speaker channel=0
+speaker channel=1
+speaker channel=2
+speaker channel=3
+speaker channel=4
+speaker channel=5
+speaker channel=6
+speaker channel=7
+speaker channel=8
+sound name=n frames=20000 pattern=noise seed=11 amp=0.5
+sound3d name=n min=1 max=1000 model=2 rolloff=1
+sound name=six channels=6 frames=20000 pattern=saw period=81 amp=0.3
+play3d sound=n as=a x=-4 y=0 z=-1
+play3d sound=six as=c x=5 y=0 z=5
+mix frames=150
+set3d h=a x=0 y=0 z=30
+set3d h=c x=-2 y=0 z=0
+update3d
+mix frames=150
+
+# A 3D voice through a bus, and a bus played in 3D: far away it is
+# inaudible but ticks (buses always do), so its voices keep their place.
+init channels=2
+sound name=n frames=20000 pattern=noise seed=11 amp=0.5
+bus name=b
+play sound=b as=bh
+bus_query bus=b
+play3d sound=n as=via x=3 y=0 z=-3 via=bh
+mix frames=150
+bus name=far
+sound3d name=far min=1 max=1000 model=1 rolloff=1
+play3d sound=far as=farh x=0 y=0 z=-5000
+bus_query bus=far
+play sound=n as=inner via=farh
+query h=farh
+mix frames=600
+query h=inner
+set3d h=farh x=0 y=0 z=-1
+update3d
+mix frames=300
+query h=inner

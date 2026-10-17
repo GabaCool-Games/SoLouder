@@ -42,3 +42,4 @@ pub use sound::{Sound, SoundId};
 pub use source::Playable;
 pub(crate) use start::{BoxedVoice, Start};
 pub use stream::{Stream, StreamError, StreamFormat, StreamReader, StreamSource};
+pub(crate) use voice::{Voice, flags};

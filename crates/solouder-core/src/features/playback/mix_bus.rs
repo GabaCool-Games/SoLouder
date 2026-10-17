@@ -34,9 +34,10 @@ pub(crate) struct Layout {
 
 /// Mixes every active, unpaused, audible voice playing through `bus.bus`
 /// into the accumulator `out`, using `scratch` (up to `MAX_CHANNELS` planar
-/// channels) for each voice's resampled audio, and stops voices that have
-/// ended (`Soloud::mixBus_internal`). A bus voice mixes its own voices as it
-/// reads each block.
+/// channels) for each voice's resampled audio, advances inaudible voices that
+/// tick without mixing them, and stops voices that have ended
+/// (`Soloud::mixBus_internal`). A bus voice mixes its own voices as it reads
+/// each block.
 pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32], bus: Layout) {
     let frames = bus.frames as usize;
     for k in 0..bus.channels {
@@ -47,36 +48,40 @@ pub(crate) fn mix_bus(voices: &mut Voices, out: &mut [f32], scratch: &mut [f32],
         let Some(voice) = voices.slots[slot].as_ref() else {
             continue;
         };
-        // Inaudible voices that tick advance without mixing (milestone E).
         // A bus seek mixes from the active set of the last mix, which may
         // list a voice played since then, without resample blocks: it is
         // skipped (reference patch 0048).
-        if voice.bus != bus.bus
-            || voice.resample.is_none()
-            || voice.has_flag(flags::PAUSED | flags::INAUDIBLE)
-        {
+        if voice.bus != bus.bus || voice.resample.is_none() || voice.has_flag(flags::PAUSED) {
+            continue;
+        }
+        // Inaudible voices that tick read their source without resampling,
+        // filtering or mixing it.
+        let tick = voice.has_flag(flags::INAUDIBLE);
+        if tick && !voice.has_flag(flags::INAUDIBLE_TICK) {
             continue;
         }
         // Out of its slot while mixed, so a bus voice can mix the others.
         let Some(mut voice) = voices.slots[slot].take() else {
             continue;
         };
-        let step_fixed = resample_voice(&mut voice, voices, scratch, bus);
-        let source_channels = voice.channels();
-        let gains = Gains {
-            current: &mut voice.current_channel_volume,
-            channel_volume: &voice.channel_volume,
-            overall_volume: voice.overall_volume,
-        };
-        pan_and_expand(
-            gains,
-            source_channels,
-            out,
-            frames,
-            bus.stride,
-            scratch,
-            bus.channels,
-        );
+        let step_fixed = resample_voice(&mut voice, voices, scratch, bus, tick);
+        if !tick {
+            let source_channels = voice.channels();
+            let gains = Gains {
+                current: &mut voice.current_channel_volume,
+                channel_volume: &voice.channel_volume,
+                overall_volume: voice.overall_volume,
+            };
+            pan_and_expand(
+                gains,
+                source_channels,
+                out,
+                frames,
+                bus.stride,
+                scratch,
+                bus.channels,
+            );
+        }
         let finished = has_finished(&mut voice, &voices.queues, step_fixed);
         voices.slots[slot] = Some(voice);
         if finished {
@@ -107,8 +112,15 @@ fn has_finished(voice: &mut Voice, queues: &Queues, step_fixed: u32) -> bool {
 
 /// Renders `bus.frames` frames of `voice` at the bus rate into `scratch`,
 /// pulling 512-frame source blocks into the voice's resample blocks as needed.
-/// Returns the fixed-point step it used.
-fn resample_voice(voice: &mut Voice, voices: &mut Voices, scratch: &mut [f32], bus: Layout) -> u32 {
+/// With `tick`, only advances the voice: blocks are read but not filtered,
+/// and nothing is written to `scratch`. Returns the fixed-point step it used.
+fn resample_voice(
+    voice: &mut Voice,
+    voices: &mut Voices,
+    scratch: &mut [f32],
+    bus: Layout,
+    tick: bool,
+) -> u32 {
     let (frames, stride) = (bus.frames, bus.stride);
     let channels = voice.channels();
     let mut step = voice.sample_rate / bus.sample_rate;
@@ -128,7 +140,9 @@ fn resample_voice(voice: &mut Voice, voices: &mut Voices, scratch: &mut [f32], b
     if voice.delay_samples != 0 {
         written = voice.delay_samples.min(frames);
         voice.delay_samples -= written;
-        clear_tail(scratch, channels, stride, 0, written);
+        if !tick {
+            clear_tail(scratch, channels, stride, 0, written);
+        }
     }
 
     while step_fixed != 0 && written < frames {
@@ -146,8 +160,10 @@ fn resample_voice(voice: &mut Voice, voices: &mut Voices, scratch: &mut [f32], b
             // The new block starts a block later: move the position back.
             voice.src_offset = voice.src_offset.saturating_sub(BLOCK_FIXED);
             let rate = voice.sample_rate;
-            for filter in voice.filters.iter_mut().flatten() {
-                filter.filter(block, BLOCK, BLOCK, channels, rate, bus.time);
+            if !tick {
+                for filter in voice.filters.iter_mut().flatten() {
+                    filter.filter(block, BLOCK, BLOCK, channels, rate, bus.time);
+                }
             }
         } else {
             voice.leftover_samples = 0;
@@ -169,7 +185,7 @@ fn resample_voice(voice: &mut Voice, voices: &mut Voices, scratch: &mut [f32], b
             count = frames - written;
         }
 
-        if count != 0 {
+        if count != 0 && !tick {
             let pool = &voices.pool.data;
             let current = &pool[blocks.current * BLOCK_LEN..][..BLOCK_LEN];
             let previous = &pool[blocks.previous * BLOCK_LEN..][..BLOCK_LEN];
@@ -185,7 +201,9 @@ fn resample_voice(voice: &mut Voice, voices: &mut Voices, scratch: &mut [f32], b
         voice.src_offset += count * step_fixed;
     }
     voice.resample = Some(blocks);
-    clear_tail(scratch, channels, stride, written, frames);
+    if !tick {
+        clear_tail(scratch, channels, stride, written, frames);
+    }
     step_fixed
 }
 

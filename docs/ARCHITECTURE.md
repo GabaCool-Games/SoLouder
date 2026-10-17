@@ -406,6 +406,12 @@ Rules for the mapping:
 
 ### Spatial audio
 
+- In the core, `features/spatial` keeps the listener, speakers and per-voice
+  3D state on the mixer's owner and computes each voice's gains there, as
+  SoLoud's `update3dAudio` does outside its mixer (offline today). Through
+  the `Controller` the same math runs on the game thread and the per-voice
+  results go to the audio thread in one batched command; colliders and
+  attenuators are Rust traits that never run on the audio thread.
 - Read `GlobalTransform` after transform propagation and submit one coherent
   listener/emitter snapshot. Parent hierarchy changes affect world-space audio.
 - Document/test forward and up axes, handedness, units, speaker layout, and

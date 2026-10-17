@@ -6,6 +6,7 @@ use std::sync::Arc;
 use super::sound::SoundId;
 use super::voice::flags;
 use crate::features::filters::{FILTERS_PER_STREAM, Filter, FilterInstance};
+use crate::features::spatial::SpatialSettings;
 
 type FilterSlots = [Option<Arc<dyn Filter>>; FILTERS_PER_STREAM];
 
@@ -79,6 +80,7 @@ pub(crate) struct SourceSettings {
     pub single_instance: bool,
     pub inaudible_tick: bool,
     pub inaudible_kill: bool,
+    pub spatial: SpatialSettings,
     /// Shared with clones until one of them changes a filter.
     pub filters: Option<Arc<FilterSlots>>,
 }
@@ -93,6 +95,7 @@ impl Default for SourceSettings {
             single_instance: false,
             inaudible_tick: false,
             inaudible_kill: false,
+            spatial: SpatialSettings::default(),
             filters: None,
         }
     }
@@ -107,6 +110,7 @@ impl SourceSettings {
             (self.inaudible_kill, flags::INAUDIBLE_KILL),
             (self.inaudible_tick, flags::INAUDIBLE_TICK),
             (!self.auto_stop, flags::DISABLE_AUTOSTOP),
+            (self.spatial.listener_relative, flags::LISTENER_RELATIVE),
         ] {
             if on {
                 voice_flags |= flag;
@@ -225,6 +229,8 @@ macro_rules! source_settings_api {
         ) {
             self.settings.set_filter(slot, filter);
         }
+
+        $crate::features::spatial::spatial_settings_api!();
     };
 }
 

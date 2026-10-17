@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 00:59:41 +0300
+Subject: [PATCH] Soloud::mixBus_internal: a ticking voice clears the rest of a
+ short block
+
+The mixing path clears the part of a resample block that the source did
+not fill; the inaudible ticking path did not, so the block kept the audio
+read into it two blocks before. A voice made audible again while it was
+on such a block (its last one, for a sound that ends) played that audio
+after the end of the sound, up to the rest of the block. The ticking path
+now clears it too.
+---
+ src/core/soloud.cpp | 9 +++++++++
+ 1 file changed, 9 insertions(+)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 5ff90c6..5cd5da0 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -1939,6 +1939,15 @@ namespace SoLoud
+ 						}
+ 						voice->mBlockSamples = readcount;
+ 
++						// Nothing reads the block while the voice ticks, but it plays
++						// the rest of it if it becomes audible: clear what was not read.
++						if (readcount < SAMPLE_GRANULARITY)
++						{
++							unsigned int k;
++							for (k = 0; k < voice->mChannels; k++)
++								memset(voice->mResampleData[0] + readcount + SAMPLE_GRANULARITY * k, 0, sizeof(float) * (SAMPLE_GRANULARITY - readcount));
++						}
++
+ 						// If we go past zero, crop to zero (a bit of a kludge)
+ 						if (voice->mSrcOffset < SAMPLE_GRANULARITY * FIXPOINT_FRAC_MUL)
+ 						{

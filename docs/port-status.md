@@ -33,8 +33,11 @@ and a `Renderer` for the audio thread, joined by bounded wait-free queues
 `bevy_solouder` plays `.wav` assets from entities. WAV files can also be
 streamed, offline or through the `Controller`, whose `StreamWorker` decodes
 them ahead of the audio thread; `bevy_solouder` streams `.wav` assets
-loaded with `WavSettings::stream`. Other codecs and 3D audio do
-not exist yet. Voice groups and the voice, bus and queue queries are
+loaded with `WavSettings::stream`. 3D audio (milestone E unit 6) places
+voices with a listener, attenuation models, listener-relative sources and
+speaker positions for 1 to 8 channels, on the offline `Mixer` only; Doppler,
+distance delay, colliders and attenuators come next. Other codecs do not
+exist yet. Voice groups, 3D audio and the voice, bus and queue queries are
 available on the offline `Mixer` only (see "Real-time coverage" below).
 
 | Crate | Slices / modules | Contents |
@@ -42,6 +45,7 @@ available on the offline `Mixer` only (see "Real-time coverage" below).
 | `solouder-core` | `contracts` | `Pcm` (validated planar samples from `f32`, `u8` or `i16`), `SAMPLE_GRANULARITY`, `MAX_CHANNELS` |
 | `solouder-core` | `dsp` | Resamplers, pan-and-expand for every channel layout, round-off and hard clipping, faders (linear fades and sine oscillation), `fft` (Ooura's split-radix FFT as SoLoud has it), `waveform` (`generateWaveform`) |
 | `solouder-core` | `features/playback` | `Mixer`, `MixerConfig`, `Sound`, `Stream` (with the `StreamSource` and `StreamReader` traits), `Bus`, `Queue`, `Playable`, `SoundId`, `Handle`, `PlayOptions`, `FilterTarget`, voice table, active-voice selection, resample-buffer pool, bus mixing (nested bus voices, bus seeking, visualization data), queued sounds, voice control and queries, fades and timers, voice groups, sound, bus and global filter slots and their parameters, `f32` and `i16` output |
+| `solouder-core` | `features/spatial` | `Attenuation`, `Mixer::play_3d` and `update_3d_audio`, the listener, per-voice position, distances and attenuation, speaker positions and per-speaker gains (`lookatRH` basis), the `set_3d_*` source defaults on `Sound`, `Stream`, `Bus` and `Queue`; voices made inaudible by distance are killed, ticked (advanced without resampling, filters or panning) or kept |
 | `solouder-core` | `features/filters` | `Filter` and `FilterInstance` traits, `FilterParams` (live values with fades), `BiquadResonantFilter`, `LofiFilter`, `EchoFilter`, `WaveShaperFilter`, `DcRemovalFilter`, `FftFilter`, `BassboostFilter`, `RobotizeFilter`, `FlangerFilter`, `FreeverbFilter` |
 | `solouder-core` | `features/realtime` | `split`, `Controller` (plays, voice and global controls, fades and schedules, filters and their parameters, bus settings and `annex_sound`, queued sounds), `Renderer`, `StreamWorker` (decodes streams ahead into per-voice feeds), `VoiceId`, `FilterTarget`, `Event`, `Status`, `RealtimeConfig`; voices and filter instances prepared on the game thread, and ended voices, replaced filters and rejected queue sounds retired to it |
 | `solouder-decoders` | `features/decoded_audio` | `decode` (Ogg Vorbis, WAV, FLAC or MPEG audio by the first bytes), `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `decode_flac` (a port of dr_flac's decoding path, in `decoded_audio/flac/`), `decode_ogg` (a port of stb_vorbis's pull-mode decoder, in `decoded_audio/vorbis/`), `decode_mp3` (a port of dr_mp3 and minimp3, layers 1 to 3, in `decoded_audio/mp3/`), `DecodeLimits`, `DecodeError` |
@@ -57,7 +61,11 @@ Ledger: the Milestone B playback behaviors are `ported`; `Soloud::init`,
 Milestone C ports `Soloud::deinit` and the `getBackend*` queries; `init`
 stays `in-progress` until its remaining flags are done. Milestone E ports `WavStream::getLength`,
 `load`, `loadMem` and `loadToMem`; the `WavStream` lifecycle is
-`in-progress`.
+`in-progress`. Unit 6 ports `update3dAudio`, the listener and source
+position, distance and attenuation setters, the speaker positions and the
+source-level 3D defaults; `play3d`, `set3dListenerParameters` and
+`set3dSourceParameters` stay `in-progress` until velocity arrives with
+Doppler (unit 7).
 
 ## Verified by scenario
 
@@ -100,6 +108,8 @@ stays `in-progress` until its remaining flags are done. Milestone E ports `WavSt
 | `mp3_decode` | MPEG-1, 2 and 2.5 layer 3 at 8 to 48 kHz, mono, joint and plain stereo, constant and variable bit rates, with and without a Xing/LAME frame and an ID3v2 tag; layer 2 mono and stereo; a file cut mid-frame, junk before the first frame and damaged frames; the load code for bytes without audio | 896,832 |
 | `stream_ogg` | Streamed Ogg Vorbis from a file, into memory and from bytes: resampled, 5.1 and 7.1 folded down, a long file looping from a loop point, a file shorter than a block, garbled data ending a voice; seeks back, forward within and across Vorbis frames and past the end (patch 0058); load codes for broken files, including one cut inside its first page (patch 0059) | 70,352 |
 | `stream_mp3` | The same for MPEG audio: MPEG-1, 2 and 2.5, layer 2, an ID3v2 tag, a long file looping from a loop point, damaged and cut-off frames, junk before the first frame; seeks decode up to the target | 70,352 |
+| `spatial_3d` | No attenuation and the inverse, linear and exponential models with min/max distances and rolloff, an unknown model index, the listener's position, `at` and `up` set one by one and together, a listener-relative source, the first frame already attenuated (#95), 3D volume with the voice's volume, fades and pan, a paused voice jumping to its new gains, the 0.01 threshold of `play3d` and the 0.001 threshold of `update3dAudio` (#240), voices killed by either, a voice ticking while inaudible and resuming in place, a ticking voice with a loop point past its end (patch 0060) and with a short last block (patch 0061), a reused slot getting its own flags (patch 0013), setters through groups, stale handles and voices not played in 3D, inaudible voices ranking for the active slots | 20,396 |
+| `spatial_speakers` | Default speaker positions for 1, 2, 4, 6 and 8 channels, reading and setting channels past the output's, moved and zero speakers, mono, stereo and 5.1 sources, a 3D voice on a bus, and a bus played in 3D far enough away to tick | 9,300 |
 | `stream_wav` | Streamed WAV files loaded from a file, into memory and from bytes, at and away from the output rate, 5.1 and quad float files folded down, A-law; a looping stream with a loop point wrapping several times (the loop-wrap seek and channel stride of patches 0002 and 0004, and patch 0005's looping streams not ending); seeks back, forward and past the end; streams ending, counted, replayed and stopped; two files both sides reject | 26,496 |
 
 Samples are compared bit for bit, except that zero and subnormal values all
@@ -125,6 +135,7 @@ harness, so they are checked by Rust tests instead of scenarios:
 | `routing_tests` (core, 3 tests) | A real-time session with voice and global filters, a filtered bus, a queue, clocked and background plays, fades, filter parameter fades, seeks, a bus filter swap, `annex_sound` and `stop_sound` renders the same samples as the offline `Mixer`, bit for bit; bus and queue plays report their events, and a play through a bus that is not playing fails; queues past `RealtimeConfig::queues` are refused |
 | `layout_tests` (core, 5 tests) | Filters whose delays change before their first block, and a bus whose channel setting changed while it plays, render the same samples as the offline `Mixer`; a mixer split after offline use (queue storage, a queued sound, a playing voice) never overflows its retirement list; `Mixer::keep_retired` keeps voices played after it, and `split` trims the surplus voice boxes left by offline overflow; a voice a bus seek plays out reports `Ended` even when a play in the same render takes its slot |
 | `realtime_no_alloc` (core) | No allocation or free inside any `Renderer::render`, with a fresh sound per play and the smallest retirement queue: playing, every control, stopping, voices ending, voice stealing past the slot count, all-protected failures, `stop_all`, rendering after the controller is dropped, and voices, a bus and a queue using every filter that allocates lazily (echo, DC removal, FFT, bassboost, flanger), with global and bus filter swaps, seeks, and sounds queued past the queue's limit; and filters first running on a bus at double speed whose channel setting changed, after delays were changed, after a failed replay of the bus and during a speed oscillation from 3 to 1, and with a flanger delay growing to its maximum; and a mixer split while it holds global filters and filtered voices that have not played yet |
+| `spatial` (core, 16 tests) | The vector math and attenuation models; `play_3d` attenuates the first frame (#95); a reused slot keeps no flags from the old voice (patch 0013); the two inaudible thresholds (#240); killing and ticking inaudible voices; a ticking voice with an empty loop ends its mix (patch 0060) and clears the rest of its last block (patch 0061); `set_3d_*` changes only 3D voices; speaker layouts and bounds; a zero speaker; paused voices jumping to their new volume |
 | `callback` unit tests (cpal) | Long callbacks render in parts identical to manual renders, conversion to `i16`, a panic injected inside the render silences the output and hands its payload off the audio thread, conversions clamp to `[-1, 1)` (24-bit 1.0 would otherwise be out of range) and play NaN as silence, dropping the callback returns the renderer |
 | `device_lifecycle` (cpal) | Repeated open/play/close, drop while playing, two outputs at once, invalid voice counts and buffer sizes rejected before the device is opened |
 | `headless_playback` (Bevy, 8 tests) | Play to the end, stop on despawn, remove and replace, pause and resume, despawn on finish, `.wav` loading through the asset server, a bad file fails the player |
@@ -199,10 +210,15 @@ Rust 1.98.1, no device).
 | Output conversion | The backend converts whatever the mix holds | Samples are clamped to `[-1, 1)` and NaN plays as silence before conversion | Integer conversions of 1.0 overflow (24-bit gives an invalid value) |
 | Callback panic | Undefined (an exception unwinds into the backend) | The output plays silence from then on, `Output::state` reports `Panicked`, and `Output::panic_message` gives the message; best-effort, because the panic hook still runs on the audio thread | Unwinding into a foreign callback is undefined behavior |
 | Lost device | Backend-specific | `Output::state` reports `Disconnected` or `Failed` and plays nothing; there is no automatic reconnection yet | Reopening is an application decision for now |
+| 3D attenuation model | `set3dAttenuation` and `set3dSourceAttenuation` take an `unsigned int`; unknown models attenuate nothing | `Attenuation` enum with the four models; the parity runner maps unknown indices to `Attenuation::None`, as C++ behaves | A model that does not exist is not a setting |
+| 3D play options | `play3d` takes velocity, volume, paused and bus; the pan of a 3D voice starts at 0 | `Mixer::play_3d(source, position, PlayOptions)`: no velocity until Doppler (unit 7); `PlayOptions::pan` is ignored and `volume: None` uses the source's volume (#381) | One options type for every play call |
+| Speaker positions | `getSpeakerPosition` and `setSpeakerPosition` return `INVALID_PARAMETER` for a channel the output does not have | `speaker_position` returns `Option`, `set_speaker_position` returns `Err(ControlError::NoSuchSpeaker)` | There are no result codes |
+| 3D setters | `set3dSource*` change only voices played with `play3d`, through handles and groups | The same: a voice without the `PROCESS_3D` flag is left alone | Kept for parity |
+| 3D in real time | `update3dAudio` runs under the engine mutex on whichever thread calls it | Not reachable through the `Controller` yet; voices played in 3D before `split` keep the gains they had | Unit 8 computes the gains on the game thread and sends each voice's results to the audio thread in one batched command |
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0024 and 0026
-to 0057 (pan ramp leftovers, surround fold-down volumes, no-free-voice
+to 0057, 0060 and 0061 (pan ramp leftovers, surround fold-down volumes, no-free-voice
 handling, raw layout validation, the #343 hang, protection and ticking not
 recomputing the active voices, sound endings dropped when a mix ends
 mid-block, the hang on a negative sample rate, seeks scaled by play speed,
@@ -220,7 +236,9 @@ a looping sound, queue channels left over from the previous sound, and
 oscillations from a higher value to a lower one running above both, and
 resampled voices skipping part of a step at every block (#314), a stream
 whose file is gone crashing, a stream cut off in its data never ending, and a
-looping stream whose file is gone never ending) are
+looping stream whose file is gone never ending, a ticking voice hanging on a
+loop without audio, and a ticking voice leaving stale samples after its
+end) are
 listed in
 [PORTING.md](PORTING.md#reference-patch-ledger). Patch 0025 (sounds, buses
 and queues that outlive their engine or play on several engines) has no Rust
@@ -251,7 +269,7 @@ Limits:
 
 | Area | Behavior |
 |---|---|
-| Mixer only | Voice groups, voice getters other than those in `Status`, bus wave, FFT and voice counts, queue counts and `is_current`, and filter parameter reads |
+| Mixer only | 3D audio (`play_3d`, `update_3d_audio`, the listener, source and speaker setters), voice groups, voice getters other than those in `Status`, bus wave, FFT and voice counts, queue counts and `is_current`, and filter parameter reads |
 | Seek errors | A seek backwards on a bus or queue voice, which they cannot do, is ignored; `CannotSeekBack` is not reported |
 | Queued sounds | A sound the renderer cannot queue (queue not playing, or full) is retired and counted in `Status::rejected_queue_sounds`, not reported on its own. Each queued sound holds a retirement credit until it has played and been collected. A controller plays at most `RealtimeConfig::queues` distinct queues (default 64) besides those the mixer already had at `split`; each new queue's list is allocated on its first play |
 | Filter sizing | Memory is reserved for a voice's filters at its channels and starting rate, for global filters at the output layout, and for bus filters at the largest layout among the bus's voices this controller requested and has not seen finish (channels, and the fastest speed each was set, faded or oscillated to); a bus played before `split` uses the `Bus`'s current settings. `split` reserves for the filters the mixer already holds, at each voice's current rate or the top of its speed fade. Echo reserves for the delay it was created with, its `DELAY` parameter's maximum (larger values are accepted); the flanger for 0.1 s, its `DELAY` maximum, or its own delay if longer. The render allocates when a filter needs more than that: echo or DC removal first running at a higher rate than reserved (a voice sped up or given a higher sample rate before its first mixed block), an echo delay set above its maximum before its first block, or a flanger whose rate or delay grows past its reserved line at any time |
@@ -262,8 +280,9 @@ Limits:
 - Init flags other than the clipper (`LEFT_HANDED_3D`, ...), device
   reconnection, and device output outside Windows WASAPI (checked only to
   build and skip on Linux).
-- 3D audio with the `INAUDIBLE` flag it sets, including `Bus::play3d` and
-  `play3dClocked` (Milestone E).
+- 3D audio: Doppler, sound speed and velocities, distance delay, colliders,
+  attenuators, `play3dClocked`, `Bus::play3d` and `LEFT_HANDED_3D`
+  (milestone E unit 7), and 3D through the `Controller` (unit 8).
 - Voice groups, voice getters, bus wave, FFT and voice counts, queue counts,
   and filter parameter reads through the `Controller` (see "Real-time
   coverage").

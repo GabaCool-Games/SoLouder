@@ -670,6 +670,132 @@ namespace
 			sounds[name] = wav;
 		}
 
+		// Whether all of the keys are given; some but not all is an error.
+		bool groupArg(const Step &step, const char *const *keys, size_t count, const char *what)
+		{
+			size_t given = 0;
+			for (size_t i = 0; i < count; i++)
+				given += step.get(keys[i]) ? 1 : 0;
+			if (given != 0 && given != count)
+				throw ScenarioError(step.line, std::string(what) + " go together");
+			return given == count;
+		}
+
+		// `sound3d`, `play3d`, `listener`, `set3d`, `update3d` and `speaker`.
+		void spatialOp(const Step &step)
+		{
+			static const char *const xyz[] = { "x", "y", "z" };
+			static const char *const at[] = { "ax", "ay", "az" };
+			static const char *const up[] = { "ux", "uy", "uz" };
+			static const char *const distance[] = { "min", "max" };
+			static const char *const attenuation[] = { "model", "rolloff" };
+			if (step.op == "sound3d")
+			{
+				static const char *const keys[] = { "name", "min", "max", "model", "rolloff", "relative" };
+				checkKeys(step, keys, 6);
+				SoLoud::AudioSource &source = sourceArg(step, "name");
+				bool hasDistance = groupArg(step, distance, 2, "`min` and `max`");
+				bool hasModel = groupArg(step, attenuation, 2, "`model` and `rolloff`");
+				unsigned int model = uintArg(step, "model", false, 0);
+				bool relative = flagArg(step, "relative", false);
+				engine(step);
+				if (hasDistance)
+					source.set3dMinMaxDistance(floatArg(step, "min", 0.0f), floatArg(step, "max", 0.0f));
+				if (hasModel)
+					source.set3dAttenuation(model, floatArg(step, "rolloff", 0.0f));
+				if (step.get("relative"))
+					source.set3dListenerRelative(relative);
+			}
+			else if (step.op == "play3d")
+			{
+				static const char *const keys[] = { "sound", "as", "x", "y", "z", "volume", "paused", "via" };
+				checkKeys(step, keys, 8);
+				SoLoud::AudioSource &source = sourceArg(step, "sound");
+				SoLoud::handle via = step.get("via") ? namedHandle(step, "via") : 0;
+				std::string name = textArg(step, "as");
+				float x = floatArg(step, "x", 0.0f), y = floatArg(step, "y", 0.0f), z = floatArg(step, "z", 0.0f);
+				float volume = floatArg(step, "volume", 1.0f);
+				bool paused = flagArg(step, "paused", false);
+				SoLoud::handle h = engine(step).play3d(source, x, y, z, 0.0f, 0.0f, 0.0f, volume, paused, via);
+				handles[name] = h;
+				std::ostringstream line;
+				line << "play3d " << name << " " << h;
+				logLine(line);
+			}
+			else if (step.op == "listener")
+			{
+				static const char *const keys[] = { "x", "y", "z", "ax", "ay", "az", "ux", "uy", "uz", "params" };
+				checkKeys(step, keys, 10);
+				bool hasPosition = groupArg(step, xyz, 3, "`x`, `y` and `z`");
+				bool hasAt = groupArg(step, at, 3, "`ax`, `ay` and `az`");
+				bool hasUp = groupArg(step, up, 3, "`ux`, `uy` and `uz`");
+				bool params = flagArg(step, "params", false);
+				if (params && !(hasPosition && hasAt && hasUp))
+					throw ScenarioError(step.line, "`params=1` needs the position, `at` and `up`");
+				if (!hasPosition && !hasAt && !hasUp)
+					throw ScenarioError(step.line, "`listener` needs a position, `at` or `up`");
+				float x = floatArg(step, "x", 0.0f), y = floatArg(step, "y", 0.0f), z = floatArg(step, "z", 0.0f);
+				float ax = floatArg(step, "ax", 0.0f), ay = floatArg(step, "ay", 0.0f), az = floatArg(step, "az", 0.0f);
+				float ux = floatArg(step, "ux", 0.0f), uy = floatArg(step, "uy", 0.0f), uz = floatArg(step, "uz", 0.0f);
+				SoLoud::Soloud &s = engine(step);
+				if (params)
+				{
+					s.set3dListenerParameters(x, y, z, ax, ay, az, ux, uy, uz);
+					return;
+				}
+				if (hasPosition)
+					s.set3dListenerPosition(x, y, z);
+				if (hasAt)
+					s.set3dListenerAt(ax, ay, az);
+				if (hasUp)
+					s.set3dListenerUp(ux, uy, uz);
+			}
+			else if (step.op == "set3d")
+			{
+				static const char *const keys[] = { "h", "x", "y", "z", "params", "min", "max", "model", "rolloff" };
+				checkKeys(step, keys, 9);
+				SoLoud::handle h = handleArg(step);
+				bool hasPosition = groupArg(step, xyz, 3, "`x`, `y` and `z`");
+				bool hasDistance = groupArg(step, distance, 2, "`min` and `max`");
+				bool hasModel = groupArg(step, attenuation, 2, "`model` and `rolloff`");
+				bool params = flagArg(step, "params", false);
+				if (params && !hasPosition)
+					throw ScenarioError(step.line, "`params=1` needs `x`, `y` and `z`");
+				unsigned int model = uintArg(step, "model", false, 0);
+				SoLoud::Soloud &s = engine(step);
+				float x = floatArg(step, "x", 0.0f), y = floatArg(step, "y", 0.0f), z = floatArg(step, "z", 0.0f);
+				if (hasPosition && params)
+					s.set3dSourceParameters(h, x, y, z);
+				else if (hasPosition)
+					s.set3dSourcePosition(h, x, y, z);
+				if (hasDistance)
+					s.set3dSourceMinMaxDistance(h, floatArg(step, "min", 0.0f), floatArg(step, "max", 0.0f));
+				if (hasModel)
+					s.set3dSourceAttenuation(h, model, floatArg(step, "rolloff", 0.0f));
+			}
+			else if (step.op == "update3d")
+			{
+				checkKeys(step, 0, 0);
+				engine(step).update3dAudio();
+			}
+			else
+			{
+				static const char *const keys[] = { "channel", "x", "y", "z" };
+				checkKeys(step, keys, 4);
+				unsigned int channel = uintArg(step, "channel", true, 0);
+				bool set = groupArg(step, xyz, 3, "`x`, `y` and `z`");
+				SoLoud::Soloud &s = engine(step);
+				std::ostringstream line;
+				line << "speaker " << channel;
+				if (set)
+					line << " set=" << s.setSpeakerPosition(channel, floatArg(step, "x", 0.0f), floatArg(step, "y", 0.0f), floatArg(step, "z", 0.0f));
+				float x = 0.0f, y = 0.0f, z = 0.0f;
+				SoLoud::result code = s.getSpeakerPosition(channel, x, y, z);
+				line << " get=" << code << " " << hex32(x) << " " << hex32(y) << " " << hex32(z);
+				logLine(line);
+			}
+		}
+
 		void queueOp(const Step &step)
 		{
 			if (step.op == "queue")
@@ -1382,6 +1508,11 @@ namespace
 			else if (step.op == "queue" || step.op == "queue_add" || step.op == "queue_query")
 			{
 				queueOp(step);
+			}
+			else if (step.op == "sound3d" || step.op == "play3d" || step.op == "listener" || step.op == "set3d" || step.op == "update3d" ||
+				step.op == "speaker")
+			{
+				spatialOp(step);
 			}
 			else
 			{

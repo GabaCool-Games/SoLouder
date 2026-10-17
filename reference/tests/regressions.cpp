@@ -888,6 +888,54 @@ namespace
 		check(std::fabs(expected - actual) < 1e-6f, "reused slot gets the same 3D volume");
 	}
 
+	// An inaudible voice that ticks wrapped its loop without checking that
+	// the wrap gave any audio (the mixing path stops when it gives none), so
+	// a looping sound whose loop point is past its end, made inaudible by 3D
+	// attenuation, spun forever in mix.
+	void inaudible_tick_empty_loop_ends()
+	{
+		Wav wav;
+		check(loadWav(wav, makeConstantWav(1, 1000, 0.25f)) == SO_NO_ERROR, "wav loads");
+		wav.setLooping(true);
+		wav.setLoopPoint(1.0);
+		wav.setInaudibleBehavior(true, false);
+		wav.set3dAttenuation(AudioSource::INVERSE_DISTANCE, 1.0f);
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle h = soloud.play3d(wav, 0.0f, 0.0f, -5000.0f);
+		render(soloud, 4096);
+		check(soloud.isValidVoiceHandle(h), "voice keeps looping");
+	}
+
+	// An inaudible voice that ticks left the rest of a short block as it was,
+	// holding the audio read two blocks before; made audible again during
+	// that block, the voice played that audio after its end.
+	void inaudible_tick_clears_short_block()
+	{
+		Wav wav;
+		check(loadWav(wav, makeConstantWav(1, 1300, 0.5f)) == SO_NO_ERROR, "wav loads");
+		wav.setInaudibleBehavior(true, false);
+		Soloud soloud;
+		check(soloud.init(0, Soloud::NULLDRIVER, kRate, 2048, 2) == SO_NO_ERROR, "null driver init");
+		handle h = soloud.play3d(wav, 0.0f, 0.0f, -1.0f);
+		std::vector<float> out(2 * 1000);
+		soloud.mix(out.data(), 1000);
+		// Inaudible while the last block (frames 1024 to 1299) is read.
+		soloud.setVolume(h, 0.0f);
+		soloud.update3dAudio();
+		soloud.mix(out.data(), 100);
+		soloud.setVolume(h, 1.0f);
+		soloud.update3dAudio();
+		soloud.mix(out.data(), 400);
+		// The linear resampler plays frame 1299 one frame late, at 1300.
+		check(out[2 * (1300 - 1100)] != 0.0f, "the last frame is heard");
+		float after = 0.0f;
+		for (size_t i = 2 * (1301 - 1100); i < 2 * 400; i++)
+			after = std::fmax(after, std::fabs(out[i]));
+		std::printf("  peak after the end %g\n", after);
+		check(after == 0.0f, "nothing after the end of the sound");
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -1590,6 +1638,8 @@ namespace
 		{ "wavstream_rejects_too_many_channels", wavstream_rejects_too_many_channels },
 		{ "active_voice_cap_above_255", active_voice_cap_above_255 },
 		{ "play3d_reused_slot_flags", play3d_reused_slot_flags },
+		{ "inaudible_tick_empty_loop_ends", inaudible_tick_empty_loop_ends },
+		{ "inaudible_tick_clears_short_block", inaudible_tick_clears_short_block },
 		{ "pan_ramp_leftover_frames", pan_ramp_leftover_frames },
 		{ "surround_to_quad_center_follows_volume", surround_to_quad_center_follows_volume },
 		{ "quad_to_7_1_rear_uses_rear_volume", quad_to_7_1_rear_uses_rear_volume },

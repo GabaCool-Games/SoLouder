@@ -13,6 +13,7 @@ use super::stream::{self, StreamInput};
 use crate::contracts::{MAX_CHANNELS, Pcm, SAMPLE_GRANULARITY};
 use crate::dsp::fader::Fader;
 use crate::features::filters::{FILTERS_PER_STREAM, FilterInstance};
+use crate::features::spatial::VoiceSpatial;
 
 const MAX: usize = MAX_CHANNELS as usize;
 const BLOCK: usize = SAMPLE_GRANULARITY as usize;
@@ -22,7 +23,12 @@ pub(crate) mod flags {
     pub const LOOPING: u32 = 1;
     pub const PROTECTED: u32 = 2;
     pub const PAUSED: u32 = 4;
-    /// Set by 3D attenuation (milestone E); inaudible voices are not mixed.
+    /// Started with `play_3d`: 3D updates set its gains.
+    pub const PROCESS_3D: u32 = 8;
+    /// Its 3D position is relative to the listener.
+    pub const LISTENER_RELATIVE: u32 = 16;
+    /// Set by 3D updates below the inaudibility threshold; inaudible voices
+    /// are not mixed (ticking ones advance silently).
     pub const INAUDIBLE: u32 = 32;
     pub const INAUDIBLE_KILL: u32 = 64;
     pub const INAUDIBLE_TICK: u32 = 128;
@@ -75,8 +81,10 @@ pub(crate) struct Voice {
     /// Per-speaker gain reached at the end of the last mix; ramps start here.
     pub current_channel_volume: [f32; MAX],
     pub set_volume: f32,
-    /// `set_volume` times the 3D volume (always 1 until 3D audio is ported).
+    /// `set_volume` times the 3D volume (`spatial.volume`).
     pub overall_volume: f32,
+    /// 3D state (`m3dData`), used by voices with [`flags::PROCESS_3D`].
+    pub spatial: VoiceSpatial,
     pub base_sample_rate: f32,
     /// `base_sample_rate` times the relative play speed.
     pub sample_rate: f32,
@@ -135,6 +143,7 @@ impl Voice {
             current_channel_volume: [0.0; MAX],
             set_volume: 1.0,
             overall_volume: 0.0,
+            spatial: VoiceSpatial::new(&settings.spatial),
             base_sample_rate: rate,
             sample_rate: rate,
             set_relative_play_speed: 1.0,
@@ -282,7 +291,13 @@ impl Voice {
     /// voice jumps to the new gains so it does not ramp when resumed.
     pub fn set_volume(&mut self, volume: f32) {
         self.set_volume = volume;
-        self.overall_volume = volume;
+        self.update_volume();
+    }
+
+    /// `updateVoiceVolume_internal`: the overall volume after a change to
+    /// the set or 3D volume.
+    pub fn update_volume(&mut self) {
+        self.overall_volume = self.set_volume * self.spatial.volume;
         if self.has_flag(flags::PAUSED) {
             self.snap_gains();
         }
@@ -331,68 +346,5 @@ fn channels_of(source: &VoiceSource) -> usize {
 }
 
 #[cfg(test)]
-mod tests {
-    use super::*;
-    use crate::features::playback::Sound;
-
-    fn voice(channels: u32, frames: usize) -> Voice {
-        let samples = (0..channels as usize * frames).map(|i| i as f32).collect();
-        Sound::new(Pcm::from_planar(samples, channels, 44100.0).unwrap()).voice()
-    }
-
-    fn offset(v: &Voice) -> u32 {
-        match v.source {
-            VoiceSource::Pcm { offset, .. } => offset,
-            _ => unreachable!(),
-        }
-    }
-
-    #[test]
-    fn read_copies_planar_frames_until_the_end() {
-        let mut v = voice(2, 3);
-        let mut block = vec![0.0; BLOCK * MAX];
-        assert_eq!(v.read(&mut block, 0, 2), 2);
-        assert_eq!(v.read(&mut block, 2, 5), 1);
-        assert_eq!(block[..3], [0.0, 1.0, 2.0]);
-        assert_eq!(block[BLOCK..BLOCK + 3], [3.0, 4.0, 5.0]);
-        assert!(v.has_ended(&Queues::default()));
-        v.set_flag(flags::LOOPING, true);
-        assert!(!v.has_ended(&Queues::default()));
-    }
-
-    #[test]
-    fn seek_rewinds_or_skips_at_the_base_rate() {
-        let mut v = voice(1, 44100);
-        v.set_relative_play_speed(2.0);
-        v.seek(0.25);
-        assert_eq!((offset(&v), v.stream_position), (11025, 0.25));
-        v.seek(0.5);
-        assert_eq!(offset(&v), 22050);
-        v.seek(0.1);
-        assert_eq!(offset(&v), 4410);
-        v.seek(5.0);
-        assert!(v.has_ended(&Queues::default()));
-        assert_eq!(v.stream_position, 5.0);
-        v.seek(f64::NAN);
-        assert_eq!(offset(&v), 44100);
-    }
-
-    #[test]
-    fn pan_law_is_constant_power() {
-        let mut v = voice(1, 1);
-        v.set_pan(-1.0);
-        assert_eq!(v.channel_volume[..2], [1.0, 0.0]);
-        v.set_pan(0.3);
-        let [l, r] = [v.channel_volume[0], v.channel_volume[1]];
-        assert!((l * l + r * r - 1.0).abs() < 1e-6);
-    }
-
-    #[test]
-    fn rejects_non_positive_speeds() {
-        let mut v = voice(1, 1);
-        assert!(!v.set_relative_play_speed(0.0));
-        assert!(!v.set_relative_play_speed(f32::NAN));
-        assert!(v.set_relative_play_speed(2.0));
-        assert_eq!(v.sample_rate, 88200.0);
-    }
-}
+#[path = "voice_tests.rs"]
+mod tests;

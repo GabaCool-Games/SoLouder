@@ -89,6 +89,8 @@ set(REFERENCE_TESTS
   wavstream_rejects_too_many_channels
   active_voice_cap_above_255
   play3d_reused_slot_flags
+  inaudible_tick_empty_loop_ends
+  inaudible_tick_clears_short_block
   pan_ramp_leftover_frames
   surround_to_quad_center_follows_volume
   quad_to_7_1_rear_uses_rear_volume

@@ -77,7 +77,7 @@ impl State {
             .ok_or_else(|| step.error(format!("no bus named `{name}`")))
     }
 
-    fn handle_named(&self, step: &Step, key: &str) -> Result<Handle, ScenarioError> {
+    pub(crate) fn handle_named(&self, step: &Step, key: &str) -> Result<Handle, ScenarioError> {
         let name = step.text(key)?;
         self.handles
             .get(name)

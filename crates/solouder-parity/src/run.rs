@@ -119,6 +119,12 @@ impl State {
             "queue" => self.queue(step),
             "queue_add" => self.queue_add(step),
             "queue_query" => self.queue_query(step),
+            "sound3d" => self.sound3d(step),
+            "play3d" => self.play3d(step),
+            "listener" => self.listener(step),
+            "set3d" => self.set3d(step),
+            "update3d" => self.update3d(step),
+            "speaker" => self.speaker(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }

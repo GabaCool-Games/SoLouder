@@ -1,0 +1,272 @@
+# 3D voices on a stereo output: play3d computes the gains before the first
+# frame (#95), every attenuation model with distances clamped to min and max
+# and rolloff, settings from the source and per voice, listener position,
+# at and up, listener-relative sources, update3dAudio ramping to new gains,
+# paused voices, volume and pan on 3D voices, the 0.01 threshold of play3d
+# and the 0.001 threshold of update3dAudio (#240), inaudible voices that are
+# killed or tick (patches 0060 and 0061), a reused slot (patch 0013),
+# voice groups, stale handles and voices not played in 3D.
+init channels=2
+sound name=n frames=30000 pattern=noise seed=3 amp=0.5
+sound name=s frames=30000 pattern=saw period=50 amp=0.5
+
+# No attenuation (the default): only the direction matters.
+play3d sound=n as=front z=-5
+query h=front
+mix frames=200
+set3d h=front x=5 y=0 z=0
+update3d
+query h=front
+mix frames=200
+set3d h=front x=-3 y=4 z=0
+update3d
+mix frames=200
+set3d h=front x=0 y=0 z=0
+update3d
+mix frames=100
+stop h=front
+
+# Inverse distance from the source's settings; inside the minimum, past the
+# maximum, and with rolloff.
+sound3d name=s min=1 max=100 model=1 rolloff=1
+play3d sound=s as=inv x=2 y=1 z=-3
+query h=inv
+mix frames=150
+set3d h=inv x=0.5 y=0 z=0
+update3d
+query h=inv
+mix frames=150
+set3d h=inv x=0 y=0 z=-250
+update3d
+query h=inv
+mix frames=150
+set3d h=inv x=-6.5 y=0.25 z=2 model=1 rolloff=2.5
+update3d
+query h=inv
+mix frames=150
+stop h=inv
+
+# Linear and exponential models set per voice, and a model number SoLoud
+# does not have (no attenuation).
+play3d sound=n as=lin x=1 y=0 z=-9 volume=0.8
+set3d h=lin min=2 max=30 model=2 rolloff=0.75
+query h=lin
+update3d
+query h=lin
+mix frames=150
+set3d h=lin x=40 y=0 z=0
+update3d
+query h=lin
+mix frames=150
+set3d h=lin x=7.3 y=-1 z=0.2 min=1.5 max=1000 model=3 rolloff=1.3
+update3d
+query h=lin
+mix frames=150
+set3d h=lin model=3 rolloff=0.5
+update3d
+query h=lin
+mix frames=150
+set3d h=lin model=7 rolloff=3
+update3d
+query h=lin
+mix frames=150
+stop h=lin
+
+# The listener: moved, turned, a tilted up vector, and all at once.
+sound3d name=n min=1 max=1000 model=1 rolloff=1
+play3d sound=n as=w x=3 y=0 z=-2
+listener x=1 y=0.5 z=-1
+update3d
+query h=w
+mix frames=150
+listener ax=1 ay=0 az=-1
+update3d
+mix frames=150
+listener ux=0.3 uy=0.8 uz=0.1
+update3d
+mix frames=150
+listener x=-2 y=0 z=4 ax=0 ay=0 az=1 ux=0 uy=1 uz=0 params=1
+update3d
+query h=w
+mix frames=150
+stop h=w
+
+# Listener-relative sources ignore the listener's position but not its
+# orientation.
+sound3d name=s relative=1
+play3d sound=s as=rel x=-2 y=0 z=-1
+query h=rel
+mix frames=150
+listener x=50 y=0 z=0 ax=0 ay=0 az=-1 ux=0 uy=1 uz=0 params=1
+update3d
+query h=rel
+mix frames=150
+listener ax=-1 ay=0 az=0
+update3d
+mix frames=150
+stop h=rel
+sound3d name=s relative=0
+listener x=0 y=0 z=0 ax=0 ay=0 az=-1 ux=0 uy=1 uz=0 params=1
+
+# Volume, fades and pan on a 3D voice: the overall volume includes the 3D
+# volume, and update3dAudio replaces the pan gains.
+play3d sound=n as=v x=0 y=0 z=-4 volume=0.6
+query h=v
+mix frames=100
+set h=v volume=0.3
+query h=v
+mix frames=100
+fade h=v param=volume to=1 time=0.01
+mix frames=300
+query h=v
+set h=v pan=0.7
+mix frames=100
+update3d
+mix frames=100
+stop h=v
+
+# Paused: update3dAudio moves a paused voice's gains without a ramp, using
+# its previous speaker gains, then it resumes.
+play3d sound=n as=p x=-1 y=0 z=-1 paused=1
+query h=p
+mix frames=100
+set3d h=p x=3 y=0 z=-6
+update3d
+set h=p pause=0
+mix frames=200
+set h=p pause=1
+set h=p volume=0.5
+set h=p pause=0
+mix frames=100
+stop h=p
+
+# Thresholds (#240): play3d marks voices under 0.01 inaudible, update3dAudio
+# only those under 0.001. Inaudible voices are not mixed and take no
+# active slot.
+play3d sound=n as=t x=0 y=0 z=-150
+query h=t
+counts
+mix frames=100
+update3d
+counts
+mix frames=100
+set3d h=t x=0 y=0 z=-1500 min=1 max=5000
+update3d
+counts
+mix frames=100
+set3d h=t x=0 y=0 z=-2
+set h=t volume=0.004
+update3d
+counts
+mix frames=100
+set h=t volume=0.001
+update3d
+counts
+stop h=t
+
+# Killed when inaudible, by play3d and by update3dAudio.
+sound name=k frames=30000 pattern=saw period=40 amp=0.4 kill=1
+sound3d name=k min=1 max=1000 model=1 rolloff=1
+play3d sound=k as=k1 x=0 y=0 z=-500
+query h=k1
+play3d sound=k as=k2 x=0 y=0 z=-3
+mix frames=100
+set3d h=k2 x=0 y=0 z=-5000 min=1 max=10000
+update3d
+query h=k2
+counts
+mix frames=100
+
+# Ticking while inaudible: the voice advances silently and resumes where it
+# got to.
+sound name=tk frames=30000 pattern=saw period=70 amp=0.4 tick=1
+sound3d name=tk min=1 max=1000 model=1 rolloff=1
+play3d sound=tk as=tk1 x=2 y=0 z=-5000
+query h=tk1
+counts
+mix frames=700
+query h=tk1
+set3d h=tk1 x=2 y=0 z=-1
+update3d
+mix frames=300
+query h=tk1
+stop h=tk1
+
+# Patch 0060: a ticking voice whose loop point is past its end stops
+# wrapping when the wrap gives no audio.
+sound name=empty frames=1000 pattern=saw period=30 amp=0.4 looping=1 loop_point=1 tick=1
+sound3d name=empty min=1 max=1000 model=1 rolloff=1
+play3d sound=empty as=e x=0 y=0 z=-5000
+mix frames=2048
+query h=e
+stop h=e
+
+# Patch 0061: a ticking voice clears the rest of its short last block, so
+# made audible again on it, it plays nothing after its end.
+sound name=short frames=1300 pattern=saw period=90 amp=0.5 tick=1
+play3d sound=short as=sh x=1 y=0 z=-1
+mix frames=1000
+set h=sh volume=0
+update3d
+mix frames=100
+set h=sh volume=1
+update3d
+mix frames=400
+query h=sh
+
+# Patch 0013: a world-space voice in a slot last used by a listener-relative
+# one is attenuated by its distance from the listener.
+stop_all
+sound name=world frames=30000 pattern=noise seed=5 amp=0.5
+sound3d name=world min=1 max=1000 model=1 rolloff=1
+sound name=near frames=30000 pattern=noise seed=6 amp=0.5
+sound3d name=near min=1 max=1000 model=1 rolloff=1 relative=1
+listener x=100 y=0 z=0
+play3d sound=near as=r1 x=1 y=0 z=0
+update3d
+mix frames=100
+stop h=r1
+play3d sound=world as=w1 x=1 y=0 z=0
+query h=w1
+mix frames=100
+stop_all
+listener x=0 y=0 z=0
+
+# Groups move every 3D voice they hold; stale handles and voices not played
+# in 3D are left alone; set3dSourceParameters moves a voice.
+group as=g
+play3d sound=world as=g1 x=1 y=0 z=-1
+play3d sound=world as=g2 x=-1 y=0 z=-1
+play sound=world as=plain volume=0.25
+group_add group=g h=g1
+group_add group=g h=g2
+group_add group=g h=plain
+set3d h=g x=0 y=0 z=-8 min=2 max=500
+update3d
+query h=g1
+query h=g2
+query h=plain
+mix frames=150
+set3d h=g1 x=4 y=0 z=0 params=1
+stop h=g2
+set3d h=g2 x=0 y=0 z=-1
+update3d
+query h=g1
+query h=g2
+mix frames=150
+stop_all
+
+# The active voice limit ranks 3D voices by their attenuated volume.
+global max_active=1
+play3d sound=world as=a1 x=0 y=0 z=-10
+play3d sound=world as=a2 x=0 y=0 z=-2
+counts
+mix frames=150
+set3d h=a1 x=0 y=0 z=-1
+set3d h=a2 x=0 y=0 z=-20
+update3d
+mix frames=150
+stop_all
+global max_active=16
+update3d
+mix frames=50

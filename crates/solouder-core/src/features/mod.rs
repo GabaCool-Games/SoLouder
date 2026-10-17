@@ -3,3 +3,4 @@
 pub mod filters;
 pub mod playback;
 pub mod realtime;
+pub mod spatial;
