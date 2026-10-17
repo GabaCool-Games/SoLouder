@@ -408,6 +408,8 @@ unpatched reference, and each needs a matching Rust test.
 | 0059 | — (found porting milestone E) | stb_vorbis reads an Ogg page without segments as `fread(data, 0, 1)`, and `Soloud_Filehack_fread` divided the bytes read by the element size of 0, so a `WavStream` of an Ogg file cut inside its first page crashed with an integer division by zero. An empty request now reads nothing, as `fread` does, and the file fails to load. | `oggstream_cut_first_page_fails` |
 | 0060 | — (found porting milestone E) | The inaudible-tick path of `mixBus_internal` called `getAudio` until the block was full; a looping voice whose source gives no audio (a loop point at or past its end) returned 0 every time, so the mix call never returned. It now stops when a read returns nothing, as the mixing path does. | `inaudible_tick_empty_loop_ends` |
 | 0061 | — (found porting milestone E) | The inaudible-tick path did not clear the rest of a block that ended short, as the mixing path does, so a voice ticked to its end and then made audible again (by `update3dAudio`) played the stale samples left in its resample buffer after its last frame. It now clears them. | `inaudible_tick_clears_short_block` |
+| 0062 | — (found porting milestone F) | `NoiseInstance::getAudio` divided its sum by the sum of the octave weights, so weights summing to 0 (all 0, or 1 and -1) made every sample infinite or NaN, silencing the whole mix. Such weights now give silence. | `noise_zero_octave_sum_is_silent` |
+| 0063 | — (found porting milestone F) | `WavStream::load`, `loadMem`, `loadFile` and `loadFileToMem` replaced the memory file and file name that playing instances read without stopping them, so those voices read freed memory. They now stop the stream's voices first, as `Wav`'s loaders do. | `wavstream_reload_stops_voices` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -434,6 +436,8 @@ fixes are welcome as new patches.
 | #396 (reported), #156 | `WavStreamInstance::seek` fallback | Non-Ogg streams seek by rewind + decode-and-discard, which is O(seek distance). Upstream reports seeking a stream handle silently kills it. | Per-codec seek with defined accuracy; test seek while playing and while paused. PR #336 is a native-seek reference. |
 | — (found 2026-10-12) | `Soloud::mix`, `Soloud::mixSigned16` | No bound on the frame count: a request for more frames than the scratch buffer holds (at least 4096, or the buffer size rounded up to 16) writes past `mScratch`. Parity scenarios stay at or below 4096 frames. | Done: `Mixer::mix_interleaved` renders long requests in passes of at most the scratch size (`mix_without_sources_is_silent`, `split_mixes_match_one_mix`). |
 | — (found 2026-10-12) | `Queue::play`, `QueueInstance::getAudio` | A queued sound is an instance that reads its `Wav`'s samples; destroying the `Wav` while it is queued stops only its own voices, so the queue later reads freed memory. Queued instances are also never freed: `QueueInstance::getAudio` deletes the ones it finishes, but `Queue` has no destructor, so whatever is still queued leaks. | Done: a queued `Sound` holds its `Pcm`, and dropped queue entries go through retirement like ended voices (scenario `queues`). |
+| — (found 2026-10-18) | `WavStream::loadFile`, `WavStreamInstance` | Every instance reads through the caller's one `File` and seeks the same cursor, so two voices of the stream corrupt each other's reads; lengths and seeks are 32-bit. | Done: `WavStream::from_file` takes a `StreamFile` that each voice opens on its own (`voices_read_their_own_cursor`). Single-voice scenarios (`file_loading`) match. |
+| — (found 2026-10-18) | `WavStream::load*` under `Queue::play` | Patch 0063 stops a reloaded stream's voices, but an instance waiting in a queue is not a voice: it goes on reading the freed memory file. | Done: a queued `Stream` holds its source; a `WavStream` cannot be reloaded. Scenarios do not reload queued streams. |
 | #307, #241 | `Soloud::deinit`, `Soloud::~Soloud` | `SOLOUD_ASSERT(!mInsideAudioThreadMutex)` in `deinit` can fire at shutdown; ordering of `stopAll` versus backend teardown. | `Drop` is safe in every state; test repeated init/teardown. See the shutdown lesson below. |
 
 Also reported upstream and worth a test once the feature is ported: #274
@@ -914,7 +918,8 @@ Rules for units 1 to 8:
   the zx7 compressor has a different licence). `legal.mmd` mentions neither AY
   nor zx7.
 
-1. **Generator contract, file readers and Noise:** a generic seek (rewind, then
+1. **Generator contract, file readers and Noise** (done; patches 0062 and
+   0063): a generic seek (rewind, then
    decode and discard) and `rewind`; looping voices whose rewind fails end
    instead of playing silence forever. Port `Misc::Prg` (WELL512, 111 lines)
    and `noise` (132 + h 74). Rows: `Noise::*` (3), plus `Wav::loadFile`,
@@ -923,6 +928,25 @@ Rules for units 1 to 8:
    octave sum of 0 gives inf, then NaN (patch); the octave state restarts
    every call, so with 512-frame reads octave 9 never updates (preserve).
    Scenarios `noise`, `file_loading`.
+   Done: `solouder_core::Generator`/`GeneratorInstance` and `Synth` (a
+   `Playable` and `Queueable` source). A voice builds its instance when it
+   is prepared, on the game thread; reads ask for exactly the reference's
+   sizes (blocks, loop refills, seek passes of the scratch size, queue
+   strides), and seeks and loop wraps discard into buffers the mixer
+   already holds, so nothing allocates on the audio thread
+   (`solouder-sources/tests/realtime_no_alloc.rs` also matches the
+   `Controller` against an offline `Mixer`). `GeneratorInstance::info`
+   answers `Soloud::getInfo`. The new crate `solouder-sources` has `prg` and
+   `noise` features. File readers: `decode_reader` caps the read at
+   `DecodeLimits::max_file_bytes` (8 bytes per sample plus 1 MiB) and
+   reports `FileTooLarge` past it; `WavStream::from_file` takes a public
+   `StreamFile`, and a path or `Arc<[u8]>` handed to it behaves exactly as
+   `open` or `from_bytes` (a `DiskFile` or a `MemoryFile` in the
+   reference), while other types read as a `MemoryFile`. The parity
+   runners reload a `stream` name into the same C++ `WavStream`; a
+   stream-replacement case is in `stream_wav`. Patch 0063 covers only the
+   voices: a queued instance of a reloaded stream still reads freed memory
+   (see "Still open in the reference").
 2. **Vic** (167 + h 108; Petri Häkkinen, zlib): integer phases and floats;
    44100 Hz is hard-coded into the phase step. Rows: `Vic::*` (5). Defect:
    `setRegister`/`getRegister` index past 4 registers (bounds patch; Rust returns

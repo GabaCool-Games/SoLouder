@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:36:49 +0300
+Subject: [PATCH] NoiseInstance::getAudio: octave weights summing to 0 give
+ silence
+
+The output is divided by the sum of the octave weights, so weights that
+sum to 0 (all of them 0, or 1 and -1) made every sample infinite or NaN,
+which then silenced every voice mixed with it. Such weights now give
+silence.
+---
+ src/audiosource/noise/soloud_noise.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/audiosource/noise/soloud_noise.cpp b/src/audiosource/noise/soloud_noise.cpp
+index 7155f59..f3f3a14 100644
+--- a/src/audiosource/noise/soloud_noise.cpp
++++ b/src/audiosource/noise/soloud_noise.cpp
+@@ -68,7 +68,8 @@ namespace SoLoud
+ 				}
+ 				aBuffer[i] += octavevalue[j] * mOctaveScale[j];
+ 			}
+-			aBuffer[i] *= 1.0f/totalscale;
++			// Weights summing to 0 give silence instead of infinity and NaN.
++			aBuffer[i] *= totalscale != 0 ? 1.0f / totalscale : 0.0f;
+ 		}
+ 
+ 		return aSamplesToRead;

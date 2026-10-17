@@ -25,6 +25,7 @@
 #include "soloud_flangerfilter.h"
 #include "soloud_freeverbfilter.h"
 #include "soloud_lofifilter.h"
+#include "soloud_noise.h"
 #include "soloud_robotizefilter.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_queue.h"
@@ -936,6 +937,43 @@ namespace
 		check(after == 0.0f, "nothing after the end of the sound");
 	}
 
+	// Noise divides its sum by the sum of the octave weights: weights summing
+	// to 0 gave infinity, then NaN, which silenced the whole mix.
+	void noise_zero_octave_sum_is_silent()
+	{
+		Noise noise;
+		noise.setOctaveScale(1, -1, 0, 0, 0, 0, 0, 0, 0, 0);
+		Soloud soloud;
+		check(soloud.init(0, Soloud::NULLDRIVER, kRate, 2048, 2) == SO_NO_ERROR, "null driver init");
+		soloud.play(noise);
+		std::vector<float> out(2 * 1024);
+		soloud.mix(out.data(), 1024);
+		bool silent = true;
+		for (size_t i = 0; i < out.size(); i++)
+			silent = silent && out[i] == 0.0f;
+		check(silent, "weights summing to 0 give silence");
+	}
+
+	// WavStream::load* replaced the stream's data without stopping its
+	// voices, which went on reading the freed memory file. Wav's loaders
+	// stop first.
+	void wavstream_reload_stops_voices()
+	{
+		WavStream stream;
+		check(loadStream(stream, makeConstantWav(1, 44100, 0.25f)) == SO_NO_ERROR, "stream loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle first = soloud.play(stream);
+		render(soloud, 1024);
+		check(loadStream(stream, makeConstantWav(2, 44100, 0.5f)) == SO_NO_ERROR, "stream reloads");
+		check(!soloud.isValidVoiceHandle(first), "reloading stops the stream's voices");
+		handle second = soloud.play(stream);
+		render(soloud, 1024);
+		check(loadStream(stream, std::vector<unsigned char>(64, 0)) != SO_NO_ERROR, "garbage fails to load");
+		check(!soloud.isValidVoiceHandle(second), "a failed reload stops them too");
+		check(soloud.getActiveVoiceCount() == 0, "no voice reads the old data");
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -1658,6 +1696,8 @@ namespace
 		{ "oggstream_seek_lands_on_target", oggstream_seek_lands_on_target },
 		{ "oggstream_seek_past_end_ends", oggstream_seek_past_end_ends },
 		{ "oggstream_cut_first_page_fails", oggstream_cut_first_page_fails },
+		{ "noise_zero_octave_sum_is_silent", noise_zero_octave_sum_is_silent },
+		{ "wavstream_reload_stops_voices", wavstream_reload_stops_voices },
 	};
 }
 

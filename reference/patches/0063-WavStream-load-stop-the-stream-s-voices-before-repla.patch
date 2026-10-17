@@ -1,0 +1,59 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:44:27 +0300
+Subject: [PATCH] WavStream::load*: stop the stream's voices before replacing
+ its data
+
+load, loadMem, loadFile and loadFileToMem deleted the memory file and
+file name that playing instances read from without stopping them, so
+those voices went on reading freed memory. They now stop the voices
+first, as Wav's loaders and the destructor do; a load that fails has
+already stopped them.
+---
+ src/audiosource/wav/soloud_wavstream.cpp | 12 ++++++++++++
+ 1 file changed, 12 insertions(+)
+
+diff --git a/src/audiosource/wav/soloud_wavstream.cpp b/src/audiosource/wav/soloud_wavstream.cpp
+index 911acc7..e330eb3 100644
+--- a/src/audiosource/wav/soloud_wavstream.cpp
++++ b/src/audiosource/wav/soloud_wavstream.cpp
+@@ -630,6 +630,9 @@ namespace SoLoud
+ 
+ 	result WavStream::load(const char *aFilename)
+ 	{
++		// Voices read the data replaced below: stop them first, as Wav's
++		// loaders do.
++		stop();
+ 		delete[] mFilename;
+ 		delete mMemFile;
+ 		mMemFile = 0;
+@@ -659,6 +662,9 @@ namespace SoLoud
+ 
+ 	result WavStream::loadMem(const unsigned char *aData, unsigned int aDataLen, bool aCopy, bool aTakeOwnership)
+ 	{
++		// Voices read the data replaced below: stop them first, as Wav's
++		// loaders do.
++		stop();
+ 		delete[] mFilename;
+ 		delete mMemFile;
+ 		mStreamFile = 0;
+@@ -703,6 +709,9 @@ namespace SoLoud
+ 
+ 	result WavStream::loadFile(File *aFile)
+ 	{
++		// Voices read the data replaced below: stop them first, as Wav's
++		// loaders do.
++		stop();
+ 		delete[] mFilename;
+ 		delete mMemFile;
+ 		mStreamFile = 0;
+@@ -724,6 +733,9 @@ namespace SoLoud
+ 
+ 	result WavStream::loadFileToMem(File *aFile)
+ 	{
++		// Voices read the data replaced below: stop them first, as Wav's
++		// loaders do.
++		stop();
+ 		delete[] mFilename;
+ 		delete mMemFile;
+ 		mStreamFile = 0;

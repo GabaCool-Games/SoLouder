@@ -14,6 +14,7 @@ publish = false
 [workspace.dependencies]
 solouder-core = { path = "crates/solouder-core" }
 solouder-decoders = { path = "crates/solouder-decoders" }
+solouder-sources = { path = "crates/solouder-sources" }
 solouder-cpal = { path = "crates/solouder-cpal" }
 bevy = { version = "0.20", default-features = false }
 cpal = "0.18"

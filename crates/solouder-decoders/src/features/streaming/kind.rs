@@ -19,11 +19,7 @@ use crate::features::decoded_audio::riff::{self, Layout};
 use crate::features::decoded_audio::vorbis::{FileKind, VorbisFile};
 
 /// What a voice reads a stream from: the file it opened, or the bytes.
-pub(crate) trait Source: Read + Seek + Send {}
-
-impl<T: Read + Seek + Send> Source for T {}
-
-pub(crate) type BoxedSource = Box<dyn Source>;
+pub(crate) type BoxedSource = Box<dyn super::StreamInput>;
 
 #[derive(Clone, Copy, Debug)]
 pub(super) enum Kind {

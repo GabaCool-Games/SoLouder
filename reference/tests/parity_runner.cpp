@@ -28,9 +28,11 @@
 #include "soloud_echofilter.h"
 #include "soloud_fft.h"
 #include "soloud_fftfilter.h"
+#include "soloud_file.h"
 #include "soloud_flangerfilter.h"
 #include "soloud_freeverbfilter.h"
 #include "soloud_lofifilter.h"
+#include "soloud_noise.h"
 #include "soloud_queue.h"
 #include "soloud_robotizefilter.h"
 #include "soloud_waveshaperfilter.h"
@@ -270,8 +272,12 @@ namespace
 		bool initialized;
 		std::map<std::string, SoLoud::Wav *> sounds;
 		std::map<std::string, SoLoud::WavStream *> streams;
+		// The File each `stream from=disk_file|memory_file` borrows.
+		std::map<std::string, SoLoud::File *> streamFiles;
 		std::map<std::string, SoLoud::Bus *> buses;
 		std::map<std::string, SoLoud::Queue *> queues;
+		// Generators (parity_generators.inc), by name.
+		std::map<std::string, SoLoud::AudioSource *> generators;
 		std::map<std::string, SoLoud::handle> handles;
 		// Filters by name. Sounds keep pointers to their filters, so every
 		// filter created lives until the runner ends; not cleared by init.
@@ -300,12 +306,18 @@ namespace
 			for (std::map<std::string, SoLoud::Queue *>::iterator it = queues.begin(); it != queues.end(); ++it)
 				delete it->second;
 			queues.clear();
+			for (std::map<std::string, SoLoud::AudioSource *>::iterator it = generators.begin(); it != generators.end(); ++it)
+				delete it->second;
+			generators.clear();
 			for (std::map<std::string, SoLoud::Wav *>::iterator it = sounds.begin(); it != sounds.end(); ++it)
 				delete it->second;
 			sounds.clear();
 			for (std::map<std::string, SoLoud::WavStream *>::iterator it = streams.begin(); it != streams.end(); ++it)
 				delete it->second;
 			streams.clear();
+			for (std::map<std::string, SoLoud::File *>::iterator it = streamFiles.begin(); it != streamFiles.end(); ++it)
+				delete it->second;
+			streamFiles.clear();
 			for (std::map<std::string, SoLoud::Bus *>::iterator it = buses.begin(); it != buses.end(); ++it)
 				delete it->second;
 			buses.clear();
@@ -364,17 +376,22 @@ namespace
 			return *it->second;
 		}
 
-		// A sound, else a stream, by name: what a queue can hold.
+		// A sound, else a stream, else a generator, by name: what a queue can
+		// hold.
 		SoLoud::AudioSource &queuedArg(const Step &step, const char *key)
 		{
 			const std::string &name = textArg(step, key);
 			std::map<std::string, SoLoud::WavStream *>::iterator stream = streams.find(name);
 			if (!sounds.count(name) && stream != streams.end())
 				return *stream->second;
+			std::map<std::string, SoLoud::AudioSource *>::iterator generator = generators.find(name);
+			if (!sounds.count(name) && generator != generators.end())
+				return *generator->second;
 			return soundArg(step, key);
 		}
 
-		// A sound, else a stream, else a bus, else a queue, by name.
+		// A sound, else a stream, else a bus, else a queue, else a generator, by
+		// name.
 		SoLoud::AudioSource &sourceArg(const Step &step, const char *key)
 		{
 			const std::string &name = textArg(step, key);
@@ -388,9 +405,12 @@ namespace
 			if (bus != buses.end())
 				return *bus->second;
 			std::map<std::string, SoLoud::Queue *>::iterator queue = queues.find(name);
-			if (queue == queues.end())
-				throw ScenarioError(step.line, "no sound, stream, bus or queue named `" + name + "`");
-			return *queue->second;
+			if (queue != queues.end())
+				return *queue->second;
+			std::map<std::string, SoLoud::AudioSource *>::iterator generator = generators.find(name);
+			if (generator == generators.end())
+				throw ScenarioError(step.line, "no sound, stream, bus, queue or generator named `" + name + "`");
+			return *generator->second;
 		}
 
 		// The filter named by `key`, or null when the key is absent.
@@ -653,6 +673,28 @@ namespace
 			if (!probe)
 				throw ScenarioError(step.line, "cannot read " + path);
 			return path;
+		}
+
+		// A fixture opened as a DiskFile, or read into a MemoryFile.
+		SoLoud::File *openFixture(const Step &step, const std::string &path, bool disk)
+		{
+			if (disk)
+			{
+				SoLoud::DiskFile *file = new SoLoud::DiskFile;
+				if (file->open(path.c_str()) != SoLoud::SO_NO_ERROR)
+				{
+					delete file;
+					throw ScenarioError(step.line, "cannot open " + path);
+				}
+				return file;
+			}
+			std::ifstream in(path.c_str(), std::ios::binary);
+			if (!in.is_open())
+				throw ScenarioError(step.line, "cannot read " + path);
+			std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+			SoLoud::MemoryFile *file = new SoLoud::MemoryFile;
+			file->openMem(bytes.data(), (unsigned int)bytes.size(), true, true);
+			return file;
 		}
 
 		void storeSound(const std::string &name, SoLoud::Wav *wav, SoLoud::result code, float volume, bool looping)
@@ -947,6 +989,8 @@ namespace
 			}
 		}
 
+#include "parity_generators.inc"
+
 		void apply(const Step &step)
 		{
 			if (step.op == "tolerance")
@@ -1053,15 +1097,29 @@ namespace
 			}
 			else if (step.op == "load")
 			{
-				static const char *const keys[] = { "name", "file", "volume", "looping" };
-				checkKeys(step, keys, 4);
+				static const char *const keys[] = { "name", "file", "from", "volume", "looping" };
+				checkKeys(step, keys, 5);
 				engine(step);
 				std::string name = textArg(step, "name");
 				std::string path = fixtureArg(step);
+				std::string from = step.get("from") ? textArg(step, "from") : "path";
 				float volume = floatArg(step, "volume", 1.0f);
 				bool looping = flagArg(step, "looping", false);
 				SoLoud::Wav *wav = new SoLoud::Wav;
-				SoLoud::result code = wav->load(path.c_str());
+				SoLoud::result code;
+				if (from == "path")
+					code = wav->load(path.c_str());
+				else if (from == "disk_file" || from == "memory_file")
+				{
+					SoLoud::File *file = openFixture(step, path, from == "disk_file");
+					code = wav->loadFile(file);
+					delete file;
+				}
+				else
+				{
+					delete wav;
+					throw ScenarioError(step.line, "unknown from `" + from + "`");
+				}
 				storeSound(name, wav, code, volume, looping);
 				std::ostringstream line;
 				line << "load " << name << " " << code;
@@ -1075,7 +1133,18 @@ namespace
 				std::string name = textArg(step, "name");
 				std::string path = fixtureArg(step);
 				std::string from = step.get("from") ? textArg(step, "from") : "file";
-				SoLoud::WavStream *stream = new SoLoud::WavStream;
+				static const char *const froms[] = { "file", "memory", "bytes", "disk_file", "memory_file", "disk_to_mem", "memory_to_mem" };
+				bool known = false;
+				for (size_t i = 0; i < sizeof(froms) / sizeof(froms[0]); i++)
+					known = known || from == froms[i];
+				if (!known)
+					throw ScenarioError(step.line, "unknown from `" + from + "`");
+				// A name already in use reloads the same WavStream, which stops
+				// its voices (patch 0063); a failed reload leaves it empty, and
+				// the name is forgotten.
+				std::map<std::string, SoLoud::WavStream *>::iterator old = streams.find(name);
+				SoLoud::WavStream *stream = old != streams.end() ? old->second : new SoLoud::WavStream;
+				SoLoud::File *borrowed = 0;
 				SoLoud::result code;
 				if (from == "file")
 					code = stream->load(path.c_str());
@@ -1087,22 +1156,39 @@ namespace
 					std::vector<unsigned char> bytes((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 					code = stream->loadMem(bytes.data(), (unsigned int)bytes.size(), true, false);
 				}
+				else if (from == "disk_file" || from == "memory_file")
+				{
+					// loadFile keeps the File: it lives as long as the stream.
+					borrowed = openFixture(step, path, from == "disk_file");
+					code = stream->loadFile(borrowed);
+				}
 				else
 				{
-					delete stream;
-					throw ScenarioError(step.line, "unknown from `" + from + "`");
+					SoLoud::File *file = openFixture(step, path, from == "disk_to_mem");
+					code = stream->loadFileToMem(file);
+					delete file;
+				}
+				std::map<std::string, SoLoud::File *>::iterator oldFile = streamFiles.find(name);
+				if (oldFile != streamFiles.end())
+				{
+					delete oldFile->second;
+					streamFiles.erase(oldFile);
 				}
 				if (code != SoLoud::SO_NO_ERROR)
+				{
 					delete stream;
+					delete borrowed;
+					if (old != streams.end())
+						streams.erase(old);
+				}
 				else
 				{
 					stream->setVolume(floatArg(step, "volume", 1.0f));
 					stream->setLooping(flagArg(step, "looping", false));
 					stream->setLoopPoint(timeArg(step, "loop_point", 0));
-					std::map<std::string, SoLoud::WavStream *>::iterator old = streams.find(name);
-					if (old != streams.end())
-						delete old->second;
 					streams[name] = stream;
+					if (borrowed)
+						streamFiles[name] = borrowed;
 				}
 				std::ostringstream line;
 				line << "stream " << name << " " << code;
@@ -1308,6 +1394,14 @@ namespace
 				std::map<std::string, SoLoud::WavStream *>::iterator stream = streams.find(name);
 				SoLoud::AudioSource *source;
 				double length;
+				if (!sounds.count(name) && !streams.count(name) && generators.count(name))
+				{
+					// Generators have no length.
+					std::ostringstream line;
+					line << "sound_query " << name << " count=" << engine(step).countAudioSource(*generators[name]);
+					logLine(line);
+					return;
+				}
 				if (!sounds.count(name) && stream != streams.end())
 				{
 					source = stream->second;
@@ -1464,9 +1558,15 @@ namespace
 				static const char *const keys[] = { "sound", "slot", "filter" };
 				checkKeys(step, keys, 3);
 				const std::string &name = textArg(step, "sound");
-				SoLoud::AudioSource &source = sounds.count(name) ? (SoLoud::AudioSource &)soundArg(step, "sound") : queueArg(step, "sound");
+				SoLoud::AudioSource *source;
+				if (sounds.count(name))
+					source = &soundArg(step, "sound");
+				else if (generators.count(name))
+					source = generators[name];
+				else
+					source = &queueArg(step, "sound");
 				unsigned int slot = uintArg(step, "slot", true, 0);
-				source.setFilter(slot, filterArg(step, "filter"));
+				source->setFilter(slot, filterArg(step, "filter"));
 			}
 			else if (step.op == "global_filter")
 			{
@@ -1513,6 +1613,10 @@ namespace
 				step.op == "speaker")
 			{
 				spatialOp(step);
+			}
+			else if (isGeneratorOp(step.op))
+			{
+				generatorOp(step);
 			}
 			else
 			{

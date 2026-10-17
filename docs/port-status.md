@@ -50,6 +50,7 @@ available on the offline `Mixer` only (see "Real-time coverage" below).
 | `solouder-core` | `features/realtime` | `split`, `Controller` (plays, voice and global controls, fades and schedules, filters and their parameters, bus settings and `annex_sound`, queued sounds), `Renderer`, `StreamWorker` (decodes streams ahead into per-voice feeds), `VoiceId`, `FilterTarget`, `Event`, `Status`, `RealtimeConfig`; voices and filter instances prepared on the game thread, and ended voices, replaced filters and rejected queue sounds retired to it |
 | `solouder-decoders` | `features/decoded_audio` | `decode` (Ogg Vorbis, WAV, FLAC or MPEG audio by the first bytes), `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `decode_flac` (a port of dr_flac's decoding path, in `decoded_audio/flac/`), `decode_ogg` (a port of stb_vorbis's pull-mode decoder, in `decoded_audio/vorbis/`), `decode_mp3` (a port of dr_mp3 and minimp3, layers 1 to 3, in `decoded_audio/mp3/`), `DecodeLimits`, `DecodeError` |
 | `solouder-decoders` | `features/streaming` | `WavStream` for WAV, FLAC, Ogg Vorbis and MPEG audio (a file, bytes or a file read into memory; per-voice readers: WAV seeks by frame, Ogg finds the target's Vorbis frame, FLAC and MPEG decode up to the target) |
+| `solouder-sources` | `prg`, `features/noise` | SoLoud's generators, one Cargo feature each: `Prg` (WELL512) and `Noise` (white, pink, brownish, blueish and custom octave weights); played through `solouder_core::Synth` |
 | `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
 | `bevy_solouder` | `decoded_audio`, `output_lifecycle`, `playback` | `SolouderPlugin`, `AudioClip` (decoded or streamed) and `WavLoader` (`WavSettings::stream`), the stream worker (a thread with a device, `HeadlessStreamWorker` headless), `OutputMode` (device or headless), `AudioOutput`, `SoundPlayer`, `PlaybackSettings`, `SoundStatus`, `SoundFinished`/`SoundFailed` |
 | `solouder-parity` | — | Scenario parser, test patterns, fixture loading, Rust runner, comparison with C++ output |
@@ -65,7 +66,18 @@ stays `in-progress` until its remaining flags are done. Milestone E ports `WavSt
 position, distance and attenuation setters, the speaker positions and the
 source-level 3D defaults; `play3d`, `set3dListenerParameters` and
 `set3dSourceParameters` stay `in-progress` until velocity arrives with
-Doppler (unit 7).
+Doppler (unit 7). Milestone F unit 1 ports the `Noise` rows, `Wav::loadFile`,
+`WavStream::loadFile` and `loadFileToMem`, and closes the `Wav` and
+`WavStream` lifecycles.
+
+Generators (milestone F): SoLoud's audio sources other than files, buses and
+queues implement `solouder_core::Generator`; a `Synth` plays one, alone, in a
+queue or through the `Controller`. Each voice's instance is built on the game
+thread when the voice is prepared, and reads exactly the frame counts the
+reference reads, so sources that restart state on every read (Noise) match
+bit for bit. The generic seek rewinds and discards in passes of the scratch
+size, as the reference does; a seek back on a generator without `rewind`
+fails with `CannotSeekBack`.
 
 ## Verified by scenario
 
@@ -110,7 +122,9 @@ Doppler (unit 7).
 | `stream_mp3` | The same for MPEG audio: MPEG-1, 2 and 2.5, layer 2, an ID3v2 tag, a long file looping from a loop point, damaged and cut-off frames, junk before the first frame; seeks decode up to the target | 70,352 |
 | `spatial_3d` | No attenuation and the inverse, linear and exponential models with min/max distances and rolloff, an unknown model index, the listener's position, `at` and `up` set one by one and together, a listener-relative source, the first frame already attenuated (#95), 3D volume with the voice's volume, fades and pan, a paused voice jumping to its new gains, the 0.01 threshold of `play3d` and the 0.001 threshold of `update3dAudio` (#240), voices killed by either, a voice ticking while inaudible and resuming in place, a ticking voice with a loop point past its end (patch 0060) and with a short last block (patch 0061), a reused slot getting its own flags (patch 0013), setters through groups, stale handles and voices not played in 3D, inaudible voices ranking for the active slots | 20,396 |
 | `spatial_speakers` | Default speaker positions for 1, 2, 4, 6 and 8 channels, reading and setting channels past the output's, moved and zero speakers, mono, stereo and 5.1 sources, a 3D voice on a bus, and a bus played in 3D far enough away to tick | 9,300 |
-| `stream_wav` | Streamed WAV files loaded from a file, into memory and from bytes, at and away from the output rate, 5.1 and quad float files folded down, A-law; a looping stream with a loop point wrapping several times (the loop-wrap seek and channel stride of patches 0002 and 0004, and patch 0005's looping streams not ending); seeks back, forward and past the end; streams ending, counted, replayed and stopped; two files both sides reject | 26,496 |
+| `stream_wav` | Streamed WAV files loaded from a file, into memory and from bytes, at and away from the output rate, 5.1 and quad float files folded down, A-law; a looping stream with a loop point wrapping several times (the loop-wrap seek and channel stride of patches 0002 and 0004, and patch 0005's looping streams not ending); seeks back, forward and past the end; streams ending, counted, replayed and stopped; two files both sides reject; a stream reloaded under playing voices from a file of another format and from bytes, then failing to reload (patch 0063) | 31,096 |
+| `noise` | White, pink, brownish and blueish noise, a type index without a preset, custom octave weights and weights summing to 0 (patch 0062), two voices of one noise (same seed), changed weights reaching only later plays, stopping and counting, speed, rate and seeks forward and back (back fails without `rewind`), a filter, single-instance looping noise, 3D, a queue and a queue seek, and a 48 kHz engine with a 6000-frame buffer (seek passes of another scratch size) | 47,867 |
+| `file_loading` | `Wav::loadFile` of a `DiskFile` and of a `MemoryFile` next to `Wav::load` for WAV, FLAC, Ogg Vorbis and MPEG audio (samples compared whole), `WavStream::loadFile` and `loadFileToMem` of each kind, looping Ogg Vorbis streams through each kind of file, seeks, and files that fail to load | 159,084 |
 
 Samples are compared bit for bit, except that zero and subnormal values all
 count as zero, because the C++ build flushes subnormals. Every scenario has
@@ -135,6 +149,7 @@ harness, so they are checked by Rust tests instead of scenarios:
 | `routing_tests` (core, 3 tests) | A real-time session with voice and global filters, a filtered bus, a queue, clocked and background plays, fades, filter parameter fades, seeks, a bus filter swap, `annex_sound` and `stop_sound` renders the same samples as the offline `Mixer`, bit for bit; bus and queue plays report their events, and a play through a bus that is not playing fails; queues past `RealtimeConfig::queues` are refused |
 | `layout_tests` (core, 5 tests) | Filters whose delays change before their first block, and a bus whose channel setting changed while it plays, render the same samples as the offline `Mixer`; a mixer split after offline use (queue storage, a queued sound, a playing voice) never overflows its retirement list; `Mixer::keep_retired` keeps voices played after it, and `split` trims the surplus voice boxes left by offline overflow; a voice a bus seek plays out reports `Ended` even when a play in the same render takes its slot |
 | `realtime_no_alloc` (core) | No allocation or free inside any `Renderer::render`, with a fresh sound per play and the smallest retirement queue: playing, every control, stopping, voices ending, voice stealing past the slot count, all-protected failures, `stop_all`, rendering after the controller is dropped, and voices, a bus and a queue using every filter that allocates lazily (echo, DC removal, FFT, bassboost, flanger), with global and bus filter swaps, seeks, and sounds queued past the queue's limit; and filters first running on a bus at double speed whose channel setting changed, after delays were changed, after a failed replay of the bus and during a speed oscillation from 3 to 1, and with a flanger delay growing to its maximum; and a mixer split while it holds global filters and filtered voices that have not played yet |
+| `generator_tests` (core, 7 tests) and `realtime_no_alloc` (sources) | Generator voices read whole blocks and the frames the reference computes, loop wraps rewind and refill the block, a looping voice that cannot rewind ends, seeks discard in passes of the scratch size and seeking back without `rewind` fails, synths queue back to back; noise, looping, seeking and queued synths render through the `Controller` without allocating, bit for bit as an offline `Mixer` |
 | `spatial` (core, 16 tests) | The vector math and attenuation models; `play_3d` attenuates the first frame (#95); a reused slot keeps no flags from the old voice (patch 0013); the two inaudible thresholds (#240); killing and ticking inaudible voices; a ticking voice with an empty loop ends its mix (patch 0060) and clears the rest of its last block (patch 0061); `set_3d_*` changes only 3D voices; speaker layouts and bounds; a zero speaker; paused voices jumping to their new volume |
 | `callback` unit tests (cpal) | Long callbacks render in parts identical to manual renders, conversion to `i16`, a panic injected inside the render silences the output and hands its payload off the audio thread, conversions clamp to `[-1, 1)` (24-bit 1.0 would otherwise be out of range) and play NaN as silence, dropping the callback returns the renderer |
 | `device_lifecycle` (cpal) | Repeated open/play/close, drop while playing, two outputs at once, invalid voice counts and buffer sizes rejected before the device is opened |
@@ -184,6 +199,11 @@ Rust 1.98.1, no device).
 | Stream length | `WavStream` takes its frame count from the header | `WavStream` counts the whole frames present in the file | The header can claim more than the file holds; with patch 0054 both end where the data does |
 | Changed stream files | Each instance reopens the file and trusts the header read at load | A file reopened with a different encoding, channel count or rate ends the voice, like a missing file (patch 0053); one that got shorter plays what is left | A reader must produce the layout the voice was set up for |
 | Dropping a stream | `~WavStream` stops its voices | Dropping a `Stream` leaves its voices playing; each owns its reader | As for `Sound` |
+| Stream files | `WavStream::loadFile` keeps the caller's `File`: every voice seeks and reads the same cursor, so two voices corrupt each other | `WavStream::from_file` takes a `StreamFile` that each voice opens on its own; paths and bytes behave as `open` and `from_bytes`, other types as a `MemoryFile` | Voices must not share state |
+| Reading a file to memory | `Wav::loadFile` and `WavStream::loadFileToMem` read `File::length()` bytes | `decode_reader` reads to the end, up to `DecodeLimits::max_file_bytes` (`FileTooLarge` past it); `WavStream::from_reader` reads to the end | A reader has no length; the cap keeps an endless reader from exhausting memory |
+| Generator instances | Created on the audio thread under the engine mutex by `play` | Built when the voice is prepared (`Mixer::play` or `Controller::play`), on the game thread, then moved to the voice | The audio thread never allocates |
+| Looping without rewind | A looping voice whose source cannot rewind (`NOT_IMPLEMENTED`) stays alive at its end, rendering silence | The voice stops looping and ends | A voice that plays nothing forever holds a slot; no reference generator reaches it once Vizsn has `rewind` (unit 7) |
+| Dropping a generator | `~Noise` (and every source's destructor) stops its voices | Dropping a `Synth` leaves its voices playing; each owns its instance | As for `Sound` |
 | Streams in real time | Played like any source; the audio thread reads the file | A `StreamWorker` thread opens and decodes each voice's stream ahead of it into a bounded buffer (`RealtimeConfig::stream_chunks`). A voice waits silently, without advancing, until its audio arrives at the start and after a seek the worker had not anticipated (loop wraps are anticipated); if the worker falls behind, the voice plays silence without advancing, counted in `Status::stream_underflow_frames`. A source that can no longer rewind ends the voice, and so does losing the worker once the audio it decoded has played (new streams then fail with `ControllerError::NoStreamWorker`). Fades, scheduled events and the stream position keep running while a voice waits; a seek counts from the audio actually played | File reads on the audio thread can stall it |
 | Unknown files | `Wav::load` and `WavStream` detect Ogg, WAV and FLAC by their first four bytes and try MP3 for anything else | The same; bytes that hold no MPEG audio report `NotRecognized` | — |
 | FLAC frame with a bad checksum | dr_flac, built with `DR_FLAC_NO_CRC`, checks neither frame nor header checksums and plays the frame; it stops at a frame it cannot decode | Both checksums are checked. A frame that fails either, or fails to decode, is dropped and its frames are silent (resident and streamed), so the frames after it keep their place, even after a run of damaged frames; the search for the next frame resumes just after the damaged frame's sync code, so a frame starting inside a rejected header is still found (dr_flac searches on from the end of what it read) | A damaged frame is more likely noise than audio |
@@ -218,7 +238,7 @@ Rust 1.98.1, no device).
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0024 and 0026
-to 0057, 0060 and 0061 (pan ramp leftovers, surround fold-down volumes, no-free-voice
+to 0057, and 0060 to 0063 (pan ramp leftovers, surround fold-down volumes, no-free-voice
 handling, raw layout validation, the #343 hang, protection and ticking not
 recomputing the active voices, sound endings dropped when a mix ends
 mid-block, the hang on a negative sample rate, seeks scaled by play speed,
@@ -237,8 +257,8 @@ oscillations from a higher value to a lower one running above both, and
 resampled voices skipping part of a step at every block (#314), a stream
 whose file is gone crashing, a stream cut off in its data never ending, and a
 looping stream whose file is gone never ending, a ticking voice hanging on a
-loop without audio, and a ticking voice leaving stale samples after its
-end) are
+loop without audio, a ticking voice leaving stale samples after its
+end, noise weights summing to 0, and a stream reloaded under its voices) are
 listed in
 [PORTING.md](PORTING.md#reference-patch-ledger). Patch 0025 (sounds, buses
 and queues that outlive their engine or play on several engines) has no Rust
@@ -264,6 +284,8 @@ bit for bit (`routing_tests`):
   `annex_sound`; `queue_play` (sounds and streams).
 - Streams, played and queued: the `StreamWorker` decodes them ahead of the
   audio thread (`stream_tests`).
+- Generators (`Synth`), played, seeked, looping and queued
+  (`realtime_no_alloc` in `solouder-sources`).
 
 Limits:
 

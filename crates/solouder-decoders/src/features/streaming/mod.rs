@@ -6,9 +6,11 @@ mod flac_reader;
 mod kind;
 mod mp3_reader;
 mod ogg_reader;
+mod stream_file;
 mod wav_reader;
 mod wav_stream;
 
+pub use stream_file::{StreamFile, StreamInput};
 pub use wav_stream::WavStream;
 
 #[cfg(test)]
@@ -17,6 +19,9 @@ mod flac_stream_tests;
 #[cfg(test)]
 #[path = "lossy_stream_tests.rs"]
 mod lossy_stream_tests;
+#[cfg(test)]
+#[path = "stream_file_tests.rs"]
+mod stream_file_tests;
 #[cfg(test)]
 #[path = "wav_stream_tests.rs"]
 mod wav_stream_tests;

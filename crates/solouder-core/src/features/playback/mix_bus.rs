@@ -1,8 +1,10 @@
 // Ported from SoLoud src/core/soloud.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
+use super::generator::Discard;
 use super::handle::Handle;
 use super::queue::{self, LOOP_SEEK_SCRATCH, Queues};
+use super::queued::Output;
 use super::stream;
 use super::voice::{Voice, VoiceSource, flags};
 use super::voices::{BLOCK_LEN, Voices};
@@ -218,7 +220,6 @@ fn fill_block(voice: &mut Voice, voices: &mut Voices, at: usize, time: f64) -> u
     if let VoiceSource::Queue { .. } = voice.source {
         return fill_queue_block(voice, voices, at);
     }
-    let block = &mut voices.pool.data[at..][..BLOCK_LEN];
     // A stream without audio stops looping, so the voice can end (reference
     // patch 0055).
     if stream::lost(&voice.source) {
@@ -228,9 +229,15 @@ fn fill_block(voice: &mut Voice, voices: &mut Voices, at: usize, time: f64) -> u
     if voice.has_ended(&voices.queues) && !looping {
         return 0;
     }
+    let block = &mut voices.pool.data[at..][..BLOCK_LEN];
     let mut read = voice.read(block, 0, SAMPLE_GRANULARITY);
     while looping && read < SAMPLE_GRANULARITY {
-        voice.seek(voice.loop_point);
+        if !voice.seek_with(voice.loop_point, loop_discard(&mut voices.discard)) {
+            // A generator that cannot rewind ends instead of looping on
+            // silence.
+            voice.set_flag(flags::LOOPING, false);
+            break;
+        }
         // `mLoopCount` is unsigned and wraps.
         voice.loop_count = voice.loop_count.wrapping_add(1);
         let more = voice.read(block, read as usize, SAMPLE_GRANULARITY - read);
@@ -253,13 +260,14 @@ fn fill_queue_block(voice: &mut Voice, voices: &mut Voices, at: usize) -> u32 {
         queues,
         pool,
         retired,
+        discard,
         ..
     } = voices;
     let block = &mut pool.data[at..][..BLOCK_LEN];
     let (id, channels) = (voice.sound_id, voice.channels());
     let mut read = queues.read(
         id,
-        Some(&mut *block),
+        Output::Write(&mut *block),
         0,
         SAMPLE_GRANULARITY,
         BLOCK,
@@ -269,12 +277,18 @@ fn fill_queue_block(voice: &mut Voice, voices: &mut Voices, at: usize) -> u32 {
     );
     while looping
         && read < SAMPLE_GRANULARITY
-        && queue::seek(voice, queues, retired, voice.loop_point, LOOP_SEEK_SCRATCH)
+        && queue::seek(
+            voice,
+            queues,
+            retired,
+            voice.loop_point,
+            loop_discard(discard),
+        )
     {
         voice.loop_count = voice.loop_count.wrapping_add(1);
         let more = queues.read(
             id,
-            Some(&mut *block),
+            Output::Write(&mut *block),
             read as usize,
             SAMPLE_GRANULARITY - read,
             BLOCK,
@@ -288,6 +302,18 @@ fn fill_queue_block(voice: &mut Voice, voices: &mut Voices, at: usize) -> u32 {
         }
     }
     read
+}
+
+/// A loop wrap's seek scratch (`mSeekScratch`, of `LOOP_SEEK_SCRATCH`
+/// floats). The buffer is larger, so that a queued source with more
+/// channels than its queue, which writes every channel at the pass's
+/// stride, always fits. (A queue only wraps once it is empty, so the
+/// reference never reaches that case.)
+fn loop_discard(buffer: &mut [f32]) -> Discard<'_> {
+    Discard {
+        buffer,
+        scratch: LOOP_SEEK_SCRATCH,
+    }
 }
 
 /// Zeroes frames `from..to` of each scratch channel, so frames a voice did

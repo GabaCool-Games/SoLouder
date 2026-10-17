@@ -10,6 +10,7 @@ publish.workspace = true
 [dependencies]
 solouder-core.workspace = true
 solouder-decoders.workspace = true
+solouder-sources.workspace = true
 
 [lints]
 workspace = true

@@ -1,0 +1,16 @@
+//! SoLouder sources: ports of SoLoud's generators for `solouder-core`.
+//!
+//! Each source implements [`solouder_core::Generator`]; wrap it in a
+//! [`solouder_core::Synth`] to play, queue or place it like any sound.
+//! Voices build their instance on the thread that plays them and compute
+//! their audio on the audio thread without allocating. Each source has a
+//! Cargo feature of its own.
+
+mod features;
+#[cfg(feature = "prg")]
+mod prg;
+
+#[cfg(feature = "noise")]
+pub use features::noise::{Noise, NoiseType, OCTAVES};
+#[cfg(feature = "prg")]
+pub use prg::Prg;

@@ -2,7 +2,8 @@
 # bytes: one at the output rate, one resampled, a 5.1 file folded down to
 # stereo, a quad float file and an A-law file, one looping from a loop point;
 # seeks backwards, forwards and past the end, mixed in calls that cross block
-# and loop boundaries until the non-looping streams end.
+# and loop boundaries until the non-looping streams end; then a stream is
+# reloaded under playing voices.
 init channels=2 rate=44100 buffer=1024
 stream name=music file=wav/s16_stereo_44100.wav volume=0.5
 stream name=voice file=wav/s24_mono_48000.wav from=memory
@@ -43,3 +44,20 @@ sound_query name=music
 stop_sound name=music
 counts
 mix frames=600
+# Reloading a name reloads the same WavStream, which stops its voices (patch
+# 0063), from a file of another format and from bytes; a failed reload stops
+# them too and forgets the name.
+play sound=voice as=r1
+play sound=voice as=r2 volume=0.4
+mix frames=800
+stream name=voice file=wav/f64_mono_96000.wav volume=0.6
+counts
+play sound=voice as=r3
+mix frames=700
+stream name=voice file=wav/s16_stereo_44100.wav from=bytes
+counts
+play sound=voice as=r4 pan=0.5
+mix frames=500
+stream name=voice file=wav/bad_nine_channels.wav
+counts
+mix frames=300

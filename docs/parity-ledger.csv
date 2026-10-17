@@ -22,7 +22,7 @@ Soloud::getBackendString,engine,Soloud_getBackendString,output_lifecycle,C,porte
 Soloud::getErrorString,engine,Soloud_getErrorString,playback,B,excluded,,"Errors are Rust enums (ControlError, PcmError, ConfigError, DecodeError) that implement Display; there are no result codes to name."
 Soloud::getFilterParameter,engine,Soloud_getFilterParameter,filters,D,ported,filter_params filters_global,"Mixer::filter_parameter(FilterTarget, slot, param) -> Option<f32>; FilterTarget::Global is handle 0. None where SoLoud returns INVALID_PARAMETER (no filter) or 0 (past the last parameter)."
 Soloud::getGlobalVolume,engine,Soloud_getGlobalVolume,playback,B,ported,fades,
-Soloud::getInfo,engine,Soloud_getInfo,playback,B,ported,voice_controls,"Mixer::info: 0 for every voice, as for a Wav. Ay and TedSid answer when they are ported."
+Soloud::getInfo,engine,Soloud_getInfo,playback,B,ported,voice_controls noise,"Mixer::info answers what the voice's generator defines (GeneratorInstance::info); 0 for Wav, WavStream, buses, queues and Noise, as in the reference. Ay and TedSid answer when they are ported."
 Soloud::getLoopCount,engine,Soloud_getLoopCount,playback,B,ported,pause_stop active_voices looping speed_and_resamplers queues,A queue counts each queued sound it finishes.
 Soloud::getLooping,engine,Soloud_getLooping,playback,B,ported,pause_stop active_voices looping speed_and_resamplers,
 Soloud::getLoopPoint,engine,Soloud_getLoopPoint,playback,B,ported,voice_controls,
@@ -135,9 +135,9 @@ Monotone::load,source,Monotone_load,sources,F,todo,,
 Monotone::loadFile,source,Monotone_loadFile,sources,F,todo,,
 Monotone::loadMem,source,Monotone_loadMem Monotone_loadMemEx,sources,F,todo,,
 Monotone::setParams,source,Monotone_setParams Monotone_setParamsEx,sources,F,todo,,
-Noise::lifecycle,source,Noise_create Noise_destroy,sources,F,todo,,
-Noise::setOctaveScale,source,Noise_setOctaveScale,sources,F,todo,,
-Noise::setType,source,Noise_setType,sources,F,todo,,
+Noise::lifecycle,source,Noise_create Noise_destroy,sources,F,ported,noise,"solouder_sources::Noise in an Arc, played through solouder_core::Synth (also queued). Each instance seeds its WELL512 with 0xfade, so voices are deterministic; the octave state restarts on every read, so with 512-frame blocks octave 9 never updates, as in the reference. Weights summing to 0 give silence (patch 0062). Dropping a Synth does not stop its voices; the parity runner stops them when a name is replaced."
+Noise::setOctaveScale,source,Noise_setOctaveScale,sources,F,ported,noise,"Noise::set_octave_scale through &self (atomics, so a shared Noise can change); a voice keeps the weights it started with, as in the reference."
+Noise::setType,source,Noise_setType,sources,F,ported,noise,"Noise::set_type(NoiseType); NoiseType::from_index maps values other than 0 to 3 to white, as the reference's switch does."
 Openmpt::lifecycle,source,Openmpt_create Openmpt_destroy,sources,F,todo,,decide: wraps external libopenmpt
 Openmpt::load,source,Openmpt_load,sources,F,todo,,decide: wraps external libopenmpt
 Openmpt::loadFile,source,Openmpt_loadFile,sources,F,todo,,decide: wraps external libopenmpt
@@ -169,18 +169,18 @@ Vic::setRegister,source,Vic_setRegister,sources,F,todo,,
 Vizsn::lifecycle,source,Vizsn_create Vizsn_destroy,sources,F,todo,,
 Vizsn::setText,source,Vizsn_setText,sources,F,todo,,
 Wav::getLength,source,Wav_getLength,decoded_audio,B,ported,sound_instances,Sound::length.
-Wav::lifecycle,source,Wav_create Wav_destroy,decoded_audio,B,in-progress,sound_replace,"Sound::new; dropping a Sound does not stop its voices (they share its samples), so the parity runner stops them when a name is replaced. Difference in port-status.md."
+Wav::lifecycle,source,Wav_create Wav_destroy,decoded_audio,B,ported,sound_replace,"Sound::new; dropping a Sound does not stop its voices (they share its samples), so the parity runner stops them when a name is replaced. Difference in port-status.md."
 Wav::load,source,Wav_load,decoded_audio,B,ported,wav_decode wav_decode_u8 wav_playback flac_decode ogg_decode mp3_decode,"WAV, FLAC, Ogg Vorbis and MPEG audio chosen by the first four bytes, through solouder_decoders::decode on bytes the caller reads. Differences in port-status.md."
-Wav::loadFile,source,Wav_loadFile,decoded_audio,B,todo,,
+Wav::loadFile,source,Wav_loadFile,decoded_audio,B,ported,file_loading,"solouder_decoders::decode_reader reads an impl Read to its end (at most DecodeLimits::max_file_bytes, else FileTooLarge) and decodes the bytes, as openFileToMem then testAndLoadFile do."
 Wav::loadMem,source,Wav_loadMem Wav_loadMemEx,decoded_audio,B,ported,wav_decode flac_decode ogg_decode mp3_decode,decode takes a byte slice and always copies (no aCopy/aTakeOwnership).
 Wav::loadRawWave,source,Wav_loadRawWave Wav_loadRawWaveEx,decoded_audio,B,ported,play_basic channel_layouts,"Pcm::from_planar plus Sound; always copies. Rejects layouts per patch 0021, and also an infinite rate."
 Wav::loadRawWave16,source,Wav_loadRawWave16 Wav_loadRawWave16Ex,decoded_audio,B,ported,sound_instances,Pcm::from_planar_i16 plus Sound; always copies.
 Wav::loadRawWave8,source,Wav_loadRawWave8 Wav_loadRawWave8Ex,decoded_audio,B,ported,sound_instances,Pcm::from_planar_u8 plus Sound; always copies.
 WavStream::getLength,source,WavStream_getLength,streaming,E,ported,stream_wav,Stream::length (single-precision division).
-WavStream::lifecycle,source,WavStream_create WavStream_destroy,streaming,E,in-progress,stream_wav,"Stream::new over an Arc<dyn StreamSource>; dropping a Stream does not stop its voices (each owns its reader), so the parity runner stops them when a name is replaced. Through the Controller, decoded ahead by its StreamWorker."
+WavStream::lifecycle,source,WavStream_create WavStream_destroy,streaming,E,ported,stream_wav,"Stream::new over an Arc<dyn StreamSource>; dropping a Stream does not stop its voices (each owns its reader), so the parity runner stops them when a name is replaced. Reloading a WavStream stopped none of its voices, which read the freed data (patch 0063); a Rust WavStream cannot be reloaded. Through the Controller, decoded ahead by its StreamWorker."
 WavStream::load,source,WavStream_load,streaming,E,ported,stream_wav stream_flac stream_ogg stream_mp3,"solouder_decoders::WavStream::open; each voice reopens the file, as the reference does. A file gone or changed in layout by then ends the voice at once (patch 0053). Ogg streams follow patches 0058 and 0059."
-WavStream::loadFile,source,WavStream_loadFile,streaming,E,todo,,
-WavStream::loadFileToMem,source,WavStream_loadFileToMem,streaming,E,todo,,
+WavStream::loadFile,source,WavStream_loadFile,streaming,E,ported,file_loading,"WavStream::from_file over a StreamFile (built in for paths and Arc<[u8]>, or the caller's own type). Each voice opens its own reader; the reference shares the caller's one File and its cursor between voices, which corrupt each other's reads (difference in port-status.md). A caller's file behaves as a MemoryFile at the end of the data."
+WavStream::loadFileToMem,source,WavStream_loadFileToMem,streaming,E,ported,file_loading,"WavStream::from_reader reads an impl Read to its end, then streams it as from_bytes does."
 WavStream::loadMem,source,WavStream_loadMem WavStream_loadMemEx,streaming,E,ported,stream_wav stream_flac stream_ogg stream_mp3,WavStream::from_bytes takes anything that becomes an Arc<[u8]> and shares it between voices (no aCopy/aTakeOwnership).
 WavStream::loadToMem,source,WavStream_loadToMem,streaming,E,ported,stream_wav stream_flac stream_ogg stream_mp3,WavStream::load_to_memory.
 Filter::getParamCount,filter-common,BassboostFilter_getParamCount BiquadResonantFilter_getParamCount DCRemovalFilter_getParamCount EchoFilter_getParamCount FFTFilter_getParamCount FlangerFilter_getParamCount FreeverbFilter_getParamCount LofiFilter_getParamCount RobotizeFilter_getParamCount WaveShaperFilter_getParamCount,filters,D,ported,filter_params filters_spectral filters_modulation,

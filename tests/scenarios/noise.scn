@@ -1,0 +1,121 @@
+# Noise (milestone F unit 1): the four presets, an unknown type (white),
+# custom octave weights and weights summing to 0 (silence, reference patch
+# 0062); every voice from the same seed; weights changed after a play
+# reaching only later voices; 512-frame reads at any mix size, resampled
+# and sped up; seeking forward in passes of the scratch size and back
+# (NOT_IMPLEMENTED: noise cannot rewind); a filter, volume, pan, single
+# instance, 3D and ticking while inaudible; queued noise read and seeked
+# through a queue; counts and stopping by source.
+init channels=2
+noise name=white
+noise name=pink type=1 volume=0.5
+noise name=brown type=2
+noise name=blue type=3 volume=0.8
+noise name=odd type=99
+noise name=custom s0=0.5 s3=2 s9=1.25
+noise name=zero s0=1 s1=-1
+play sound=white as=w
+mix frames=1000
+query h=w
+mix frames=37
+stop h=w
+play sound=pink as=p pan=-0.5
+mix frames=777
+mix frames=1
+mix frames=512
+stop h=p
+play sound=brown as=b
+mix frames=1300
+stop h=b
+play sound=blue as=bl pan=0.75
+mix frames=600
+stop h=bl
+play sound=odd as=o
+mix frames=520
+stop h=o
+play sound=custom as=c
+mix frames=2048
+stop h=c
+play sound=zero as=z
+mix frames=600
+query h=z
+stop h=z
+
+# Two voices of one source start alike; a changed weight reaches only
+# the voice played after it.
+play sound=pink as=p1
+mix frames=300
+noise_set name=pink type=0 s2=1
+play sound=pink as=p2 pan=1
+play sound=pink as=p3 pan=-1
+mix frames=900
+sound_query name=pink
+stop_sound name=pink
+sound_query name=pink
+counts
+
+# Speed, sample rate and seeking.
+play sound=brown as=s
+set h=s speed=1.37
+mix frames=1500
+set h=s speed=0.61
+mix frames=1100
+set h=s seek=0.5
+mix frames=700
+set h=s seek=0.25
+query h=s
+mix frames=700
+set h=s rate=22050 seek=1.75
+mix frames=1024
+stop h=s
+
+# A filter, single instance and looping (noise never ends).
+filter name=lp kind=biquad type=lowpass freq=2000 res=3
+sound_filter sound=custom slot=0 filter=lp
+play sound=custom as=f
+mix frames=1200
+noise name=one type=2 single=1 looping=1 loop_point=0.1
+play sound=one as=one_a
+mix frames=300
+play sound=one as=one_b
+query h=one_a
+query h=one_b
+mix frames=900
+stop_all
+
+# 3D, ticking while too far away to hear, then audible again.
+noise name=far type=1 tick=1
+sound3d name=far min=1 max=100 model=1 rolloff=1
+play3d sound=far as=t x=2 y=0 z=0
+mix frames=600
+set3d h=t x=5000 y=0 z=0
+update3d
+mix frames=1300
+set3d h=t x=3 y=0 z=0
+update3d
+mix frames=900
+query h=t
+stop_all
+
+# Queued noise: read from the queue at its stride, and skipped in passes
+# of the scratch size divided by the queue's channels.
+queue name=q rate=44100 channels=2
+play sound=q as=qv
+queue_add queue=q sound=white
+queue_add queue=q sound=custom
+mix frames=1500
+set h=qv seek=0.3
+mix frames=800
+queue_query queue=q sound=white
+init channels=1 rate=48000 buffer=6000
+noise name=n type=3
+play sound=n as=r
+mix frames=4096
+set h=r seek=0.4
+mix frames=333
+queue name=q rate=44100
+play sound=q as=qv
+queue_add queue=q sound=n
+mix frames=700
+set h=qv seek=0.6
+mix frames=500

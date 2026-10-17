@@ -40,6 +40,8 @@ macro_rules! with_source {
             $body
         } else if let Some($source) = $state.queues.get_mut($name) {
             $body
+        } else if let Some($source) = $state.synths.get_mut($name) {
+            $body
         }
     };
 }
@@ -95,6 +97,7 @@ impl State {
             Source::Stream(stream) => mixer.play_3d(stream, position, options),
             Source::Bus(bus) => mixer.play_3d(bus, position, options),
             Source::Queue(queue) => mixer.play_3d(queue, position, options),
+            Source::Synth(synth) => mixer.play_3d(synth, position, options),
         };
         let sound_name = step.text("sound")?.to_owned();
         self.played.entry(sound_name).or_default().push(handle);

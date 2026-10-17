@@ -28,7 +28,7 @@ pub struct Mixer {
     /// pass renders (`mScratchSize`).
     pub(super) scratch_frames: usize,
     /// Each voice's resampled audio, then the clipped mix (`mScratch`).
-    scratch: Vec<f32>,
+    pub(super) scratch: Vec<f32>,
     /// The accumulated mix before clipping (`mOutputScratch`).
     output_scratch: Vec<f32>,
     pub(crate) voices: Voices,

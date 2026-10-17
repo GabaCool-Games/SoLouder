@@ -5,7 +5,8 @@
 use std::collections::VecDeque;
 
 use super::control::ControlError;
-use super::queued::Queued;
+use super::generator::Discard;
+use super::queued::{Output, Queued};
 use super::retire::Retired;
 use super::sound::{Sound, SoundId};
 use super::source::private::{Prepared, Sealed};
@@ -197,7 +198,7 @@ impl Queues {
     pub fn read(
         &mut self,
         id: SoundId,
-        mut out: Option<&mut [f32]>,
+        mut out: Output<'_>,
         start: usize,
         frames: u32,
         stride: usize,
@@ -214,7 +215,7 @@ impl Queues {
                 break;
             };
             let at = start + copied as usize;
-            let count = item.read(out.as_deref_mut(), at, stride, frames - copied, channels);
+            let count = item.read(out.reborrow(), at, stride, frames - copied, channels);
             copied += count;
             if count == 0 || item.has_ended() {
                 if let Some(item) = items.pop_front() {
@@ -233,7 +234,7 @@ pub(crate) fn has_ended(voice: &Voice, queues: &Queues) -> bool {
 }
 
 /// SoLoud's generic seek on a queue voice (`AudioSourceInstance::seek`),
-/// with a scratch buffer of `scratch` floats. A queue cannot rewind, so
+/// with a scratch buffer of `discard.scratch` floats. A queue cannot rewind, so
 /// seeking back does nothing and returns false. Seeking forward skips the
 /// frames in passes of `scratch` divided by the queue's channels.
 pub(crate) fn seek(
@@ -241,24 +242,26 @@ pub(crate) fn seek(
     queues: &mut Queues,
     retired: &mut Retired,
     seconds: f64,
-    scratch: usize,
+    discard: Discard<'_>,
 ) -> bool {
     let offset = seconds - voice.stream_position;
     if offset <= 0.0 {
         return false;
     }
     let channels = voice.channels();
-    let pass = (scratch / channels) as i32;
+    let pass = (discard.scratch / channels) as i32;
     let mut remaining = c_int((f64::from(voice.base_sample_rate) * offset).floor());
     while remaining > 0 {
         let frames = pass.min(remaining);
         let loop_count = &mut voice.loop_count;
+        // Each pass reads at a stride of its own length, as the reference
+        // reads into its scratch.
         queues.read(
             voice.sound_id,
-            None,
+            Output::Skip(&mut *discard.buffer),
             0,
             frames as u32,
-            0,
+            frames as usize,
             channels,
             loop_count,
             retired,

@@ -5,6 +5,7 @@
 use std::f64::consts::PI;
 
 use super::bus::BusVoice;
+use super::generator::{self, Discard, GeneratorContext, GeneratorInstance};
 use super::handle::Handle;
 use super::queue::{self, Queues};
 use super::sound::SoundId;
@@ -61,6 +62,11 @@ pub(crate) enum VoiceSource {
         channels: u32,
         frames: u32,
         offset: u32,
+    },
+    /// A generator's instance (any other `AudioSourceInstance`).
+    Generator {
+        instance: Box<dyn GeneratorInstance>,
+        channels: u32,
     },
 }
 
@@ -182,6 +188,16 @@ impl Voice {
     /// `c` at `c * SAMPLE_GRANULARITY`), starting `start` frames into each
     /// channel, and returns how many were copied (`WavInstance::getAudio`).
     pub fn read(&mut self, block: &mut [f32], start: usize, frames: u32) -> u32 {
+        if let VoiceSource::Generator { .. } = self.source {
+            let context = self.generator_context();
+            return generator::read(
+                &mut self.source,
+                &mut block[start..],
+                BLOCK,
+                frames,
+                &context,
+            );
+        }
         let VoiceSource::Pcm { pcm, offset } = &mut self.source else {
             let looping = stream::loop_target(self);
             return stream::read(&mut self.source, Some(block), start, BLOCK, frames, looping);
@@ -201,9 +217,10 @@ impl Voice {
     pub fn as_bus(&self) -> Option<&BusVoice> {
         match &self.source {
             VoiceSource::Bus(bus) => Some(bus),
-            VoiceSource::Pcm { .. } | VoiceSource::Queue { .. } | VoiceSource::Stream { .. } => {
-                None
-            }
+            VoiceSource::Pcm { .. }
+            | VoiceSource::Queue { .. }
+            | VoiceSource::Stream { .. }
+            | VoiceSource::Generator { .. } => None,
         }
     }
 
@@ -218,7 +235,31 @@ impl Voice {
             VoiceSource::Stream { .. } => {
                 stream::has_ended(&self.source, self.has_flag(flags::LOOPING))
             }
+            VoiceSource::Generator { .. } => generator::has_ended(&self.source),
         }
+    }
+
+    /// What a generator's instance sees of this voice.
+    pub fn generator_context(&self) -> GeneratorContext {
+        GeneratorContext::new(self.has_flag(flags::LOOPING), self.sample_rate)
+    }
+
+    /// [`Voice::seek`], and SoLoud's generic seek for a generator, which
+    /// computes and discards the audio skipped into `discard`. False if the
+    /// voice could not seek (a generator that cannot rewind, seeking back).
+    pub fn seek_with(&mut self, seconds: f64, discard: Discard<'_>) -> bool {
+        if let VoiceSource::Generator { .. } = self.source {
+            let context = self.generator_context();
+            let (position, rate) = (self.stream_position, self.base_sample_rate);
+            let sought =
+                generator::seek(&mut self.source, position, seconds, rate, discard, &context);
+            if sought {
+                self.stream_position = seconds;
+            }
+            return sought;
+        }
+        self.seek(seconds);
+        true
     }
 
     /// SoLoud's generic seek (`AudioSourceInstance::seek`): rewinds unless
@@ -339,9 +380,9 @@ fn channels_of(source: &VoiceSource) -> usize {
     match source {
         VoiceSource::Pcm { pcm, .. } => pcm.channels() as usize,
         VoiceSource::Bus(bus) => bus.channels(),
-        VoiceSource::Queue { channels } | VoiceSource::Stream { channels, .. } => {
-            *channels as usize
-        }
+        VoiceSource::Queue { channels }
+        | VoiceSource::Stream { channels, .. }
+        | VoiceSource::Generator { channels, .. } => *channels as usize,
     }
 }
 

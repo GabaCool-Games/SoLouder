@@ -40,6 +40,10 @@ pub(crate) struct Voices {
     pub groups: VoiceGroups,
     /// Sounds queued on queues played on this mixer.
     pub queues: Queues,
+    /// Where a loop wrap's seek discards a generator's audio
+    /// (`mSeekScratch`): one block of every channel, for every channel a
+    /// queued source can have.
+    pub discard: Vec<f32>,
 }
 
 /// Two resample blocks per active voice (`mResampleData`), each owned by at
@@ -75,6 +79,7 @@ impl Voices {
             stole: false,
             groups: VoiceGroups::default(),
             queues: Queues::default(),
+            discard: vec![0.0; BLOCK_LEN * MAX_CHANNELS as usize],
         }
     }
 

@@ -1,18 +1,33 @@
 //! The `stream` scenario operation, which mirrors the operation of the same
 //! name in `reference/tests/parity_runner.cpp`.
 
+use std::io::Cursor;
 use std::sync::Arc;
 
 use solouder_core::Stream;
-use solouder_decoders::WavStream;
+use solouder_decoders::{StreamFile, StreamInput, WavStream};
 
-use crate::files::{FILE_LOAD_FAILED, fixture_path, load_code};
+use crate::files::{FILE_LOAD_FAILED, fixture_path, load_code, open_fixture, read_fixture};
 use crate::run::{SO_NO_ERROR, State};
 use crate::scenario::{ScenarioError, Step};
 
+/// A caller's own file type over bytes, as a SoLoud `MemoryFile` passed to
+/// `WavStream::loadFile`.
+#[derive(Debug)]
+struct MemoryFile(Arc<[u8]>);
+
+impl StreamFile for MemoryFile {
+    fn open(&self) -> std::io::Result<Box<dyn StreamInput>> {
+        Ok(Box::new(Cursor::new(Arc::clone(&self.0))))
+    }
+}
+
 impl State {
-    /// `WavStream::load`, `loadToMem` (`from=memory`) or `loadMem` of the
-    /// file's bytes (`from=bytes`), then the stream's settings.
+    /// `WavStream::load`, `loadToMem` (`from=memory`), `loadMem` of the
+    /// file's bytes (`from=bytes`), `loadFile` of a `DiskFile` or
+    /// `MemoryFile` (`from=disk_file`, `memory_file`) or `loadFileToMem` of
+    /// one (`from=disk_to_mem`, `memory_to_mem`), then the stream's
+    /// settings.
     pub(crate) fn stream(&mut self, step: &Step) -> Result<(), ScenarioError> {
         step.check_keys(&["name", "file", "from", "volume", "looping", "loop_point"])?;
         self.mixer(step)?;
@@ -21,25 +36,32 @@ impl State {
         let loaded = match step.get("from").unwrap_or("file") {
             "file" => WavStream::open(&path),
             "memory" => WavStream::load_to_memory(&path),
-            "bytes" => {
-                let bytes = std::fs::read(&path).map_err(|error| {
-                    step.error(format!("cannot read {}: {error}", path.display()))
-                })?;
-                WavStream::from_bytes(bytes)
+            "bytes" => WavStream::from_bytes(read_fixture(step, &path)?),
+            // `loadFile` of a `DiskFile` (each voice opens the path again)
+            // or of a `MemoryFile` (bytes held by the caller's own file).
+            "disk_file" => {
+                open_fixture(step, &path)?;
+                WavStream::from_file(path.clone())
             }
+            "memory_file" => WavStream::from_file(MemoryFile(read_fixture(step, &path)?.into())),
+            "disk_to_mem" => WavStream::from_reader(open_fixture(step, &path)?),
+            "memory_to_mem" => WavStream::from_reader(Cursor::new(read_fixture(step, &path)?)),
             other => return Err(step.error(format!("unknown from `{other}`"))),
         };
         let volume = step.number_or("volume", 1.0)?;
         let looping = step.flag_or("looping", false)?;
         let loop_point = step.seconds_or("loop_point", 0.0)?;
+        // Reloading a name stops the old stream's voices, whether or not
+        // the new file loads (patch 0063); a failed reload forgets the name.
+        if let Some(old) = self.streams.remove(&name) {
+            self.mixer(step)?.stop_sound(&old);
+        }
         let code = match loaded.map(|wav| Stream::new(Arc::new(wav))) {
             Ok(Ok(mut stream)) => {
                 stream.set_volume(volume);
                 stream.set_looping(looping);
                 stream.set_loop_point(loop_point);
-                if let Some(old) = self.streams.insert(name.clone(), stream) {
-                    self.mixer(step)?.stop_sound(&old);
-                }
+                self.streams.insert(name.clone(), stream);
                 SO_NO_ERROR
             }
             Ok(Err(_)) => FILE_LOAD_FAILED,

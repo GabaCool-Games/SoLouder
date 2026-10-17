@@ -109,6 +109,8 @@ set(REFERENCE_TESTS
   oggstream_seek_lands_on_target
   oggstream_seek_past_end_ends
   oggstream_cut_first_page_fails
+  noise_zero_octave_sum_is_silent
+  wavstream_reload_stops_voices
 )
 
 enable_testing()

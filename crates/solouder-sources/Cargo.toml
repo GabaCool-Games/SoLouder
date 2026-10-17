@@ -1,0 +1,23 @@
+[package]
+name = "solouder-sources"
+description = "SoLouder sources: SoLoud's generators (noise, sfxr, chip music, speech) for solouder-core"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish.workspace = true
+
+[features]
+default = ["noise"]
+# WELL512, shared by noise and sfxr.
+prg = []
+noise = ["prg"]
+
+[dependencies]
+solouder-core.workspace = true
+
+[dev-dependencies]
+stats_alloc = "0.1"
+
+[lints]
+workspace = true
