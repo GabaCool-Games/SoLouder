@@ -161,11 +161,11 @@ TedSid::lifecycle,source,TedSid_create TedSid_destroy,sources,F,todo,,
 TedSid::load,source,TedSid_load,sources,F,todo,,
 TedSid::loadFile,source,TedSid_loadFile,sources,F,todo,,
 TedSid::loadMem,source,TedSid_loadMem TedSid_loadMemEx,sources,F,todo,,
-Vic::getModel,source,Vic_getModel,sources,F,todo,,
-Vic::getRegister,source,Vic_getRegister,sources,F,todo,,
-Vic::lifecycle,source,Vic_create Vic_destroy,sources,F,todo,,
-Vic::setModel,source,Vic_setModel,sources,F,todo,,
-Vic::setRegister,source,Vic_setRegister,sources,F,todo,,
+Vic::getModel,source,Vic_getModel,sources,F,ported,vic,Vic::model.
+Vic::getRegister,source,Vic_getRegister,sources,F,ported,vic,Vic::register returns None past the last (patch 0064: reads 0; it read past the registers).
+Vic::lifecycle,source,Vic_create Vic_destroy,sources,F,ported,vic,"solouder_sources::Vic (Clone shares its registers), played through Synth; mono at 44100 Hz, never ends, cannot rewind. Dropping a Synth does not stop its voices; the parity runner stops them when a name is replaced."
+Vic::setModel,source,Vic_setModel,sources,F,ported,vic,"Vic::set_model(VicModel) through &self; playing voices use the new clocks from their next block, as in the reference. The reference's int accepts values without a model (they keep the clocks); VicModel has only PAL and NTSC."
+Vic::setRegister,source,Vic_setRegister,sources,F,ported,vic,"Vic::set_register through &self (atomics), read by playing voices at their next block; an index past the last is Err(RegisterOutOfRange) (patch 0064: ignored; it wrote past the registers)."
 Vizsn::lifecycle,source,Vizsn_create Vizsn_destroy,sources,F,todo,,
 Vizsn::setText,source,Vizsn_setText,sources,F,todo,,
 Wav::getLength,source,Wav_getLength,decoded_audio,B,ported,sound_instances,Sound::length.

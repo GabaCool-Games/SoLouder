@@ -410,6 +410,7 @@ unpatched reference, and each needs a matching Rust test.
 | 0061 | — (found porting milestone E) | The inaudible-tick path did not clear the rest of a block that ended short, as the mixing path does, so a voice ticked to its end and then made audible again (by `update3dAudio`) played the stale samples left in its resample buffer after its last frame. It now clears them. | `inaudible_tick_clears_short_block` |
 | 0062 | — (found porting milestone F) | `NoiseInstance::getAudio` divided its sum by the sum of the octave weights, so weights summing to 0 (all 0, or 1 and -1) made every sample infinite or NaN, silencing the whole mix. Such weights now give silence. | `noise_zero_octave_sum_is_silent` |
 | 0063 | — (found porting milestone F) | `WavStream::load`, `loadMem`, `loadFile` and `loadFileToMem` replaced the memory file and file name that playing instances read without stopping them, so those voices read freed memory. They now stop the stream's voices first, as `Wav`'s loaders do. | `wavstream_reload_stops_voices` |
+| 0064 | — (found porting milestone F) | `Vic::setRegister` and `getRegister` indexed the 4 registers with any `int`, writing and reading the noise table after them and the clocks before them. An index out of range is now ignored and reads 0. | `vic_register_index_in_range` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -947,10 +948,15 @@ Rules for units 1 to 8:
    stream-replacement case is in `stream_wav`. Patch 0063 covers only the
    voices: a queued instance of a reloaded stream still reads freed memory
    (see "Still open in the reference").
-2. **Vic** (167 + h 108; Petri Häkkinen, zlib): integer phases and floats;
+2. **Vic** (done; patch 0064; 167 + h 108; Petri Häkkinen, zlib): integer phases and floats;
    44100 Hz is hard-coded into the phase step. Rows: `Vic::*` (5). Defect:
    `setRegister`/`getRegister` index past 4 registers (bounds patch; Rust returns
    `Option`/`Err`). Scenario `vic` writes registers between mixes.
+   Done: `solouder_sources::Vic` shares its registers and model as atomics
+   in an `Arc`, which its voices read at the start of every block; the
+   noise table is computed at compile time. `VicModel` replaces the
+   `int` model. Through the `Controller` with live register changes in
+   the sources' `realtime_no_alloc`.
 3. **Sfxr** (602 + h 158; Tomas Pettersson, zlib by permission): uses `Prg`,
    seeded `0x792352` per instance and `aRandSeed` for presets; the period is
    `double`, the filters `float`. Rows: `Sfxr::*` (6). Defects:

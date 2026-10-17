@@ -78,9 +78,38 @@
 				noise.setOctaveScale(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9]);
 		}
 
+		// `value` keys of 0 to 255.
+		unsigned char byteArg(const Step &step, const char *key)
+		{
+			unsigned int value = uintArg(step, key, true, 0);
+			if (value > 255)
+				throw ScenarioError(step.line, std::string("`") + key + "` must be 0 to 255");
+			return (unsigned char)value;
+		}
+
+		// `model` (0 PAL or 1 NTSC), then `bass`, `alto`, `soprano`, `noise`
+		// and `reg` with `value`, each as given.
+		void applyVic(const Step &step, SoLoud::Vic &vic)
+		{
+			if (step.get("model"))
+			{
+				unsigned int model = uintArg(step, "model", true, 0);
+				if (model > 1)
+					throw ScenarioError(step.line, "`model` must be 0 or 1");
+				vic.setModel((int)model);
+			}
+			static const char *const regs[] = { "bass", "alto", "soprano", "noise" };
+			for (int i = 0; i < 4; i++)
+				if (step.get(regs[i]))
+					vic.setRegister(i, byteArg(step, regs[i]));
+			static const char *const pair[] = { "reg", "value" };
+			if (groupArg(step, pair, 2, "`reg` and `value`"))
+				vic.setRegister((int)uintArg(step, "reg", true, 0), byteArg(step, "value"));
+		}
+
 		static bool isGeneratorOp(const std::string &op)
 		{
-			return op == "noise" || op == "noise_set";
+			return op == "noise" || op == "noise_set" || op == "vic" || op == "vic_set" || op == "vic_query";
 		}
 
 		void generatorOp(const Step &step)
@@ -100,5 +129,42 @@
 			{
 				checkKeys(step, noiseKeys, 12);
 				applyNoise(step, generatorArg<SoLoud::Noise>(step, "name", "noise"));
+			}
+			static const char *const vicKeys[] = { "name", "model", "bass", "alto", "soprano", "noise", "reg", "value" };
+			if (step.op == "vic")
+			{
+				checkGeneratorKeys(step, vicKeys, 8);
+				engine(step);
+				std::string name = textArg(step, "name");
+				SoLoud::Vic *vic = new SoLoud::Vic;
+				try
+				{
+					applyVic(step, *vic);
+				}
+				catch (...)
+				{
+					delete vic;
+					throw;
+				}
+				sourceSettings(step, *vic);
+				storeGenerator(name, vic);
+			}
+			else if (step.op == "vic_set")
+			{
+				checkKeys(step, vicKeys, 8);
+				applyVic(step, generatorArg<SoLoud::Vic>(step, "name", "vic"));
+			}
+			else if (step.op == "vic_query")
+			{
+				static const char *const keys[] = { "name", "reg" };
+				checkKeys(step, keys, 2);
+				SoLoud::Vic &vic = generatorArg<SoLoud::Vic>(step, "name", "vic");
+				std::ostringstream line;
+				line << "vic_query " << textArg(step, "name") << " model=" << vic.getModel() << " regs=";
+				for (int i = 0; i < 4; i++)
+					line << (i ? "," : "") << (unsigned int)vic.getRegister(i);
+				if (step.get("reg"))
+					line << " reg=" << (unsigned int)vic.getRegister((int)uintArg(step, "reg", true, 0));
+				logLine(line);
 			}
 		}

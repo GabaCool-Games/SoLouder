@@ -29,6 +29,7 @@
 #include "soloud_robotizefilter.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_queue.h"
+#include "soloud_vic.h"
 #include "soloud_wav.h"
 #include "soloud_wavstream.h"
 
@@ -974,6 +975,27 @@ namespace
 		check(soloud.getActiveVoiceCount() == 0, "no voice reads the old data");
 	}
 
+	// Vic::setRegister and getRegister took any index: past the 4 registers
+	// they wrote and read the noise table that follows them, and before
+	// them the clocks.
+	void vic_register_index_in_range()
+	{
+		Vic vic;
+		unsigned char noise[4];
+		float clocks[4];
+		std::memcpy(noise, vic.m_noise, sizeof(noise));
+		std::memcpy(clocks, vic.m_clocks, sizeof(clocks));
+		for (int reg = Vic::MAX_REGS; reg < Vic::MAX_REGS + 4; reg++)
+			vic.setRegister(reg, (unsigned char)(vic.m_noise[reg - Vic::MAX_REGS] ^ 0xff));
+		for (int reg = -16; reg < 0; reg++)
+			vic.setRegister(reg, 0x5a);
+		check(std::memcmp(noise, vic.m_noise, sizeof(noise)) == 0, "the noise table is untouched");
+		check(std::memcmp(clocks, vic.m_clocks, sizeof(clocks)) == 0, "the clocks are untouched");
+		check(vic.getRegister(Vic::MAX_REGS) == 0 && vic.getRegister(-1) == 0, "out-of-range registers read 0");
+		vic.setRegister(Vic::NOISE, 200);
+		check(vic.getRegister(Vic::NOISE) == 200, "registers in range still work");
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -1698,6 +1720,7 @@ namespace
 		{ "oggstream_cut_first_page_fails", oggstream_cut_first_page_fails },
 		{ "noise_zero_octave_sum_is_silent", noise_zero_octave_sum_is_silent },
 		{ "wavstream_reload_stops_voices", wavstream_reload_stops_voices },
+		{ "vic_register_index_in_range", vic_register_index_in_range },
 	};
 }
 

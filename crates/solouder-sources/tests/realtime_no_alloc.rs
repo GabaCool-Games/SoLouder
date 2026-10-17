@@ -1,6 +1,6 @@
 //! Generators through the real-time split: `Renderer::render` must not
 //! allocate or free memory while synths play, loop, seek, end and play in
-//! a queue, and must render exactly what an offline [`Mixer`] given the same
+//! a queue, and while a Vic's registers and model change under its voice, and must render exactly what an offline [`Mixer`] given the same
 //! calls renders. Generator instances are built when a voice is prepared,
 //! on the game thread, so only the reads run on the audio thread.
 //!
@@ -14,7 +14,7 @@ use solouder_core::{
     Controller, Generator, GeneratorContext, GeneratorInstance, Mixer, MixerConfig, Queue,
     Renderer, Synth,
 };
-use solouder_sources::{Noise, NoiseType};
+use solouder_sources::{Noise, NoiseType, Vic, VicModel};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 #[global_allocator]
@@ -120,7 +120,12 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
     let mut output = vec![0.0; 2 * 1500];
     let mut expected = vec![0.0; 2 * 1500];
 
+    let vic = Vic::new();
+    vic.set_register(Vic::BASS, 220).unwrap();
+    let mut chip = Synth::new(Arc::new(vic.clone())).unwrap();
+    chip.set_looping(true);
     let sounds = [
+        chip,
         noise(NoiseType::Pink),
         noise(NoiseType::Blueish),
         ramp(3000, true, true),
@@ -144,13 +149,21 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
     drop(sounds);
     for round in 0..12 {
         between(&mut controller);
+        // Registers change under playing voices, between renders.
+        vic.set_register(round % 4, 128 + (round as u8 * 11) % 128)
+            .unwrap();
+        if round == 7 {
+            vic.set_model(VicModel::Ntsc);
+        }
         if round == 3 {
             // Forward through the generic seek's discard passes, and back
             // with a rewind.
-            controller.seek(ids[0], 0.4).unwrap();
-            offline.seek(handles[0], 0.4).unwrap();
-            controller.seek(ids[2], 0.02).unwrap();
-            offline.seek(handles[2], 0.02).unwrap();
+            controller.seek(ids[1], 0.4).unwrap();
+            offline.seek(handles[1], 0.4).unwrap();
+            controller.seek(ids[3], 0.02).unwrap();
+            offline.seek(handles[3], 0.02).unwrap();
+            controller.seek(ids[0], 0.3).unwrap();
+            offline.seek(handles[0], 0.3).unwrap();
         }
         let frames = [1500, 700, 333][round % 3];
         measured_render(&mut renderer, &mut output[..2 * frames], "playing synths");
@@ -163,7 +176,7 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
             "round {round} differs from the offline mixer"
         );
     }
-    controller.stop(ids[0]).unwrap();
+    controller.stop(ids[1]).unwrap();
     measured_render(&mut renderer, &mut output, "stopping");
     between(&mut controller);
 }

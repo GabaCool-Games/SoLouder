@@ -19,6 +19,7 @@ pub mod run;
 pub mod scenario;
 mod spatial_ops;
 mod stream_ops;
+mod vic_ops;
 mod voice_ops;
 
 pub use compare::{Golden, Stats, compare, load_golden};

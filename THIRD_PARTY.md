@@ -19,7 +19,7 @@ Rows saying "ported" name the SoLouder code translated from them; the rest has n
 | Sfxr | `src/audiosource/sfxr/` | Tomas Pettersson, relicensed to zlib by permission | Port; keep the zlib notice and permission note |
 | Speech synthesizer | `src/audiosource/speech/` | rsynth by Nick Ing-Simmons et al., public domain; SoLoud changes public domain/CC0; `soloud_speech.*` zlib | Port with attribution |
 | Vizsn | `src/audiosource/vizsn/` | Ville-Matias Heikkilä, WTFPL | Port with attribution |
-| VIC 6560/6561 emulator | `src/audiosource/vic/` | Petri Häkkinen, zlib/libpng | Port; keep his zlib notice |
+| VIC 6560/6561 emulator | `src/audiosource/vic/` | Petri Häkkinen, zlib/libpng | Ported to `solouder-sources` (`features/vic/`), with his zlib notice in the file |
 | TED/SID | `src/audiosource/tedsid/` | Based on tedplay by Attila Grósz, Unlicense | Port with attribution |
 | AY | `src/audiosource/ay/` | YM-2149F emulator and resampler from Unreal Speccy by SMT, public domain; SoLoud wrapper zlib | Port with attribution |
 | WELL512 random numbers | `src/core/soloud_misc.cpp` (`Misc::Prg`) | WELL512 by Chris Lomont, public domain | Ported to `solouder-sources` (`prg.rs`), credited in the file |

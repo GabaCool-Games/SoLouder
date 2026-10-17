@@ -10,7 +10,7 @@ use crate::run::State;
 use crate::scenario::{ScenarioError, Step};
 
 /// Whether all of `keys` are given; some but not all is an error.
-fn group(step: &Step, keys: &[&str], what: &str) -> Result<bool, ScenarioError> {
+pub(crate) fn group(step: &Step, keys: &[&str], what: &str) -> Result<bool, ScenarioError> {
     let given = keys.iter().filter(|key| step.get(key).is_some()).count();
     if given != 0 && given != keys.len() {
         return Err(step.error(format!("{what} go together")));

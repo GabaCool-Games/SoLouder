@@ -35,6 +35,7 @@
 #include "soloud_noise.h"
 #include "soloud_queue.h"
 #include "soloud_robotizefilter.h"
+#include "soloud_vic.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_wav.h"
 #include "soloud_wavstream.h"

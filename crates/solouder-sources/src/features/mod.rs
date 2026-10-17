@@ -2,3 +2,5 @@
 
 #[cfg(feature = "noise")]
 pub mod noise;
+#[cfg(feature = "vic")]
+pub mod vic;

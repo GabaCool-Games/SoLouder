@@ -111,6 +111,7 @@ set(REFERENCE_TESTS
   oggstream_cut_first_page_fails
   noise_zero_octave_sum_is_silent
   wavstream_reload_stops_voices
+  vic_register_index_in_range
 )
 
 enable_testing()

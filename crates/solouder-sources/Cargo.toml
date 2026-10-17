@@ -8,10 +8,11 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-default = ["noise"]
+default = ["noise", "vic"]
 # WELL512, shared by noise and sfxr.
 prg = []
 noise = ["prg"]
+vic = []
 
 [dependencies]
 solouder-core.workspace = true

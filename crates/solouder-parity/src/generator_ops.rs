@@ -26,11 +26,11 @@ const NOISE_KEYS: [&str; 12] = [
 ];
 
 pub(crate) fn is_generator_op(op: &str) -> bool {
-    matches!(op, "noise" | "noise_set")
+    matches!(op, "noise" | "noise_set" | "vic" | "vic_set" | "vic_query")
 }
 
 /// `check_keys` with the source settings allowed too.
-fn check_generator_keys(step: &Step, allowed: &[&str]) -> Result<(), ScenarioError> {
+pub(crate) fn check_generator_keys(step: &Step, allowed: &[&str]) -> Result<(), ScenarioError> {
     let all: Vec<&str> = allowed.iter().chain(&SOURCE_SETTINGS).copied().collect();
     step.check_keys(&all)
 }
@@ -82,13 +82,14 @@ impl State {
                 let noise = self.generator::<Noise>(step, "noise")?;
                 apply_noise(step, &noise)
             }
+            op if op.starts_with("vic") => self.vic_op(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }
 
     /// Registers a generator with the source settings of `step`. Replacing
     /// a name stops the old generator's voices, as deleting it does in C++.
-    fn store_generator(
+    pub(crate) fn store_generator(
         &mut self,
         step: &Step,
         generator: Arc<dyn Generator>,
@@ -104,7 +105,7 @@ impl State {
     }
 
     /// The generator named by `name`, which must be a `T`.
-    fn generator<T: Generator + 'static>(
+    pub(crate) fn generator<T: Generator + 'static>(
         &self,
         step: &Step,
         what: &str,

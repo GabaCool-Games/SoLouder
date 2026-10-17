@@ -107,6 +107,9 @@ names: a sound, stream, bus or queue of the same name is found first.
 |---|---|---|---|
 | `noise` | `name`, `type` (an integer: 0 white, 1 pink, 2 brownish, 3 blueish; others act as white), `s0` to `s9` (0 when not given), source settings | A new `Noise`; `setType` if `type` is given, then `setOctaveScale(s0, ..., s9)` if any `s` is given. | — |
 | `noise_set` | `name` (a noise), `type`, `s0` to `s9` | As for `noise`, on an existing noise. Affects later plays: a voice keeps the weights it started with. | — |
+| `vic` | `name`, `model` (0 PAL, default, or 1 NTSC), `bass`, `alto`, `soprano`, `noise` (0 to 255), `reg` and `value` (together; any index), source settings | A new `Vic`; `setModel` if `model` is given, `setRegister` for each register given in that order, then `setRegister(reg, value)`; an index past the last is ignored (patch 0064). | — |
+| `vic_set` | `name` (a vic), then as for `vic` without source settings | The same on an existing vic: playing voices read the registers and model at their next block. | — |
+| `vic_query` | `name`, `reg` (optional) | `getModel` and `getRegister` of the four registers, and of `reg` (0 past the last). | `vic_query <name> model=<n> regs=<b>,<a>,<s>,<n>`, then ` reg=<value>` with `reg` |
 
 Every operation except `tolerance`, `init`, `samples` and `fft` needs a
 successful `init`. Unknown sound or handle names are scenario errors. `<code>` is the
