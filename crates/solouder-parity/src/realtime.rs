@@ -7,7 +7,9 @@
 //! so stateful colliders count the replay's calls alone. Plays, voice and
 //! global settings, fades, queued sounds and every 3D operation go through
 //! the controller; streams are decoded by its [`StreamWorker`], serviced
-//! before and after each render. Read-only operations are skipped. The
+//! before and after each render. Read-only operations are skipped, except
+//! visualization reads (`visual`, `bus_wave`), which append what the
+//! controller reads of the renderer's published data. The
 //! replay stops at the first operation it cannot express, returning the
 //! samples rendered so far: one the controller has no counterpart for, one
 //! naming a voice it does not know (a group, except in `set3d`, which sets
@@ -139,6 +141,9 @@ impl Replay {
             "update3d" => self.update3d(),
             "sound_speed" => self.sound_speed(step),
             "speaker" => self.speaker(step),
+            "visual" => self.visual(step),
+            "bus_wave" => self.bus_wave(step),
+            "bus_set" => self.bus_set(step),
             _ => stop("no real-time counterpart in the replay"),
         }
     }

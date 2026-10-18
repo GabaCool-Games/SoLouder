@@ -24,7 +24,7 @@ pub use features::filters;
 pub use features::playback::{
     Bus, ConfigError, ControlError, FilterTarget, Handle, Mixer, MixerConfig, PlayOptions,
     Playable, QUEUE_MAX, Queue, QueueError, Queueable, Sound, SoundId, Stream, StreamError,
-    StreamFormat, StreamReader, StreamSource, VOICE_COUNT,
+    StreamFormat, StreamReader, StreamSource, VOICE_COUNT, VisualizationData, WAVE_LEN,
 };
 pub use features::spatial;
 pub use features::spatial::{Attenuation, Attenuator, Collider, SpatialVoice};

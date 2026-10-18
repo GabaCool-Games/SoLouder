@@ -15,6 +15,7 @@ mod command;
 mod controller;
 mod controller_routing;
 mod controller_spatial;
+mod controller_visual;
 mod controller_voice;
 mod ids;
 mod renderer;
@@ -22,6 +23,7 @@ mod renderer_control;
 mod spatial_mirror;
 mod status;
 mod stream_worker;
+mod visual;
 
 use std::sync::Arc;
 
@@ -36,6 +38,7 @@ use crate::features::playback::Mixer;
 use ids::{IdPool, LiveTable};
 use spatial_mirror::SpatialMirror;
 use status::Shared;
+use visual::visual_channel;
 
 /// Queue sizes and limits for [`split`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -67,6 +70,11 @@ pub struct RealtimeConfig {
     /// [`ControllerError::QueueFull`]. Each holds the gains of up to
     /// `voice_ids` voices, allocated by [`split`].
     pub spatial_batches: usize,
+    /// Buses whose visualization data the renderer publishes for the
+    /// controller (see
+    /// [`Controller::set_bus_visualization`]); each render copies about
+    /// a kilobyte per bus watched.
+    pub visualized_buses: usize,
 }
 
 impl Default for RealtimeConfig {
@@ -80,6 +88,7 @@ impl Default for RealtimeConfig {
             stream_chunks: 32,
             pending_streams: 64,
             spatial_batches: 2,
+            visualized_buses: 8,
         }
     }
 }
@@ -113,6 +122,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
     let batches = config.spatial_batches.max(1);
     let (spatial_return, returned) = rtrb::RingBuffer::new(batches);
     let spatial = SpatialMirror::new(mixer.scene.clone(), voice_ids, batches, returned);
+    let (visual_writer, visual) = visual_channel(config.visualized_buses);
     let worker = StreamWorker {
         incoming,
         feeds: stream_feeds,
@@ -133,6 +143,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
         underflow,
         worker: Some(worker),
         spatial,
+        visual,
     };
     let renderer = Renderer {
         mixer,
@@ -144,6 +155,7 @@ pub fn split(mut mixer: Mixer, config: RealtimeConfig) -> (Controller, Renderer)
         commands_per_render,
         status: Default::default(),
         spatial_return,
+        visual: visual_writer,
     };
     (controller, renderer)
 }
@@ -175,3 +187,7 @@ mod spatial_tests;
 #[cfg(test)]
 #[path = "spatial_thread_tests.rs"]
 mod spatial_thread_tests;
+
+#[cfg(test)]
+#[path = "visual_tests.rs"]
+mod visual_tests;

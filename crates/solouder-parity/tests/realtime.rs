@@ -1,5 +1,6 @@
 //! The real-time controller and renderer render the spatial scenarios as the
-//! mixer does: each is replayed through them (`replay_realtime`) and its
+//! mixer does, and publish the visualization scenario's data as the mixer
+//! records it: each is replayed through them (`replay_realtime`) and its
 //! samples compared bit for bit with `run`'s. The mixer's run is compared
 //! with the C++ reference by `parity.rs`, so this ties the real-time path to
 //! the reference too.
@@ -8,7 +9,7 @@ use std::path::Path;
 
 use solouder_parity::{parse, replay_realtime, run};
 
-/// Each spatial scenario, and the line and operation its replay stops at,
+/// Each scenario, and the line and operation its replay stops at,
 /// if any. Editing a scenario above its stop moves the line: update it here.
 const SCENARIOS: &[(&str, Option<(usize, &str)>)] = &[
     ("spatial_3d", Some((260, "`global`"))),
@@ -17,10 +18,11 @@ const SCENARIOS: &[(&str, Option<(usize, &str)>)] = &[
     ("spatial_doppler", None),
     ("spatial_sources", None),
     ("spatial_speakers", None),
+    ("visualization", Some((96, "`bus_wave`"))),
 ];
 
 #[test]
-fn spatial_scenarios_render_in_real_time_as_on_the_mixer() {
+fn scenarios_render_in_real_time_as_on_the_mixer() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../tests/scenarios");
     let mut failures = Vec::new();
     for &(name, expected_stop) in SCENARIOS {

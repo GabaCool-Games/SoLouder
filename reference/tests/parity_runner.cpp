@@ -1175,8 +1175,8 @@ namespace
 			}
 			else if (step.op == "init")
 			{
-				static const char *const keys[] = { "channels", "rate", "buffer", "clip", "left_handed" };
-				checkKeys(step, keys, 5);
+				static const char *const keys[] = { "channels", "rate", "buffer", "clip", "left_handed", "visualization" };
+				checkKeys(step, keys, 6);
 				unsigned int channels = uintArg(step, "channels", false, 2);
 				unsigned int rate = uintArg(step, "rate", false, SoLoud::Soloud::AUTO);
 				unsigned int buffer = uintArg(step, "buffer", false, SoLoud::Soloud::AUTO);
@@ -1188,6 +1188,8 @@ namespace
 					throw ScenarioError(step.line, "unknown clip `" + *clip + "`");
 				if (flagArg(step, "left_handed", false))
 					flags |= SoLoud::Soloud::LEFT_HANDED_3D;
+				if (flagArg(step, "visualization", false))
+					flags |= SoLoud::Soloud::ENABLE_VISUALIZATION;
 				// A fresh engine per init, like the Rust runner's new Mixer.
 				clearSounds();
 				delete soloud;
@@ -1446,8 +1448,8 @@ namespace
 			}
 			else if (step.op == "global")
 			{
-				static const char *const keys[] = { "volume", "clip_scale", "resampler", "max_active", "pause_all" };
-				checkKeys(step, keys, 5);
+				static const char *const keys[] = { "volume", "clip_scale", "resampler", "max_active", "pause_all", "visualization" };
+				checkKeys(step, keys, 6);
 				float volume = floatArg(step, "volume", 0.0f);
 				float scale = floatArg(step, "clip_scale", 0.0f);
 				const std::string *resampler = step.get("resampler");
@@ -1479,6 +1481,8 @@ namespace
 				}
 				if (step.get("pause_all"))
 					s.setPauseAll(flagArg(step, "pause_all", false));
+				if (step.get("visualization"))
+					s.setVisualizationEnable(flagArg(step, "visualization", false));
 			}
 			else if (step.op == "query")
 			{
@@ -1719,6 +1723,32 @@ namespace
 			else if (step.op == "fft")
 			{
 				fftDump(step);
+			}
+			else if (step.op == "visual")
+			{
+				// The engine's visualization data, appended to the samples:
+				// getWave, calcFFT, or getApproximateVolume of channels 0 to 9.
+				static const char *const keys[] = { "data" };
+				checkKeys(step, keys, 1);
+				std::string data = textArg(step, "data");
+				SoLoud::Soloud &s = engine(step);
+				if (data == "wave" || data == "fft")
+				{
+					float *values = data == "fft" ? s.calcFFT() : s.getWave();
+					samples.insert(samples.end(), values, values + 256);
+				}
+				else if (data == "volumes")
+				{
+					for (unsigned int c = 0; c < 10; c++)
+						samples.push_back(s.getApproximateVolume(c));
+				}
+				else
+				{
+					throw ScenarioError(step.line, "unknown visual data `" + data + "`");
+				}
+				std::ostringstream line;
+				line << "visual " << data;
+				logLine(line);
 			}
 			else if (step.op == "bus" || step.op == "annex" || step.op == "bus_query" || step.op == "bus_wave" || step.op == "bus_filter" || step.op == "bus_set")
 			{

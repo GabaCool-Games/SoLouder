@@ -114,6 +114,7 @@ impl State {
             }
             "filter_info" => self.filter_info(step),
             "fft" => self.fft(step),
+            "visual" => self.visual(step),
             "bus" => self.bus(step),
             "annex" => self.annex(step),
             "bus_query" => self.bus_query(step),
@@ -169,7 +170,14 @@ impl State {
     }
 
     fn init(&mut self, step: &Step) -> Result<(), ScenarioError> {
-        step.check_keys(&["channels", "rate", "buffer", "clip", "left_handed"])?;
+        step.check_keys(&[
+            "channels",
+            "rate",
+            "buffer",
+            "clip",
+            "left_handed",
+            "visualization",
+        ])?;
         let defaults = MixerConfig::default();
         // 0 means "automatic" in SoLoud's C API, as in `Soloud::init`.
         let auto = |value: u32, default: u32| if value == 0 { default } else { value };
@@ -184,6 +192,7 @@ impl State {
             buffer_size: auto(step.value_or("buffer", 0)?, defaults.buffer_size),
             clipper,
             left_handed_3d: step.flag_or("left_handed", false)?,
+            visualization: step.flag_or("visualization", false)?,
         };
         self.sounds.clear();
         self.streams.clear();

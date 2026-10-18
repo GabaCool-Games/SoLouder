@@ -3,15 +3,15 @@
 
 use std::sync::Arc;
 
-use super::bus::{Bus, BusVoice, WAVE_LEN};
+use super::bus::{Bus, BusVoice};
 use super::control::PlayOptions;
 use super::handle::Handle;
 use super::mixer::Mixer;
 use super::sound::SoundId;
 use super::source::Playable;
+use super::visualization::{WAVE_LEN, spectrum};
 use super::voice::{Voice, VoiceSource};
 use crate::dsp::Resampler;
-use crate::dsp::fft::fft;
 use crate::features::filters::{FILTERS_PER_STREAM, Filter};
 
 /// Buses on this mixer. Calls for a bus that is not playing here do nothing
@@ -96,16 +96,7 @@ impl Mixer {
     /// Magnitudes of the first 256 bins of a 512-point FFT of
     /// [`Mixer::bus_wave`], zero-padded (`Bus::calcFFT`).
     pub fn bus_fft(&self, bus: &Bus) -> Option<[f32; WAVE_LEN]> {
-        let wave = self.bus_wave(bus)?;
-        let mut temp = [0.0_f32; 4 * WAVE_LEN];
-        for (pair, &sample) in temp.as_chunks_mut::<2>().0.iter_mut().zip(&wave) {
-            pair[0] = sample;
-        }
-        fft(&mut temp);
-        Some(std::array::from_fn(|i| {
-            let (real, imag) = (temp[2 * i], temp[2 * i + 1]);
-            (real * real + imag * imag).sqrt()
-        }))
+        self.bus_wave(bus).map(|wave| spectrum(&wave))
     }
 
     /// Sets or clears filter `slot` of `bus` and, if the bus is playing
@@ -155,9 +146,11 @@ impl Mixer {
     }
 
     fn bus_voice(&self, bus: &Bus) -> Option<&BusVoice> {
-        self.voices.slots[self.bus_slot(bus.id())?]
-            .as_ref()?
-            .as_bus()
+        self.bus_voice_of(bus.id())
+    }
+
+    pub(crate) fn bus_voice_of(&self, bus: SoundId) -> Option<&BusVoice> {
+        self.voices.slots[self.bus_slot(bus)?].as_ref()?.as_bus()
     }
 
     pub(crate) fn bus_voice_mut_of(&mut self, bus: SoundId) -> Option<&mut Voice> {

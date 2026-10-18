@@ -414,6 +414,8 @@ unpatched reference, and each needs a matching Rust test.
 | 0064 | — (found porting milestone E) | `set3dSoundSpeed` rejected only speeds of 0 or less, so NaN and infinity were accepted: either made the Doppler value of every 3D voice away from the listener NaN (infinity over infinity), and NaN made distance delays an undefined `int` conversion. They now return `INVALID_PARAMETER`. | `sound_speed_rejects_nan_and_infinity` |
 | 0065 | — (found porting milestone E) | `play3dClocked` computed the distance delay from the source's position alone, ignoring the listener, where `play3d` subtracts the listener's position (unless the source is listener-relative). It now does the same. | `play3d_clocked_distance_delay_from_listener` |
 | 0066 | #97 (follow-up; found reviewing milestone E) | Patch 0063 held a voice only when `doppler()` came out infinite or NaN, but the projected speeds were first clamped to the speed of sound over the Doppler factor, and for some factors `f32` rounding left the divisor a hair above 0: with a factor of 1.032 and a source approaching at 400 it was about 3e-5, so the voice played about 11 million times too fast and raced through its sound while the mixer rendered silence. The hold is now decided before dividing, on the speeds times the factor: a source approaching, or a listener receding, at or past the speed of sound holds the voice, and any other divisor is above 0 (a value that still overflows also holds). A still voice with a negative factor now plays at 1 instead of being held. | `doppler_past_sound_speed_holds_despite_rounding` |
+| 0067 | — (found porting milestone F) | `Soloud::getApproximateVolume` checked the channel with `>` instead of `>=`, as patch 0047 fixed for buses, so channel 8 of an 8-channel engine read past the volume array (into the wave data after it). | `approximate_volume_channel_in_range` |
+| 0068 | — (found porting milestone F) | With visualization enabled, a mix of no frames (`mix(buffer, 0)`, which still advances fades) took the short-mix path and computed `i % 0`, a division by zero that crashed the process. A mix of no frames now keeps the last visualization data. | `visualization_survives_an_empty_mix` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -422,7 +424,7 @@ so reference fixes are made on the `solouder-reference` branch (0017 plus code
 fixes only, in a worktree next to the fork), exported with
 `--ref solouder-reference`, and cherry-picked onto the working branch. Patches 0018 to
 0050 were pushed on 2026-10-12 (public `master` at `7b91e3b`), and 0051 after
-them (`1784537`). 0052 to 0056 are not pushed yet, nor are 0060 to 0066.
+them (`1784537`). 0052 to 0056 are not pushed yet, nor are 0060 to 0068.
 
 The shipped native libraries are built from the same branch: Windows with
 `build_windows.bat` (WASAPI, WinMM, Null, static runtime), Linux with

@@ -8,6 +8,7 @@ use super::mix_bus::{Layout, mix_bus};
 use super::sound::SoundId;
 use super::source::private::{Prepared, Sealed};
 use super::source::{Playable, SourceSettings, source_settings_api};
+use super::visualization::{WAVE_LEN, capture};
 use super::voice::{Voice, VoiceSource, flags};
 use super::voices::{BLOCK_LEN, Voices};
 use crate::contracts::{MAX_CHANNELS, SAMPLE_GRANULARITY};
@@ -15,8 +16,6 @@ use crate::dsp::{Resampler, c_int};
 
 const BLOCK: usize = SAMPLE_GRANULARITY as usize;
 const MAX: usize = MAX_CHANNELS as usize;
-/// Frames of visualization data.
-pub(crate) const WAVE_LEN: usize = 256;
 /// A bus's sample rate before speed (`AudioSource::mBaseSamplerate`).
 pub(crate) const BUS_RATE: f32 = 44100.0;
 
@@ -126,6 +125,10 @@ impl Sealed for Bus {
     fn bus_id(&self) -> Option<SoundId> {
         Some(self.id)
     }
+
+    fn bus_visualization(&self) -> bool {
+        self.visualization
+    }
 }
 
 /// A bus voice's state (`BusInstance`).
@@ -185,22 +188,15 @@ impl BusVoice {
         };
         mix_bus(voices, &mut self.block, &mut self.scratch, layout);
         if self.visualization {
-            self.visualize(frames as usize);
-        }
-    }
-
-    /// Repeats the mix when it is shorter than the wave data.
-    fn visualize(&mut self, frames: usize) {
-        self.channel_volume = [0.0; MAX];
-        for (i, wave) in self.wave.iter_mut().enumerate() {
-            let at = if frames >= WAVE_LEN { i } else { i % frames };
-            let mut sum = 0.0;
-            for (c, peak) in self.channel_volume[..self.channels].iter_mut().enumerate() {
-                let sample = self.block[at + c * BLOCK];
-                *peak = peak.max(sample.abs());
-                sum += sample;
-            }
-            *wave = sum;
+            let (frames, channels) = (frames as usize, self.channels);
+            capture(
+                &mut self.wave,
+                &mut self.channel_volume,
+                &self.block,
+                frames,
+                BLOCK,
+                channels,
+            );
         }
     }
 }

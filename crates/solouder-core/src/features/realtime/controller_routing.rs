@@ -139,13 +139,22 @@ impl Controller {
     }
 
     /// Sets whether `bus` records visualization data, including a playing
-    /// bus.
+    /// bus. Enabling it also has the renderer publish the bus's data for
+    /// [`Controller::bus_wave`] from then on, using one of the
+    /// [`RealtimeConfig::visualized_buses`](super::RealtimeConfig::visualized_buses)
+    /// slots for the controller's lifetime; so does playing a bus whose
+    /// visualization is enabled.
     pub fn set_bus_visualization(
         &mut self,
         bus: &mut Bus,
         enable: bool,
     ) -> Result<(), ControllerError> {
+        let watch = self.bus_watch(enable.then(|| bus.id()))?;
+        if self.commands.slots() < 1 + usize::from(watch.is_some()) {
+            return Err(ControllerError::QueueFull);
+        }
         self.send(Command::BusVisualization(bus.id(), enable))?;
+        self.send_watch(watch);
         bus.set_visualization(enable);
         Ok(())
     }

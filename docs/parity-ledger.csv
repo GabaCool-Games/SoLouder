@@ -1,6 +1,6 @@
 behavior,kind,c_functions,slice,milestone,status,scenarios,notes
 Soloud::addVoiceToGroup,engine,Soloud_addVoiceToGroup,routing,D,ported,voice_groups,
-Soloud::calcFFT,engine,Soloud_calcFFT,visualization,F,todo,,
+Soloud::calcFFT,engine,Soloud_calcFFT,visualization,F,ported,visualization,"Mixer::fft (and VisualizationData::spectrum). Controller::fft computes it on the calling thread, as calcFFT does; Bevy: AudioVisualization::spectrum."
 Soloud::countAudioSource,engine,Soloud_countAudioSource,playback,B,ported,sound_instances buses,"Mixer::count_sound takes any Playable (Sound, Bus, Queue); clones share its SoundId."
 Soloud::createVoiceGroup,engine,Soloud_createVoiceGroup,routing,D,ported,voice_groups,
 Soloud::deinit,engine,Soloud_deinit,output_lifecycle,C,ported,,Dropping or closing solouder_cpal::Output stops the stream before the mixer is freed on the closing thread. device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
@@ -12,7 +12,7 @@ Soloud::fadeRelativePlaySpeed,engine,Soloud_fadeRelativePlaySpeed,playback,D,por
 Soloud::fadeVolume,engine,Soloud_fadeVolume,playback,D,ported,fades,
 Soloud::get3dSoundSpeed,engine,Soloud_get3dSoundSpeed,spatial,E,ported,spatial_doppler spatial_delay,Mixer::sound_speed_3d; 343.3 by default. Also through the Controller (unit 8).
 Soloud::getActiveVoiceCount,engine,Soloud_getActiveVoiceCount,playback,B,ported,play_basic pause_stop active_voices,
-Soloud::getApproximateVolume,engine,Soloud_getApproximateVolume,visualization,F,todo,,
+Soloud::getApproximateVolume,engine,Soloud_getApproximateVolume,visualization,F,ported,visualization,"Mixer::approximate_volume; 0 for channels past the engine's (patch 0067: SoLoud read channel 8 of 8 past its array). Real time: Controller::approximate_volume reads what the Renderer published at its last render (a wait-free triple buffer of atomics, copied after every render that records); Bevy: AudioVisualization::volumes."
 Soloud::getAutoStop,engine,Soloud_getAutoStop,playback,B,ported,voice_controls,
 Soloud::getBackendBufferSize,engine,Soloud_getBackendBufferSize,output_lifecycle,C,ported,,Output::callback_frames: frames in the latest device callback (the request is OutputConfig::buffer_frames). device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
 Soloud::getBackendChannels,engine,Soloud_getBackendChannels,output_lifecycle,C,ported,,OutputInfo::channels. device_lifecycle (solouder-cpal) and plugin_lifecycle (bevy_solouder) tests; no parity scenario because the null-driver harness has no device.
@@ -41,8 +41,8 @@ Soloud::getStreamTime,engine,Soloud_getStreamTime,playback,B,ported,pause_stop a
 Soloud::getVersion,engine,Soloud_getVersion,playback,B,ported,voice_controls,solouder_core::SOLOUD_VERSION.
 Soloud::getVoiceCount,engine,Soloud_getVoiceCount,playback,B,ported,play_basic pause_stop active_voices,
 Soloud::getVolume,engine,Soloud_getVolume,playback,B,ported,pause_stop active_voices looping speed_and_resamplers,Rust returns None for a stopped voice; the runner logs the C default.
-Soloud::getWave,engine,Soloud_getWave,visualization,F,todo,,
-Soloud::init,engine,Soloud_init Soloud_initEx,output_lifecycle,C,in-progress,init_validation clipping_and_global,"Null-driver configuration: channel counts, minimum buffer, 0 = default rate/buffer, CLIP_ROUNDOFF on or off. Device output through solouder_cpal::open (rate, channels and sample format negotiated; invalid settings fail before the device opens). LEFT_HANDED_3D as MixerConfig::left_handed_3d (offline 3D; #94 and #105 are an open question). Other flags pending."
+Soloud::getWave,engine,Soloud_getWave,visualization,F,ported,visualization,"Mixer::wave. Each mix call records its first 256 frames from the clipped mix (#244); a call shorter than 256 frames repeats its frames, one of no frames keeps the last data (patch 0068), and a call longer than the scratch buffer records its last pass. Real time: Controller::wave reads what the Renderer published at its last render (a wait-free triple buffer of atomics, copied after every render that records); Bevy: AudioVisualization::wave."
+Soloud::init,engine,Soloud_init Soloud_initEx,output_lifecycle,C,ported,init_validation clipping_and_global visualization,"Null-driver configuration: channel counts, minimum buffer, 0 = default rate/buffer. Flags: CLIP_ROUNDOFF as MixerConfig::clipper, ENABLE_VISUALIZATION as MixerConfig::visualization, LEFT_HANDED_3D as MixerConfig::left_handed_3d (ported as it is; #94 and #105 are an open question for the maintainer). NO_FPU_REGISTER_CHANGE is excluded: SoLoud sets the x87/SSE control word to flush denormals unless it is given, and Rust never changes FPU registers (the parity comparison counts subnormals as zero). aBackend has no numeric counterpart: the null driver is a Mixer driven by explicit mixes, device output is solouder_cpal::open (rate, channels and sample format negotiated; invalid settings fail before the device opens), whose mixer starts with visualization off (Controller::set_visualization turns it on)."
 Soloud::isValidVoiceHandle,engine,Soloud_isValidVoiceHandle,playback,B,ported,pause_stop active_voices looping speed_and_resamplers,Out-of-range slot bits are invalid (patch 0020).
 Soloud::isVoiceGroup,engine,Soloud_isVoiceGroup,routing,D,ported,voice_groups,
 Soloud::isVoiceGroupEmpty,engine,Soloud_isVoiceGroupEmpty,routing,D,ported,voice_groups,
@@ -94,7 +94,7 @@ Soloud::setProtectVoice,engine,Soloud_setProtectVoice,playback,B,ported,active_v
 Soloud::setRelativePlaySpeed,engine,Soloud_setRelativePlaySpeed,playback,B,ported,speed_and_resamplers,Rust also rejects NaN. Steps of 512 or more render silence (patch 0022).
 Soloud::setSamplerate,engine,Soloud_setSamplerate,playback,B,ported,voice_controls,Mixer::set_sample_rate. A rate that is not greater than 0 renders silence (patch 0027).
 Soloud::setSpeakerPosition,engine,Soloud_setSpeakerPosition,spatial,E,ported,spatial_speakers,Mixer::set_speaker_position; ControlError::NoSuchSpeaker for a channel the output does not have. A zero speaker hears every direction at full gain. Also through the Controller (unit 8).
-Soloud::setVisualizationEnable,engine,Soloud_setVisualizationEnable,visualization,F,todo,,
+Soloud::setVisualizationEnable,engine,Soloud_setVisualizationEnable,visualization,F,ported,visualization,Mixer::set_visualization; turning it off keeps the last data. Controller::set_visualization (a command); Bevy: AudioVisualization::enabled.
 Soloud::setVolume,engine,Soloud_setVolume,playback,B,ported,volume_pan_ramps pause_stop active_voices,Ramps in over the next mix; jumps while paused.
 Soloud::stop,engine,Soloud_stop,playback,B,ported,pause_stop,Voice handles only; voice groups arrive in D.
 Soloud::stopAll,engine,Soloud_stopAll,playback,B,ported,pause_stop,
@@ -117,11 +117,11 @@ AudioSource::setVolume,source-common,Ay_setVolume Bus_setVolume Monotone_setVolu
 AudioSource::stop,source-common,Ay_stop Bus_stop Monotone_stop Noise_stop Openmpt_stop Queue_stop Sfxr_stop Speech_stop TedSid_stop Vic_stop Vizsn_stop WavStream_stop Wav_stop,playback,B,ported,sound_instances buses queues stream_wav,Mixer::stop_sound on each mixer: a source does not know the mixers playing it.
 Ay::lifecycle,source,Ay_create Ay_destroy,sources,F,todo,,
 Bus::annexSound,source,Bus_annexSound,routing,D,ported,buses,"Mixer::annex_sound(&Bus, handle); voice groups move every voice."
-Bus::calcFFT,source,Bus_calcFFT,routing,D,ported,buses,Mixer::bus_fft; None when the bus is not playing on that mixer (SoLoud returns its last copy).
+Bus::calcFFT,source,Bus_calcFFT,routing,D,ported,buses visualization,"Mixer::bus_fft; None when the bus is not playing on that mixer (SoLoud returns its last copy). Real time: Controller::bus_fft reads what the Renderer published for the bus at its last render (None, or 0, if the bus was not playing then); buses that record take one of RealtimeConfig::visualized_buses slots."
 Bus::getActiveVoiceCount,source,Bus_getActiveVoiceCount,routing,D,ported,buses,"Mixer::bus_voice_count; like SoLoud, looks up the bus handle, which lets the bus mix voices given that handle."
-Bus::getApproximateVolume,source,Bus_getApproximateVolume,routing,D,ported,buses,Mixer::bus_approximate_volume; 0 for channels past the bus's (patch 0047).
+Bus::getApproximateVolume,source,Bus_getApproximateVolume,routing,D,ported,buses visualization,"Mixer::bus_approximate_volume; 0 for channels past the bus's (patch 0047). Real time: Controller::bus_approximate_volume reads what the Renderer published for the bus at its last render (None, or 0, if the bus was not playing then); buses that record take one of RealtimeConfig::visualized_buses slots."
 Bus::getResampler,source,Bus_getResampler,routing,D,ported,buses,Bus::resampler.
-Bus::getWave,source,Bus_getWave,routing,D,ported,buses,Mixer::bus_wave; None when the bus is not playing on that mixer (SoLoud returns its last copy).
+Bus::getWave,source,Bus_getWave,routing,D,ported,buses visualization,"Mixer::bus_wave; None when the bus is not playing on that mixer (SoLoud returns its last copy). Real time: Controller::bus_wave reads what the Renderer published for the bus at its last render (None, or 0, if the bus was not playing then); buses that record take one of RealtimeConfig::visualized_buses slots."
 Bus::lifecycle,source,Bus_create Bus_destroy,routing,D,ported,buses,"Bus::new; a stereo bus with linear resampling. Dropping a Bus leaves its voice playing, as for Sound; Mixer::stop_sound stops it and its voices."
 Bus::play,source,Bus_play Bus_playEx,routing,D,ported,buses,"Mixer::bus_play(&Bus, &impl Playable, PlayOptions); volume None uses the source volume where SoLoud defaults to 1 (#381). Playing a Bus itself (Mixer::play_with) stops its earlier voice on that mixer."
 Bus::play3d,source,Bus_play3d Bus_play3dEx,routing,E,ported,spatial_delay spatial_sources spatial_custom,"Mixer::bus_play_3d; Handle::INVALID (0) unless the bus is playing on the mixer, as in SoLoud. Volume None uses the source volume where SoLoud defaults to 1 (#381). Also through the Controller (unit 8)."
@@ -129,7 +129,7 @@ Bus::play3dClocked,source,Bus_play3dClocked Bus_play3dClockedEx,routing,E,ported
 Bus::playClocked,source,Bus_playClocked Bus_playClockedEx,routing,D,ported,buses,Mixer::bus_play_clocked.
 Bus::setChannels,source,Bus_setChannels,routing,D,ported,buses,"Bus::set_channels: 1, 2, 4, 6 or 8, else ControlError::InvalidChannels; later plays."
 Bus::setResampler,source,Bus_setResampler,routing,D,ported,buses,Bus::set_resampler (later plays) and Mixer::set_bus_resampler (also the playing bus); the enum has no invalid values to ignore.
-Bus::setVisualizationEnable,source,Bus_setVisualizationEnable,routing,D,ported,buses,Bus::set_visualization (later plays) and Mixer::set_bus_visualization (also the playing bus).
+Bus::setVisualizationEnable,source,Bus_setVisualizationEnable,routing,D,ported,buses visualization,"Bus::set_visualization (later plays) and Mixer::set_bus_visualization (also the playing bus). Controller::set_bus_visualization, or playing a bus that records, has the Renderer publish the bus's data (ControllerError::TooManyVisualizedBuses past RealtimeConfig::visualized_buses)."
 Monotone::lifecycle,source,Monotone_create Monotone_destroy,sources,F,todo,,
 Monotone::load,source,Monotone_load,sources,F,todo,,
 Monotone::loadFile,source,Monotone_loadFile,sources,F,todo,,

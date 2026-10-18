@@ -42,7 +42,7 @@ fn start(mixer: &mut Mixer, source: &impl Playable, how: Start<'_>) -> Handle {
 }
 
 /// `Bus::setResampler` ignores values past `RESAMPLER_CATMULLROM`.
-fn resampler(value: u32) -> Option<Resampler> {
+pub(crate) fn resampler(value: u32) -> Option<Resampler> {
     match value {
         0 => Some(Resampler::Point),
         1 => Some(Resampler::Linear),

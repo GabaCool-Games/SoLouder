@@ -21,6 +21,11 @@ pub struct MixerConfig {
     /// axis is mirrored, which is the same as right-handed coordinates with
     /// every z negated. Off by default.
     pub left_handed_3d: bool,
+    /// Record visualization data from the first mix
+    /// (`ENABLE_VISUALIZATION`): see [`Mixer::wave`](super::Mixer::wave).
+    /// Off by default; [`Mixer::set_visualization`](super::Mixer::set_visualization)
+    /// changes it later.
+    pub visualization: bool,
 }
 
 impl Default for MixerConfig {
@@ -32,6 +37,7 @@ impl Default for MixerConfig {
             channels: 2,
             clipper: Clipper::Roundoff,
             left_handed_3d: false,
+            visualization: false,
         }
     }
 }

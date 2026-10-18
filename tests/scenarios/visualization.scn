@@ -1,0 +1,97 @@
+# Visualization: Soloud::setVisualizationEnable, the ENABLE_VISUALIZATION
+# init flag, getWave, calcFFT and getApproximateVolume. Each mix call takes
+# its data from the clipped mix (#244); mixes under 256 frames repeat their
+# frames. Covers no data before enabling, turning recording off keeping the
+# last data, a mix of no frames keeping it (reference patch 0068), channels
+# past the engine's reading 0 (patch 0067, channel 8 of 8), clipping, mono
+# and 8 channels, and buses through the real-time controller's replay.
+init channels=2
+sound name=saw channels=2 frames=8000 pattern=saw period=37 amp=0.9 looping=1
+sound name=noise frames=3000 pattern=noise seed=5 amp=0.6
+play sound=saw as=a pan=0.3
+mix frames=512
+visual data=wave
+visual data=volumes
+global visualization=1
+mix frames=300
+visual data=wave
+visual data=fft
+visual data=volumes
+mix frames=100
+visual data=wave
+visual data=volumes
+mix frames=0
+visual data=wave
+visual data=volumes
+play sound=noise as=n volume=2
+mix frames=256
+visual data=wave
+visual data=fft
+visual data=volumes
+mix frames=255
+visual data=wave
+global visualization=0
+mix frames=700
+visual data=wave
+visual data=volumes
+global visualization=1
+mix frames=1
+visual data=wave
+visual data=volumes
+global volume=3
+mix frames=1000
+visual data=wave
+visual data=fft
+visual data=volumes
+
+# The init flag, eight channels and hard clipping.
+init channels=8 clip=hard visualization=1
+sound name=wide channels=8 frames=4000 pattern=saw period=53 amp=0.7 looping=1
+play sound=wide as=w
+mix frames=1024
+mix frames=1024
+visual data=volumes
+visual data=wave
+visual data=fft
+mix frames=37
+visual data=volumes
+
+# Mono.
+init channels=1 visualization=1
+sound name=mono frames=4000 pattern=saw period=29 amp=0.8 looping=1
+play sound=mono as=m
+mix frames=600
+visual data=wave
+visual data=volumes
+
+# Buses: one recording from its first play, one enabled before it plays,
+# one that stops (its data goes with it), and one turned off (its data
+# stays). The mix records too.
+init channels=2 visualization=1
+sound name=saw channels=2 frames=8000 pattern=saw period=37 amp=0.9 looping=1
+sound name=noise frames=3000 pattern=noise seed=5 amp=0.6 looping=1
+bus name=b visualization=1
+bus name=q channels=4
+play sound=b as=bv
+play sound=saw as=s bus=b
+mix frames=400
+bus_wave bus=b
+bus_wave bus=b fft=1
+bus_query bus=b
+visual data=wave
+bus_set bus=q visualization=1
+play sound=q as=qv
+play sound=noise as=nq bus=q pan=-0.5
+mix frames=300
+bus_wave bus=q
+bus_query bus=q
+bus_wave bus=b
+stop h=qv
+mix frames=10
+bus_wave bus=q
+bus_wave bus=b fft=1
+visual data=volumes
+bus_set bus=b visualization=0
+mix frames=200
+bus_wave bus=b
+bus_query bus=b

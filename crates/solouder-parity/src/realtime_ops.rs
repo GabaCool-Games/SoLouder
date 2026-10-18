@@ -155,6 +155,9 @@ impl Replay {
             .map(|_| step.flag_or("pause_all", false));
         let (volume, scale) = (volume.transpose()?, scale.transpose()?);
         let pause = pause.transpose()?;
+        let visualization = step.get("visualization");
+        let visualization = visualization.map(|_| step.flag_or("visualization", false));
+        let visualization = visualization.transpose()?;
         self.engine_op(|c| {
             if let Some(volume) = volume {
                 c.set_global_volume(volume)?;
@@ -167,6 +170,9 @@ impl Replay {
             }
             if let Some(paused) = pause {
                 c.set_pause_all(paused)?;
+            }
+            if let Some(enable) = visualization {
+                c.set_visualization(enable)?;
             }
             Ok(())
         })

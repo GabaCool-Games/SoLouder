@@ -5,6 +5,7 @@ use super::config::{ConfigError, MixerConfig};
 use super::fades::advance_voices;
 use super::handle::Handle;
 use super::mix_bus::{Layout, mix_bus};
+use super::visualization::{Visualization, capture};
 use super::voices::Voices;
 use crate::contracts::MAX_CHANNELS;
 use crate::dsp::Resampler;
@@ -46,6 +47,8 @@ pub struct Mixer {
     /// Each 3D voice's slot and gains during `update_3d_audio`, kept to be
     /// reused.
     pub(crate) spatial_updates: Vec<(usize, Gains)>,
+    /// The first frames of the latest mix, if recorded.
+    pub(super) visualization: Visualization,
 }
 
 impl Mixer {
@@ -70,6 +73,7 @@ impl Mixer {
             global_filters: Default::default(),
             scene: Scene::new(config.channels as usize, config.left_handed_3d),
             spatial_updates: Vec::new(),
+            visualization: Visualization::new(config.visualization),
         })
     }
 
@@ -83,8 +87,9 @@ impl Mixer {
     /// Any trailing partial frame is set to silence. Requests longer than the
     /// internal scratch buffer (the buffer size rounded up to a multiple of
     /// 16, and at least 4096 frames) are rendered in several passes, so
-    /// volume ramps restart at each pass; SoLoud's `Soloud::mix` instead
-    /// writes past its scratch buffer.
+    /// volume ramps restart at each pass and visualization data comes from
+    /// the last pass; SoLoud's `Soloud::mix` instead writes past its scratch
+    /// buffer.
     pub fn mix_interleaved(&mut self, output: &mut [f32]) {
         self.mix_into(output, 0.0, |sample| sample);
     }
@@ -173,6 +178,11 @@ impl Mixer {
             volumes,
             self.post_clip_scaler,
         );
+        let visual = &mut self.visualization;
+        if visual.enabled {
+            let (wave, volumes) = (&mut visual.wave, &mut visual.volumes);
+            capture(wave, volumes, &self.scratch, frames, stride, channels);
+        }
         stride
     }
 }

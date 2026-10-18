@@ -217,6 +217,7 @@ impl State {
             "resampler",
             "max_active",
             "pause_all",
+            "visualization",
         ])?;
         let volume = step
             .get("volume")
@@ -255,6 +256,10 @@ impl State {
         if step.get("pause_all").is_some() {
             let paused = step.flag_or("pause_all", false)?;
             self.mixer(step)?.set_pause_all(paused);
+        }
+        if step.get("visualization").is_some() {
+            let enable = step.flag_or("visualization", false)?;
+            self.mixer(step)?.set_visualization(enable);
         }
         Ok(())
     }

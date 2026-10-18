@@ -21,6 +21,8 @@ use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 mod routing;
 #[path = "realtime_no_alloc/spatial.rs"]
 mod spatial;
+#[path = "realtime_no_alloc/visual.rs"]
+mod visual;
 
 #[global_allocator]
 static GLOBAL: &StatsAlloc<System> = &INSTRUMENTED_SYSTEM;
@@ -178,6 +180,7 @@ fn rendering_never_allocates_or_frees() {
     routing::split_after_offline_use(out);
     spatial::spatial(&mut controller, &mut renderer, out);
     spatial::doppler_rises(&mut controller, &mut renderer, out);
+    visual::visualization(&mut controller, &mut renderer, out);
 
     // The game side goes away first; the audio thread keeps rendering.
     drop(controller);

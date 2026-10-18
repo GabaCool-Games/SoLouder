@@ -17,11 +17,15 @@
 //! velocities, teleports and the listener policy. Bevy's axes (right-handed,
 //! +Y up, -Z forward) are SoLoud's defaults; units are metres.
 //!
+//! Set [`AudioVisualization::enabled`] to have the resource carry the mix's
+//! wave, spectrum and channel volumes each frame.
+//!
 //! The mixer runs on the audio device's thread. Systems never wait for it:
 //! two systems in [`SolouderSystems::Sync`] (in `PostUpdate`, after transform
 //! propagation) run each frame, one after the other: the first takes a
 //! snapshot of the listener and emitters, the second sends the frame's
-//! changes as one batch of commands and reads back the mixer's events.
+//! changes as one batch of commands and reads back the mixer's events. A
+//! third copies visualization data, while it is recorded.
 //!
 //! Disable Bevy's own audio plugin when using this one, or both will open the
 //! device.
@@ -45,6 +49,7 @@ pub use features::spatial::{
     AudioListener, AudioTeleport, AudioVelocity, ListenerState, SpatialAudioSettings,
     SpatialEmitter,
 };
+pub use features::visualization::AudioVisualization;
 pub use solouder_core::{Attenuation, FinishReason, MixerConfig, VoiceId};
 pub use solouder_cpal::{OutputConfig, OutputInfo, StreamPreferences};
 
@@ -74,5 +79,6 @@ impl Plugin for SolouderPlugin {
         features::output_lifecycle::build(app, &self.output);
         features::playback::build(app);
         features::spatial::build(app);
+        features::visualization::build(app, &self.output);
     }
 }

@@ -67,6 +67,12 @@ pub(crate) mod private {
             None
         }
 
+        /// Whether the source is a bus whose voices record visualization
+        /// data.
+        fn bus_visualization(&self) -> bool {
+            false
+        }
+
         /// The stream, for a source whose voices read one (and may wait
         /// for I/O).
         fn stream(&self) -> Option<&super::super::stream::Stream> {

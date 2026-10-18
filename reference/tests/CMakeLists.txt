@@ -78,6 +78,8 @@ set(REFERENCE_TESTS
   more_filter_params_reject_nan
   bus_seek_mixes_in_blocks
   bus_volume_channel_in_range
+  approximate_volume_channel_in_range
+  visualization_survives_an_empty_mix
   bus_seek_skips_voices_without_buffers
   queue_looping_source_does_not_hang
   queue_silences_missing_channels

@@ -8,6 +8,7 @@ use super::command::{Command, PlayRequest};
 use super::ids::LiveTable;
 use super::spatial_mirror::SpatialBatch;
 use super::status::{Event, FinishReason, Shared, Status};
+use super::visual::VisualWriter;
 use crate::features::playback::{Handle, Mixer, MixerConfig, RetiredItem};
 
 /// Owns the mixer on the audio thread. Each [`Renderer::render`] applies
@@ -30,6 +31,8 @@ pub struct Renderer {
     pub(super) status: Status,
     /// Applied 3D batches, back to the controller; room for all of them.
     pub(super) spatial_return: Producer<Box<SpatialBatch>>,
+    /// Where visualization data is published.
+    pub(super) visual: VisualWriter,
 }
 
 impl Renderer {
@@ -47,6 +50,7 @@ impl Renderer {
         self.report_gone(FinishReason::Ended);
         self.release_retired();
         self.publish();
+        self.visual.publish(&self.mixer);
     }
 
     fn apply_commands(&mut self) {

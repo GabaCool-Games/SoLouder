@@ -28,7 +28,7 @@ turns missing C++ output into a failure.
 Each runner produces:
 
 - **Samples:** every `mix` appends its interleaved `f32` frames, every
-  `samples` a sound's decoded data, and every `fft` its transform. The C++ runner writes them little-endian to
+  `samples` a sound's decoded data, every `fft` its transform, and every `visual` or `bus_wave` its data. The C++ runner writes them little-endian to
   `<name>.f32`.
 - **Log:** one text line per step that returns a value, written to `<name>.log`.
 
@@ -42,7 +42,7 @@ exactly, and a scenario must render at least one sample.
 | Operation | Arguments | Effect | Log line |
 |---|---|---|---|
 | `tolerance` | `abs` (float) | Maximum absolute sample difference for this scenario; 0 (the default) asks for identical bits. Rust side only. | — |
-| `init` | `channels` (default 2), `rate` (0 = default 44100), `buffer` (0 = default 2048), `clip` (`roundoff`, default, or `hard`), `left_handed` (0) | A new engine: `Soloud::init` with the null driver and `CLIP_ROUNDOFF` or no flags, plus `LEFT_HANDED_3D` with `left_handed=1`. Forgets all sounds and handles. | `init <code>` |
+| `init` | `channels` (default 2), `rate` (0 = default 44100), `buffer` (0 = default 2048), `clip` (`roundoff`, default, or `hard`), `left_handed` (0), `visualization` (0) | A new engine: `Soloud::init` with the null driver and `CLIP_ROUNDOFF` or no flags, plus `LEFT_HANDED_3D` with `left_handed=1` and `ENABLE_VISUALIZATION` with `visualization=1`. Forgets all sounds and handles. | `init <code>` |
 | `mix` | `frames` (0 to 4096) | `Soloud::mix` for that many frames. | — |
 | `mix16` | `frames` (0 to 4096) | `Soloud::mixSigned16`; each 16-bit sample is appended as an `f32` of the same integer value. | — |
 | `sound` | `name`, `frames`, `channels` (1), `rate` (44100), `pattern` (`dc`, `saw`, `noise`; default `dc`), `amp` (1), `period` (`saw`, 100), `seed` (`noise`, 1), `volume` (1), `looping` (0), `bits` (32), `loop_point` (0), `auto_stop` (1), `single` (0), `tick` (0), `kill` (0) | Generates planar samples (see below) and loads them with `Wav::loadRawWave` (copied). With `bits=8` or `16` (`amp` from -1 to 1) each sample `v` becomes `(unsigned char)(int)(v * 127 + 128)` or `(short)(v * 32767)` for `loadRawWave8` or `loadRawWave16`. Then applies `setVolume`, `setLooping`, `setLoopPoint`, `setAutoStop`, `setSingleInstance` and `setInaudibleBehavior(tick, kill)`. A failed load registers nothing; a successful one under an existing name deletes the old `Wav`, which stops its voices. `channels * frames` is at most 4194304. | `sound <name> <code>` |
@@ -55,7 +55,7 @@ exactly, and a scenario must render at least one sample.
 | `stop` | `h` | `Soloud::stop`. | — |
 | `stop_all` | — | `Soloud::stopAll`. | — |
 | `set` | `h`, then any of `volume`, `pan`, `pause`, `looping`, `protect`, `delay` (frames), `speed`, `loop_point`, `auto_stop`, `tick` and `kill`, `abs_l` and `abs_r`, `channel` and `channel_volume`, `rate`, `seek` (paired keys go together) | Applied in that order: `setVolume`, `setPan`, `setPause`, `setLooping`, `setProtectVoice`, `setDelaySamples`, `setRelativePlaySpeed`, `setLoopPoint`, `setAutoStop`, `setInaudibleBehavior`, `setPanAbsolute`, `setChannelVolume`, `setSamplerate`, `seek`. `h` may name a voice group. | `set <h> speed <code>` if `speed` is given, `set <h> seek <code>` if `seek` is |
-| `global` | any of `volume`, `clip_scale`, `resampler` (`point`, `linear`, `catmullrom`), `max_active`, `pause_all` | Applied in that order: `setGlobalVolume`, `setPostClipScaler`, `setMainResampler`, `setMaxActiveVoiceCount`, `setPauseAll`. | `global max_active <code>` if `max_active` is given |
+| `global` | any of `volume`, `clip_scale`, `resampler` (`point`, `linear`, `catmullrom`), `max_active`, `pause_all`, `visualization` | Applied in that order: `setGlobalVolume`, `setPostClipScaler`, `setMainResampler`, `setMaxActiveVoiceCount`, `setPauseAll`, `setVisualizationEnable`. | `global max_active <code>` if `max_active` is given |
 | `query` | `h` | Reads the voice's state; a stopped voice reports the C API's defaults, and a voice group its first voice. `info` is `getInfo(h, 0)`. | `query <h> valid= paused= looping= protect= loops= volume= overall= pan= speed= rate= time= pos= loop_point= auto_stop= info=` (see below) |
 | `counts` | — | `getVoiceCount` and `getActiveVoiceCount` (which updates the active set). | `counts voices=<n> active=<n>` |
 | `fade` | `h` (optional), `param` (`volume`, `pan`, `speed`), `to`, `time` (seconds) | `fadeVolume`, `fadePan` or `fadeRelativePlaySpeed`; without `h`, `fadeGlobalVolume` (`param` must be `volume`). | — |
@@ -76,6 +76,7 @@ exactly, and a scenario must render at least one sample.
 | `filter_oscillate` | `h` (optional), `slot`, `param`, `from`, `to`, `time` | `oscillateFilterParameter`. | — |
 | `filter_query` | `h` (optional), `slot`, `param` | `getFilterParameter`: 1.0 (`INVALID_PARAMETER`) without a filter, 0 past the last parameter. | `filter_query <h or global> <slot> <param> <f32 bits>` |
 | `fft` | `size` (a power of two from 4 to 4096), `inverse` (0), `pattern`, `amp`, `period`, `seed` (as for `sound`) | Renders `size` samples of one channel of the pattern, transforms them with `FFT::fft`, or `FFT::ifft` with `inverse=1`, and appends the result to the samples. | — |
+| `visual` | `data` (`wave`, `fft` or `volumes`) | Appends the engine's visualization data to the samples: the 256 floats of `Soloud::getWave` or `calcFFT`, or `getApproximateVolume` of channels 0 to 9. | `visual <data>` |
 | `bus` | `name`, `channels`, `resampler` (an index: 0 point, 1 linear, 2 Catmull-Rom; others are ignored), `visualization` (0), `volume` (1) | A new `Bus`: `setChannels` if `channels` is given, `setResampler`, `setVisualizationEnable`, `setVolume`. A bus under an existing name is deleted first, which stops its voices. | `bus <name> <setChannels code>` |
 | `annex` | `bus`, `h` | `Bus::annexSound`; `h` may name a voice group. | — |
 | `bus_query` | `bus` | `getActiveVoiceCount` (which looks up the bus handle), `Soloud::countAudioSource` on the bus, `getApproximateVolume` of channels 0 to 9. | `bus_query <bus> voices=<n> count=<n> volumes=<hex>,...` |

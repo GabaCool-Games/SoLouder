@@ -13,6 +13,7 @@ use super::ids::IdPool;
 use super::spatial_mirror::{FilterLayout, SpatialMirror};
 use super::status::{Event, Shared, Status};
 use super::stream_worker::StreamWorker;
+use super::visual::VisualReader;
 use crate::features::playback::{
     Bus, Handle, MixerConfig, PlayOptions, Playable, QUEUE_MAX, RetiredItem, SoundId, Start,
     WorkerFeed, flags,
@@ -48,6 +49,9 @@ pub enum ControllerError {
     InvalidSoundSpeed,
     /// The output has no such channel, so no speaker for it.
     NoSuchSpeaker,
+    /// More buses recorded visualization data than
+    /// [`RealtimeConfig::visualized_buses`](super::RealtimeConfig::visualized_buses) allows.
+    TooManyVisualizedBuses,
 }
 
 impl fmt::Display for ControllerError {
@@ -64,6 +68,7 @@ impl fmt::Display for ControllerError {
                 write!(f, "the speed of sound must be finite and greater than 0")
             }
             Self::NoSuchSpeaker => write!(f, "the output has no such speaker"),
+            Self::TooManyVisualizedBuses => write!(f, "too many buses record visualization data"),
         }
     }
 }
@@ -107,6 +112,8 @@ pub struct Controller {
     pub(super) worker: Option<StreamWorker>,
     /// The listener, speakers and 3D voices, whose gains are computed here.
     pub(super) spatial: SpatialMirror,
+    /// The latest visualization data the renderer published.
+    pub(super) visual: VisualReader,
 }
 
 /// Where a 3D play starts.
@@ -232,7 +239,8 @@ impl Controller {
             self.stream_room()?;
         }
         let queue = source.queue_id().filter(|id| !self.queues.contains(id));
-        let needed = 1 + usize::from(queue.is_some());
+        let watch = self.bus_watch(source.bus_id().filter(|_| source.bus_visualization()))?;
+        let needed = 1 + usize::from(queue.is_some()) + usize::from(watch.is_some());
         if self.commands.slots() < needed || self.retire_credits == 0 {
             return Err(ControllerError::QueueFull);
         }
@@ -246,6 +254,7 @@ impl Controller {
             let _ = self.send(Command::QueueStorage(queue, storage));
             self.queues.push(queue);
         }
+        self.send_watch(watch);
         let (mut prepared, feed) = match source.stream() {
             Some(stream) => {
                 let underflow = Arc::clone(&self.underflow);

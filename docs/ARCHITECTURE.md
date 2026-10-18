@@ -18,8 +18,9 @@ real-time controller/renderer split, which reaches all of them except voice
 groups and some queries), `solouder-decoders` (WAV, FLAC, Ogg Vorbis and
 MP3, decoded or streamed), `solouder-cpal` (device output), `bevy_solouder`
 (assets, playback entities, output lifecycle, and spatial listener and
-emitter components) and `solouder-parity`. Buses, filters, visualization
-and the other ECS mappings in the Bevy sections below are still proposed.
+emitter components, and the mix's visualization data as a resource) and
+`solouder-parity`. Buses, filters and the other ECS mappings in the Bevy
+sections below are still proposed.
 
 The target is a native Rust mixer, not a binding that requires the C++ SoLoud
 library at runtime. Core audio must remain usable without Bevy or a device.
@@ -301,7 +302,10 @@ platform stream type requires them, rather than adding unsafe thread guarantees.
 Use generation-checked voice/bus/group IDs instead of references to movable
 storage. Reject bus cycles, preserve per-play cursor/filter independence, and
 publish visualization data as bounded snapshots rather than mutable buffer
-pointers. Audio clocks advance from rendered frames, not Bevy frame delta.
+pointers: after each render that records it, the renderer copies the mix's
+data and that of a bounded set of buses into a triple buffer of atomics,
+and the controller reads the latest complete copy (computing the FFT on its
+own thread), so neither side waits or allocates. Audio clocks advance from rendered frames, not Bevy frame delta.
 
 ## Decoding and streaming design
 
@@ -360,7 +364,7 @@ The port has two layers with different jobs:
 | Voice groups | Usually unnecessary: queries and relationships select sets of sounds. Group operations remain available as bulk commands. |
 | 3D listener and source | `AudioListener` and `SpatialEmitter` read from `GlobalTransform`; velocity explicit (`AudioVelocity`) or derived, with `AudioTeleport` for jumps. |
 | Playback status, stream time, finished | A status component updated from the status handoff, a finished event, and an opt-in despawn-when-finished policy. |
-| Visualization and FFT | A snapshot component on the bus or master entity. |
+| Visualization and FFT | The `AudioVisualization` resource for the master mix (wave, spectrum and channel volumes, refreshed each frame while enabled); a snapshot component on bus entities once buses are entities. |
 | `playClocked`, scheduling | Explicit commands in audio-clock time. |
 
 Rules for the mapping:

@@ -50,6 +50,13 @@ pub(crate) enum Command {
     },
     BusResampler(SoundId, Resampler),
     BusVisualization(SoundId, bool),
+    /// `setVisualizationEnable`.
+    Visualization(bool),
+    /// Publish `bus`'s visualization data in record `slot`.
+    WatchBus {
+        slot: usize,
+        bus: SoundId,
+    },
     Annex {
         bus: SoundId,
         voice: VoiceId,

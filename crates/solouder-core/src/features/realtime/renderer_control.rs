@@ -50,6 +50,8 @@ impl Renderer {
             } => mixer.swap_bus_filter(bus, slot, instance),
             Command::BusResampler(bus, resampler) => mixer.set_bus_resampler_of(bus, resampler),
             Command::BusVisualization(bus, enable) => mixer.set_bus_visualization_of(bus, enable),
+            Command::Visualization(enable) => mixer.set_visualization(enable),
+            Command::WatchBus { slot, bus } => self.visual.watch(slot, bus),
             Command::Annex { bus, voice } => {
                 if let Some(handle) = self.live.handle(voice) {
                     mixer.annex_sound_of(bus, handle);

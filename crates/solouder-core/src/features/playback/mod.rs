@@ -22,6 +22,7 @@ mod sound;
 mod source;
 mod start;
 mod stream;
+mod visualization;
 mod voice;
 mod voices;
 
@@ -43,4 +44,6 @@ pub(crate) use source::FilterSlots;
 pub use source::Playable;
 pub(crate) use start::{BoxedVoice, Start};
 pub use stream::{Stream, StreamError, StreamFormat, StreamReader, StreamSource};
+pub(crate) use visualization::spectrum;
+pub use visualization::{VisualizationData, WAVE_LEN};
 pub(crate) use voice::{Voice, flags};

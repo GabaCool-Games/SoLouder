@@ -1177,6 +1177,47 @@ namespace
 		check(bus.getApproximateVolume(8) == 0, "channel 8 does not exist");
 	}
 
+	// Soloud::getApproximateVolume compared the channel with `>` instead of
+	// `>=`, as Bus::getApproximateVolume did before patch 0047, so channel 8
+	// of an 8-channel engine read past the volume array (into the wave data).
+	void approximate_volume_channel_in_range()
+	{
+		Soloud soloud;
+		check(initNull(soloud, 8), "null driver init");
+		soloud.setVisualizationEnable(true);
+		Wav sound;
+		check(loadConstantRaw(sound, 8, 4096, 0.5f) == SO_NO_ERROR, "raw wave loads");
+		soloud.play(sound);
+		std::vector<float> out(8 * 1024);
+		// The second mix starts at full volume, so its first frame counts.
+		soloud.mix(out.data(), 1024);
+		soloud.mix(out.data(), 1024);
+		check(soloud.getWave()[0] != 0, "the engine has wave data");
+		check(soloud.getApproximateVolume(7) > 0, "channel 7 has a volume");
+		check(soloud.getApproximateVolume(8) == 0, "channel 8 does not exist");
+	}
+
+	// A mix of no frames with visualization enabled took the short-mix path,
+	// which repeats the mix with `i % aSamples`: a division by zero. It now
+	// leaves the last visualization data as it was.
+	void visualization_survives_an_empty_mix()
+	{
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		soloud.setVisualizationEnable(true);
+		Wav sound;
+		check(loadConstantRaw(sound, 2, 4096, 0.25f) == SO_NO_ERROR, "raw wave loads");
+		soloud.play(sound);
+		std::vector<float> out(2 * 512);
+		soloud.mix(out.data(), 300);
+		float wave = soloud.getWave()[10];
+		float volume = soloud.getApproximateVolume(1);
+		check(wave != 0 && volume > 0, "the engine has visualization data");
+		soloud.mix(out.data(), 0);
+		check(soloud.getWave()[10] == wave, "the wave data is kept");
+		check(soloud.getApproximateVolume(1) == volume, "the volumes are kept");
+	}
+
 	// A looping sound in a queue returned no frames once at its end without
 	// ever ending, so QueueInstance::getAudio looped forever inside the mix.
 	void queue_looping_source_does_not_hang()
@@ -1780,6 +1821,8 @@ namespace
 		{ "more_filter_params_reject_nan", more_filter_params_reject_nan },
 		{ "bus_seek_mixes_in_blocks", bus_seek_mixes_in_blocks },
 		{ "bus_volume_channel_in_range", bus_volume_channel_in_range },
+		{ "approximate_volume_channel_in_range", approximate_volume_channel_in_range },
+		{ "visualization_survives_an_empty_mix", visualization_survives_an_empty_mix },
 		{ "bus_seek_skips_voices_without_buffers", bus_seek_skips_voices_without_buffers },
 		{ "queue_looping_source_does_not_hang", queue_looping_source_does_not_hang },
 		{ "queue_silences_missing_channels", queue_silences_missing_channels },
