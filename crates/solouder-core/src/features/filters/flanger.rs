@@ -3,7 +3,7 @@
 
 use std::f64::consts::PI;
 
-use super::{Filter, FilterInstance, FilterParams, InvalidFilterParams, reserve};
+use super::{Filter, FilterInstance, FilterParams, InvalidFilterParams, grow_into, reserve};
 use crate::dsp::c_int;
 
 /// A short delay swept by a cosine LFO, mixed with the dry signal
@@ -135,6 +135,14 @@ impl FilterInstance for FlangerInstance {
 
     fn params_mut(&mut self) -> &mut FilterParams {
         &mut self.params
+    }
+
+    fn take_reserved(&mut self) -> Option<Vec<f32>> {
+        Some(std::mem::take(&mut self.buffer))
+    }
+
+    fn grow(&mut self, spare: &mut Vec<f32>) {
+        grow_into(&mut self.buffer, spare);
     }
 
     fn filter(

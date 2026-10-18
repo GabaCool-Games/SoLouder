@@ -104,9 +104,19 @@ impl Controller {
     /// Fails with [`ControllerError::QueueFull`] when the command queue is
     /// full or the renderer has not yet applied the previous
     /// [`RealtimeConfig::spatial_batches`](super::RealtimeConfig::spatial_batches)
-    /// updates; nothing is lost by calling it again later, since it always
-    /// sends the current state. Voices played in 3D on the `Mixer` before
+    /// updates. Then the newest state is the one refused, while the older
+    /// updates in flight still apply: what is heard lags the game by up to
+    /// that many updates until the renderer catches up (about a buffer).
+    /// Nothing is lost by calling it again later, since it always sends the
+    /// current state. Voices played in 3D on the `Mixer` before
     /// [`split`](super::split) are not updated.
+    ///
+    /// When a voice's Doppler factor, with its play speed, would run its
+    /// filters faster than they have memory for, the update also carries
+    /// memory for them, prepared here at 1.25 times the rate needed; the
+    /// renderer moves the filters into it before applying the gains, and
+    /// the memory they gave up comes back to be freed here. Doppler never
+    /// makes the audio thread allocate.
     pub fn update_3d_audio(&mut self) -> Result<(), ControllerError> {
         if self.commands.is_abandoned() {
             return Err(ControllerError::Disconnected);
@@ -118,6 +128,13 @@ impl Controller {
             .spatial
             .take_batch()
             .ok_or(ControllerError::QueueFull)?;
+        // Bus filters sent later are prepared for the fastest rate the bus
+        // voice runs at.
+        for (id, gains) in &batch.entries {
+            if let Some(speed) = self.spatial.bus_speed(*id, gains.doppler) {
+                self.buses.raise_speed(*id, speed);
+            }
+        }
         match self.commands.push(Command::Spatial(batch)) {
             Ok(()) => Ok(()),
             Err(rtrb::PushError::Full(command)) => {

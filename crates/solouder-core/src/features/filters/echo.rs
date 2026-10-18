@@ -2,7 +2,8 @@
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
 use super::{
-    Filter, FilterInstance, FilterParams, InvalidFilterParams, delay_frames, reserve, zeroed,
+    Filter, FilterInstance, FilterParams, InvalidFilterParams, delay_frames, grow_into, reserve,
+    zeroed,
 };
 
 /// A feedback delay.
@@ -117,6 +118,14 @@ impl FilterInstance for EchoInstance {
 
     fn params_mut(&mut self) -> &mut FilterParams {
         &mut self.params
+    }
+
+    fn take_reserved(&mut self) -> Option<Vec<f32>> {
+        Some(std::mem::take(&mut self.buffer))
+    }
+
+    fn grow(&mut self, spare: &mut Vec<f32>) {
+        grow_into(&mut self.buffer, spare);
     }
 
     fn filter(

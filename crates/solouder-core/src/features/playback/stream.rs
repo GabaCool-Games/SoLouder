@@ -13,7 +13,7 @@ use super::feed::{self, FeedReader, Origin};
 use super::feed_worker::WorkerFeed;
 use super::sound::SoundId;
 use super::source::private::{Prepared, Sealed};
-use super::source::{Playable, SourceSettings, source_settings_api};
+use super::source::{FilterSlots, Playable, SourceSettings, source_settings_api};
 use super::voice::{Voice, VoiceSource};
 use crate::contracts::{MAX_CHANNELS, SAMPLE_GRANULARITY};
 
@@ -173,10 +173,8 @@ impl Stream {
     ) -> (VoiceSource, WorkerFeed) {
         let origin = Origin::Source(Arc::clone(&self.source));
         let (reader, worker) = feed::feed(origin, self.format.channels, chunks, underflow);
-        (
-            self.source_reading(StreamInput::Feed(Box::new(reader))),
-            worker,
-        )
+        let input = StreamInput::Feed(Box::new(reader));
+        (self.source_reading(input), worker)
     }
 
     /// [`Sealed::prepare`] for a voice that reads through a feed.
@@ -195,12 +193,15 @@ impl Stream {
         {
             reader.set_looping(loop_target(&voice));
         }
-        let prepared = Prepared {
+        (self.prepared(voice), feed)
+    }
+
+    fn prepared(&self, voice: Voice) -> Prepared {
+        Prepared {
             voice,
             stop_others: self.settings.single_instance,
             default_volume: self.settings.volume,
-        };
-        (prepared, feed)
+        }
     }
 
     fn source_reading(&self, input: StreamInput) -> VoiceSource {
@@ -224,12 +225,12 @@ impl Playable for Stream {
 }
 
 impl Sealed for Stream {
+    fn filter_slots(&self) -> Option<Arc<FilterSlots>> {
+        self.settings.filters.clone()
+    }
+
     fn prepare(&self) -> Prepared {
-        Prepared {
-            voice: self.voice(),
-            stop_others: self.settings.single_instance,
-            default_volume: self.settings.volume,
-        }
+        self.prepared(self.voice())
     }
 
     fn stream(&self) -> Option<&Stream> {

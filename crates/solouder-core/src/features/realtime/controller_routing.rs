@@ -121,6 +121,8 @@ impl Controller {
                 instance,
             })?;
         }
+        self.spatial
+            .set_bus_filter(bus.id(), slot as usize, filter.clone());
         bus.set_filter(slot, filter);
         Ok(())
     }

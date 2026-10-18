@@ -423,7 +423,12 @@ Rules for the mapping:
   the listener, speakers and each voice's 3D settings, and the per-voice
   results go to the audio thread in one preallocated batched command,
   applied only to the voice IDs they were computed for. Every voice is
-  computed before any result applies, as in SoLoud. Colliders and
+  computed before any result applies, as in SoLoud. A Doppler factor that
+  would run a voice's filters faster than their memory allows sends
+  memory prepared on the game thread in the same batch, which the renderer
+  swaps into the filter instances (`FilterInstance::grow`); what they gave
+  up rides back in the batch, so Doppler never allocates or frees on the
+  audio thread. Colliders and
   attenuators are `Send + Sync` traits (`Collider`, `Attenuator`) held in
   `Arc`s and called with plain values (`SpatialVoice`), never on the audio
   thread. Doppler and distance delay are computed with the gains and reach
@@ -432,9 +437,13 @@ Rules for the mapping:
   by default as Bevy is.
 - The Bevy `spatial` slice reads `GlobalTransform` after transform
   propagation into one snapshot of the listener and every emitter per
-  frame; the playback sync then starts new emitters' sounds in 3D, sends
-  the listener and the playing emitters, and asks for one 3D update.
-  Parent hierarchy changes affect world-space audio.
+  frame; the playback sync then starts new emitters' sounds in 3D (an
+  emitter whose transform is not finite waits), sends the listener and the
+  emitters that changed, and asks for one 3D update when anything did.
+  Parent hierarchy changes affect world-space audio. A listener whose
+  transform is degenerate (zero scale, not finite) keeps its last pose; its
+  directions are taken from the transform's axes, never through
+  `GlobalTransform::forward`, which panics on them.
 - Axes: Bevy is right-handed with -Z forward and +Y up, which is SoLoud's
   default listener (`left_handed_3d` off), so translations, `forward()` and
   `up()` pass unchanged and a sound to the listener's right (+X) plays on
@@ -445,9 +454,13 @@ Rules for the mapping:
   default before any). Multiple-listener mixing is not implicit.
 - Units are metres and seconds: the speed of sound is 343.3 m/s by default
   (`SpatialAudioSettings`), and attenuation distances are in metres.
-  Velocities are `AudioVelocity` or derived from motion over virtual time;
-  a zero or paused time step, an `AudioTeleport` marker, or a derived speed
-  past `max_derived_speed` (200 m/s by default) gives 0.
+  Velocities are `AudioVelocity` or derived from motion over virtual time:
+  the distance moved over the time since the position last changed, held
+  for `velocity_hold` (0.1 s) while it does not change, so motion stepped
+  less often than frames (fixed-step physics) reads a steady speed; a game
+  with a physics engine feeds `AudioVelocity` from its bodies. A zero or
+  paused time step, an `AudioTeleport` marker, or a derived speed past
+  `max_derived_speed` (200 m/s by default) gives 0.
 - Retain audio-rate smoothing where needed. Do not render device buffers from
   Bevy `Update` or read the ECS world from the callback.
 

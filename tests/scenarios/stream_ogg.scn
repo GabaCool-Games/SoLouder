@@ -6,6 +6,9 @@
 # page, which crashed the reference before patch 0059); seeks backwards, forwards
 # across many Vorbis frames, inside one, and past the end, mixed in calls
 # that cross block and loop boundaries until the non-looping streams end.
+# Last, seeks while paused (#396, #156): from a paused play and after
+# playing, back and forward across Vorbis frames, resuming where the last
+# seek put the stream.
 init channels=2 rate=44100 buffer=1024
 stream name=music file=ogg/vorbis_stereo_44100.ogg volume=0.5
 stream name=voice file=ogg/vorbis_mono_22050_q0.ogg from=memory
@@ -61,3 +64,17 @@ mix frames=4096
 mix frames=4096
 counts
 query h=l
+play sound=music as=p paused=1
+mix frames=300
+set h=p seek=0.9
+mix frames=200
+set h=p seek=0.3
+set h=p pause=0
+mix frames=1500
+set h=p pause=1
+set h=p seek=1.1
+mix frames=100
+set h=p seek=0.05
+mix frames=100
+set h=p pause=0
+mix frames=2000

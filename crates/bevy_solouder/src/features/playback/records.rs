@@ -12,6 +12,7 @@ use bevy::prelude::*;
 use solouder_core::VoiceId;
 
 use super::components::{PlaybackSettings, PlaybackState, SoundStatus};
+use crate::features::spatial::{EmitterPose, ListenerPose};
 
 /// One player's playback, as far as the plugin knows.
 #[derive(Clone, Copy, Debug)]
@@ -25,6 +26,8 @@ pub(crate) struct Record {
     pub queued: bool,
     /// Whether the sound was started in 3D.
     pub spatial: bool,
+    /// The emitter pose the controller last has for the 3D voice.
+    pub placed: Option<EmitterPose>,
 }
 
 impl Record {
@@ -35,6 +38,7 @@ impl Record {
             sent: None,
             queued: false,
             spatial: false,
+            placed: None,
         }
     }
 
@@ -62,6 +66,11 @@ pub(crate) struct Playback {
     pub work: Vec<Entity>,
     /// The output was found dead and every live record was failed.
     pub dead: bool,
+    /// The listener and speed of sound of the last 3D update the
+    /// controller accepted.
+    pub scene: Option<(ListenerPose, f32)>,
+    /// A 3D update the controller refused, to send again.
+    pub update_pending: bool,
 }
 
 impl Playback {

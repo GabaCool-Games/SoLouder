@@ -437,7 +437,7 @@ fixes are welcome as new patches.
 
 | Upstream | C++ location | Defect | Rust requirement / test |
 |---|---|---|---|
-| #396 (reported), #156 | `WavStreamInstance::seek` fallback | Non-Ogg streams seek by rewind + decode-and-discard, which is O(seek distance). Upstream reports seeking a stream handle silently kills it. | Per-codec seek with defined accuracy; test seek while playing and while paused. PR #336 is a native-seek reference. |
+| #396 (reported), #156 | `WavStreamInstance::seek` fallback | Non-Ogg streams seek by rewind + decode-and-discard, which is O(seek distance). Upstream reports seeking a stream handle silently kills it. | Done: each codec seeks to the frame the reference's generic seek lands on, bit for bit: WAV by frame, Ogg Vorbis by its frames (patch 0058), FLAC and MPEG audio by decoding up to the target; a seek never ends a voice that has audio left. Seeks while playing and while paused, from a paused play and after playing, match offline and through the `Controller` (`stream_wav`, `stream_ogg`, `seeks_continue_from_the_requested_frame`, `seeks_while_paused_resume_from_the_requested_frame`). The reference's fallback stays O(seek distance) for FLAC and MPEG audio, and so does the port's. PR #336 is a native-seek reference. |
 | — (found 2026-10-12) | `Soloud::mix`, `Soloud::mixSigned16` | No bound on the frame count: a request for more frames than the scratch buffer holds (at least 4096, or the buffer size rounded up to 16) writes past `mScratch`. Parity scenarios stay at or below 4096 frames. | Done: `Mixer::mix_interleaved` renders long requests in passes of at most the scratch size (`mix_without_sources_is_silent`, `split_mixes_match_one_mix`). |
 | — (found 2026-10-12) | `Queue::play`, `QueueInstance::getAudio` | A queued sound is an instance that reads its `Wav`'s samples; destroying the `Wav` while it is queued stops only its own voices, so the queue later reads freed memory. Queued instances are also never freed: `QueueInstance::getAudio` deletes the ones it finishes, but `Queue` has no destructor, so whatever is still queued leaks. | Done: a queued `Sound` holds its `Pcm`, and dropped queue entries go through retirement like ended voices (scenario `queues`). |
 | — (found porting milestone E) | `Soloud::update3dAudio` | Step 2 (`update3dVoices_internal`, colliders and attenuators included) runs without the audio mutex, and step 3 applies its results to whatever voice is in each slot (`mVoice[voices[i]]`). If a voice was replaced in between, by another thread or by a collider that plays or stops sounds, the new voice gets the old one's gains, Doppler speed and kill decision, and step 2 has overwritten the new voice's `m3dData` with the old one's results. A fix would copy each voice's 3D inputs and handle under the lock in step 1 and apply only to the same handle in step 3; not patched, since it changes the locking of a call a shipping game makes every frame: for the maintainer. | Done: the controller computes from its own copy of each voice's 3D state, and the renderer applies a result only to the `VoiceId` (index and generation) it was computed for (`updates_reach_only_their_own_voice`); offline, `update_3d_audio` holds `&mut Mixer`, so nothing can intervene. |
@@ -473,7 +473,7 @@ or has not decided, with a test either way.
 | #276 | Intro-then-loop scheduling via `setDelaySamples` leaves gaps; Rust scheduling should be frame-accurate. |
 | #291, #286 | A second `stop` on a queue is ignored; no API empties a queue. Rust: stopping a queue's voice keeps its queued sounds, which continue when it plays again, as in the reference (scenario `queues`); emptying is not added. |
 | #252 | A finished handle cannot be restarted. |
-| #177 | Single listener only (matches [ARCHITECTURE.md](ARCHITECTURE.md#spatial-audio)). Rust: preserved; the Bevy plugin uses the `AudioListener` with the lowest entity index when there are several, reports it in `ListenerState`, and keeps the last pose when there is none (`several_listeners_use_the_lowest_entity_index`, `despawning_emitters_and_listeners`). |
+| #177 | Single listener only (matches [ARCHITECTURE.md](ARCHITECTURE.md#spatial-audio)). Rust: preserved; the Bevy plugin uses the `AudioListener` with the lowest entity index when there are several, reports it in `ListenerState`, and keeps the last pose when there is none, or when its transform is degenerate (`several_listeners_use_the_lowest_entity_index`, `despawning_emitters_and_listeners`, `switching_listeners`, `a_degenerate_listener_keeps_its_last_pose`). |
 | — (dr_wav) | 8-bit WAV maps 0..255 linearly onto -1..1 (`x * 2/255 - 1`), so silence (128) decodes as +1/255. Rust centers on 128: changed (`wav_decode_u8`). |
 | — (patch 0012) | A WAV data chunk that ends early keeps its declared length, padded with silence. Rust keeps only the frames present: changed (`short_data_chunk_keeps_the_frames_present`). |
 | — (dr_wav) | Non-finite float samples (NaN, infinity) in WAV files pass through and poison every voice they are mixed with. Rust decodes them as silence: changed (`non_finite_floats_decode_as_silence`). |
@@ -639,12 +639,26 @@ belong to the milestone that introduces the affected behavior:
   `biquad_above_the_voice_nyquist_frequency_stays_bounded`). Done. The voice-group defects (#228, a deadlock in
   `trimVoiceGroup_internal`; #322, its allocation size) cannot occur in Rust:
   groups are `Vec`s on the mixer's single owner (`voice_groups`).
-- **E:** non-Ogg seek/loop (patch 0002), looping streams not ending (patch
-  0005), stream seek (patch 0009, #396), decoder metadata validation and
-  fuzzing (patch 0012), long-duration drift (#314, patch 0052:
-  `resampled_playhead_does_not_drift`, done), 3D initialization (patch
-  0013: `play_3d_in_a_reused_slot_uses_its_own_flags`; #95:
-  `play_3d_attenuates_the_first_frame`; both in `spatial_3d`, done).
+- **E:** non-Ogg seek/loop and the streamed channel stride (patches 0002
+  and 0004: `stream_wav`, `stream_flac` and `stream_mp3` wrap looping
+  streams from a loop point several times;
+  `a_looping_stream_split_at_its_end_wraps_on_the_worker`), looping streams
+  not ending (patch 0005: `stream_wav`, `prebuffered_streams_render_like_the_mixer`),
+  stream seek (patch 0009, #396: seeks back, forward and past the end in
+  every `stream_*` scenario, and while paused in `stream_wav` and
+  `stream_ogg`; `seeks_continue_from_the_requested_frame`,
+  `seeks_while_paused_resume_from_the_requested_frame`,
+  `rewind_and_skip_land_where_decoding_does`,
+  `skipping_past_the_end_of_an_ogg_stream_ends_it`; the skip reads into a
+  scratch of a whole block and stops at a short read, so 0009's loop on a
+  small scratch cannot occur), decoder metadata validation and fuzzing
+  (patch 0012: `rejects_unplayable_layouts`, `bad_headers_are_rejected`,
+  `bad_files_are_rejected`, the nine-channel files both sides reject in
+  `stream_wav`, and `mutated_streams_never_panic` for WAV, FLAC, Ogg
+  Vorbis and MP3), long-duration drift (#314, patch 0052:
+  `resampled_playhead_does_not_drift`), 3D initialization (patch 0013:
+  `play_3d_in_a_reused_slot_uses_its_own_flags`; #95:
+  `play_3d_attenuates_the_first_frame`; both in `spatial_3d`). Done.
 
 ### Milestone D review
 
@@ -877,7 +891,7 @@ last); each ends with passing scenarios, ledger rows and a commit:
    as on x86, to `INT_MIN`, which the unsigned delay takes as 2^31 frames.
    Every 3D ledger row is `ported`, on the offline `Mixer`.
 8. **3D in real time and in Bevy, then the review** (done; patch 0066;
-   review pending): the controller runs the 3D math on the game thread, as
+   reviewed): the controller runs the 3D math on the game thread, as
    the reference does outside its mixer, and sends each voice's result in
    one batched command, so colliders never run on the audio thread. Bevy
    listener and emitter components from `GlobalTransform`, one listener,
@@ -901,7 +915,7 @@ last); each ends with passing scenarios, ledger rows and a commit:
    in full or up to the first step the controller cannot express. Bevy:
    the `spatial` slice takes one snapshot of the `AudioListener` and every
    `SpatialEmitter` after transform propagation; the playback sync starts
-   emitters' sounds with `play_3d` and sends one update per frame. Bevy's
+   emitters' sounds with `play_3d` and sends at most one update per frame. Bevy's
    axes are SoLoud's defaults (right-handed, -Z forward, +Y up), so
    positions pass unchanged; units are metres and the speed of sound 343.3
    m/s. Velocities are derived over virtual time unless `AudioVelocity` is
@@ -918,8 +932,8 @@ last); each ends with passing scenarios, ledger rows and a commit:
    data fails parity; the distance delay overflow is documented as 2^31
    frames late, not "at once", with 511, 512 and 513-frame delays around
    mix and callback boundaries; a 3D voice's filters are reserved at its
-   starting speed times its starting Doppler factor, and a later rise is
-   documented as a speed change (port-status "Filter sizing"); and
+   starting speed times its starting Doppler factor (a later rise still
+   allocated on the audio thread; the milestone review removed that); and
    `spatial_sources` plays streams, a queue and buses in 3D with colliders
    and attenuators. Found while porting: the reference's `update3dAudio`
    applies results to whatever voice is in a slot (still open, above).

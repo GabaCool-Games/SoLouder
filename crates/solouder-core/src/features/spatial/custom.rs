@@ -13,6 +13,13 @@ use crate::features::playback::Handle;
 /// [`Mixer::update_3d_audio`](crate::Mixer::update_3d_audio), or the
 /// [`Controller`](crate::Controller)'s calls of the same names), on the
 /// thread that calls them, never on the audio thread.
+///
+/// The `Mixer` calls it for the voices still playing, in voice slot order.
+/// The `Controller` calls it in [`VoiceId`] index order, for every voice it
+/// played in 3D whose final event has not been read with
+/// [`Controller::poll_event`](crate::Controller::poll_event), including
+/// voices that have already ended on the audio thread; their results are
+/// then dropped.
 pub trait Collider: Send + Sync + fmt::Debug {
     /// The volume factor for `voice`, normally 0 to 1
     /// (`AudioCollider::collide`); `user_data` is the value given with the

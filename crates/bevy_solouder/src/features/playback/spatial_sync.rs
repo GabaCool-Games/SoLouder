@@ -3,11 +3,10 @@
 //! listener and the playing emitters are sent to the controller, followed
 //! by one 3D update.
 
-use bevy::platform::collections::HashMap;
 use bevy::prelude::*;
 use solouder_core::{Controller, ControllerError, PlayOptions, Playable, Sound, Stream, VoiceId};
 
-use super::records::Record;
+use super::records::Playback;
 use crate::features::spatial::{EmitterPose, SpatialSnapshot};
 
 /// Sends the listener and the speed of sound, before any sound starts so
@@ -64,24 +63,29 @@ pub(super) fn play(
     }
 }
 
-/// Sends every playing 3D sound's emitter, then asks for one 3D update.
-/// A sound whose emitter is gone keeps its last place but is still updated
-/// as the listener moves. A full queue retries next frame.
+/// Sends the emitters of playing 3D sounds that moved or changed, then
+/// asks for one 3D update if anything the update reads changed since the
+/// last one the controller accepted: the listener, the speed of sound or
+/// an emitter. A sound whose emitter is gone keeps its last place but is
+/// still updated as the listener moves. A full queue retries next frame.
 pub(super) fn send_emitters(
     controller: &mut Controller,
     snapshot: &SpatialSnapshot,
-    records: &HashMap<Entity, Record>,
+    playback: &mut Playback,
 ) {
-    let mut any = false;
+    let mut changed = playback.update_pending;
     for (entity, emitter) in &snapshot.emitters {
-        let Some(voice) = records
-            .get(entity)
-            .filter(|record| record.spatial)
-            .and_then(|record| record.voice)
-        else {
+        let Some(record) = playback.records.get_mut(entity) else {
             continue;
         };
-        any = true;
+        let Some(voice) = record.voice.filter(|_| record.spatial) else {
+            continue;
+        };
+        if record.placed == Some(*emitter) {
+            continue;
+        }
+        record.placed = Some(*emitter);
+        changed = true;
         let s = &emitter.settings;
         controller.set_3d_source_parameters(
             voice,
@@ -92,7 +96,18 @@ pub(super) fn send_emitters(
         controller.set_3d_source_attenuation(voice, s.attenuation, s.rolloff);
         controller.set_3d_source_doppler_factor(voice, s.doppler_factor);
     }
-    if any || records.values().any(|r| r.spatial && r.voice.is_some()) {
-        let _ = controller.update_3d_audio();
+    let scene = (snapshot.listener, snapshot.sound_speed);
+    changed |= playback.scene != Some(scene);
+    let live = playback
+        .records
+        .values()
+        .any(|record| record.spatial && record.voice.is_some());
+    if !(changed && live) {
+        return;
+    }
+    let accepted = controller.update_3d_audio().is_ok();
+    playback.update_pending = !accepted;
+    if accepted {
+        playback.scene = Some(scene);
     }
 }

@@ -1,15 +1,29 @@
 //! The replay's voice and global settings, fades, queued sounds and 3D
 //! operations, each read as the operation of the same name reads its step.
 
-use solouder_core::{Attenuation, Controller, PlayOptions, Resampler, VoiceId};
+use solouder_core::{Attenuation, Controller, ControllerError, PlayOptions, Resampler, VoiceId};
 
 use crate::realtime::{Outcome, Placed, Replay, stop, with_source};
 use crate::scenario::Step;
 use crate::spatial_ops::{VELOCITY, XYZ, group, triple};
 
-/// Ignores a setter's result: an ended voice is ignored, as the mixer
-/// ignores a stale handle.
-fn ignore<E>(_: Result<(), E>) {}
+/// Keeps the first error of a setter that stops the replay: a full command
+/// queue or a lost renderer, after which the replay would differ. Other
+/// errors are values the mixer rejects too, and are ignored as it ignores
+/// them.
+fn note(failed: &mut Option<ControllerError>, result: Result<(), ControllerError>) {
+    if let Err(error @ (ControllerError::QueueFull | ControllerError::Disconnected)) = result {
+        failed.get_or_insert(error);
+    }
+}
+
+/// The outcome of a step whose setters reported `failed`.
+fn outcome(failed: Option<ControllerError>) -> Outcome {
+    match failed {
+        Some(error) => stop(error.to_string()),
+        None => Ok(None),
+    }
+}
 
 impl Replay {
     /// The controller and the voice `h` names, or what to return instead.
@@ -47,49 +61,53 @@ impl Replay {
             Ok(voice) => voice,
             Err(outcome) => return outcome,
         };
+        let mut failed = None;
         if has("volume") {
-            ignore(c.set_volume(id, volume));
+            note(&mut failed, c.set_volume(id, volume));
         }
         if has("pan") {
-            ignore(c.set_pan(id, pan));
+            note(&mut failed, c.set_pan(id, pan));
         }
         if has("pause") {
-            ignore(c.set_pause(id, pause));
+            note(&mut failed, c.set_pause(id, pause));
         }
         if has("looping") {
-            ignore(c.set_looping(id, looping));
+            note(&mut failed, c.set_looping(id, looping));
         }
         if has("protect") {
-            ignore(c.set_protect(id, protect));
+            note(&mut failed, c.set_protect(id, protect));
         }
         if has("delay") {
-            ignore(c.set_delay_samples(id, delay));
+            note(&mut failed, c.set_delay_samples(id, delay));
         }
         if has("speed") {
-            ignore(c.set_relative_play_speed(id, speed));
+            note(&mut failed, c.set_relative_play_speed(id, speed));
         }
         if has("loop_point") {
-            ignore(c.set_loop_point(id, loop_point));
+            note(&mut failed, c.set_loop_point(id, loop_point));
         }
         if has("auto_stop") {
-            ignore(c.set_auto_stop(id, auto_stop));
+            note(&mut failed, c.set_auto_stop(id, auto_stop));
         }
         if has("tick") {
-            ignore(c.set_inaudible_behavior(id, tick, kill));
+            note(&mut failed, c.set_inaudible_behavior(id, tick, kill));
         }
         if has("abs_l") {
-            ignore(c.set_pan_absolute(id, left, right));
+            note(&mut failed, c.set_pan_absolute(id, left, right));
         }
         if has("channel") {
-            ignore(c.set_channel_volume(id, channel, channel_volume));
+            note(
+                &mut failed,
+                c.set_channel_volume(id, channel, channel_volume),
+            );
         }
         if has("rate") {
-            ignore(c.set_sample_rate(id, rate));
+            note(&mut failed, c.set_sample_rate(id, rate));
         }
         if has("seek") {
-            ignore(c.seek(id, seek));
+            note(&mut failed, c.seek(id, seek));
         }
-        Ok(None)
+        outcome(failed)
     }
 
     /// `fade` of a voice's volume, pan or speed, or of the global volume.
@@ -104,12 +122,16 @@ impl Replay {
             Ok(voice) => voice,
             Err(outcome) => return outcome,
         };
-        ignore(match param.as_str() {
-            "volume" => c.fade_volume(id, to, time),
-            "pan" => c.fade_pan(id, to, time),
-            _ => c.fade_relative_play_speed(id, to, time),
-        });
-        Ok(None)
+        let mut failed = None;
+        note(
+            &mut failed,
+            match param.as_str() {
+                "volume" => c.fade_volume(id, to, time),
+                "pan" => c.fade_pan(id, to, time),
+                _ => c.fade_relative_play_speed(id, to, time),
+            },
+        );
+        outcome(failed)
     }
 
     /// `global`, in the mixer's order; `max_active` stops the replay (the
@@ -307,8 +329,9 @@ impl Replay {
             return Ok(None);
         }
         let speed = step.number_or("speed", 0.0)?;
+        // The controller rejects the speeds the mixer rejects.
         self.engine_op(|c| {
-            ignore(c.set_3d_sound_speed(speed));
+            let _ = c.set_3d_sound_speed(speed);
             Ok(())
         })
     }
@@ -320,8 +343,9 @@ impl Replay {
         }
         let channel: u32 = step.value("channel")?;
         let position = triple(step, XYZ)?;
+        // The controller rejects the channels the mixer rejects.
         self.engine_op(|c| {
-            ignore(c.set_speaker_position(channel, position));
+            let _ = c.set_speaker_position(channel, position);
             Ok(())
         })
     }

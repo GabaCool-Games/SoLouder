@@ -109,6 +109,10 @@ impl Playable for Bus {
 }
 
 impl Sealed for Bus {
+    fn filter_slots(&self) -> Option<std::sync::Arc<super::source::FilterSlots>> {
+        self.settings.filters.clone()
+    }
+
     fn prepare(&self) -> Prepared {
         let source = VoiceSource::Bus(Box::new(BusVoice::new(self)));
         let extra = flags::PROTECTED | flags::INAUDIBLE_TICK;

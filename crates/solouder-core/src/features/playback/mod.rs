@@ -39,6 +39,7 @@ pub use queued::Queueable;
 pub(crate) use queued::Queued;
 pub use retire::RetiredItem;
 pub use sound::{Sound, SoundId};
+pub(crate) use source::FilterSlots;
 pub use source::Playable;
 pub(crate) use start::{BoxedVoice, Start};
 pub use stream::{Stream, StreamError, StreamFormat, StreamReader, StreamSource};

@@ -18,9 +18,10 @@
 //! +Y up, -Z forward) are SoLoud's defaults; units are metres.
 //!
 //! The mixer runs on the audio device's thread. Systems never wait for it:
-//! one system in [`SolouderSystems::Sync`] (in `PostUpdate`, after transform
-//! propagation) sends each frame's changes as one batch of commands and
-//! reads back the mixer's events.
+//! two systems in [`SolouderSystems::Sync`] (in `PostUpdate`, after transform
+//! propagation) run each frame, one after the other: the first takes a
+//! snapshot of the listener and emitters, the second sends the frame's
+//! changes as one batch of commands and reads back the mixer's events.
 //!
 //! Disable Bevy's own audio plugin when using this one, or both will open the
 //! device.

@@ -22,8 +22,9 @@ pub struct AudioListener;
 /// [`GlobalTransform`]'s translation, moving with it, hierarchy included.
 ///
 /// Read when the sound starts: an emitter added afterwards does not make a
-/// playing sound 3D. Its fields other than `distance_delay` may change
-/// while the sound plays. Removing it leaves the sound where it was.
+/// playing sound 3D, and a sound whose emitter's transform is not finite
+/// waits to start until it is. Its fields other than `distance_delay` may
+/// change while the sound plays. Removing it leaves the sound where it was.
 /// [`PlaybackSettings::pan`](crate::PlaybackSettings::pan) is ignored for
 /// 3D sounds: the speakers' gains come from the position.
 ///
@@ -64,9 +65,18 @@ impl Default for SpatialEmitter {
 }
 
 /// The velocity of a listener or emitter in metres per second, for the
-/// Doppler effect. Without it the velocity is derived from how far the
-/// entity moved since the last frame over the frame's virtual time (see
+/// Doppler effect. Without it the velocity is derived from the entity's
+/// `GlobalTransform`: how far it moved when its position last changed, over
+/// the virtual time since the change before (see
+/// [`SpatialAudioSettings::velocity_hold`],
 /// [`SpatialAudioSettings::max_derived_speed`] and [`AudioTeleport`]).
+///
+/// Derived velocities follow what each frame sees. An entity moved by a
+/// fixed physics step that does not divide the frame rate (64 Hz at 144
+/// frames per second moves on every second or third frame) reads a speed
+/// that varies with those gaps, between about 0.75 and 1.13 times
+/// its own; a game with a physics engine should insert its body's velocity
+/// here every frame instead.
 #[derive(Component, Clone, Copy, Debug, Default, PartialEq)]
 pub struct AudioVelocity(pub Vec3);
 
@@ -87,6 +97,12 @@ pub struct SpatialAudioSettings {
     /// to move, in metres per second: a faster derived speed is treated as
     /// a teleport, and the velocity is 0 for that frame. 200 by default.
     pub max_derived_speed: f32,
+    /// How long, in seconds, a listener or emitter without
+    /// [`AudioVelocity`] keeps its last derived velocity while its position
+    /// does not change, so motion stepped less often than frames reads a
+    /// steady speed; still for longer, it reads 0. 0.1 by default, which
+    /// covers motion stepped at 10 Hz or more.
+    pub velocity_hold: f32,
 }
 
 impl Default for SpatialAudioSettings {
@@ -94,6 +110,7 @@ impl Default for SpatialAudioSettings {
         Self {
             sound_speed: 343.3,
             max_derived_speed: 200.0,
+            velocity_hold: 0.1,
         }
     }
 }

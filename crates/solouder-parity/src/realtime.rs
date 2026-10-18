@@ -12,7 +12,8 @@
 //! samples rendered so far: one the controller has no counterpart for, one
 //! naming a voice it does not know (a group, except in `set3d`, which sets
 //! each of the group's voices), a collider that reads voice handles (the
-//! controller has none), or a source replaced while it plays.
+//! controller has none), a source replaced while it plays, or a request
+//! the controller refuses for want of room (a full command queue).
 
 use std::collections::{HashMap, HashSet};
 
@@ -223,9 +224,12 @@ impl Replay {
             Ok(engine) => engine,
             Err(reason) => return Ok(reason),
         };
-        if let Some(id) = id {
-            // An ended voice is ignored, as the mixer ignores a stale handle.
-            let _ = op(&mut engine.controller, id);
+        // An ended voice needs no care: the controller ignores commands for
+        // it, as the mixer ignores a stale handle. A full queue stops.
+        if let Some(id) = id
+            && let Err(error) = op(&mut engine.controller, id)
+        {
+            return stop(error.to_string());
         }
         Ok(None)
     }

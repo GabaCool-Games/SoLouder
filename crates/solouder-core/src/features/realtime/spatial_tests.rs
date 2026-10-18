@@ -322,6 +322,47 @@ fn custom<E: Engine>(e: &mut E) -> Vec<f32> {
     out
 }
 
+/// Filters whose memory grows as Doppler rises after the play: a flanger
+/// running, and echo and DC removal voices paused until the factor rose.
+fn rising<E: Engine>(e: &mut E) -> Vec<f32> {
+    use crate::filters::{DcRemovalFilter, EchoFilter, Filter, FlangerFilter};
+    let mut flanger = FlangerFilter::default();
+    flanger.set_params(0.1, 1.0).unwrap();
+    let filters: [std::sync::Arc<dyn Filter>; 3] = [
+        std::sync::Arc::new(flanger),
+        std::sync::Arc::new(EchoFilter::default()),
+        std::sync::Arc::new(DcRemovalFilter::default()),
+    ];
+    let paused = PlayOptions {
+        paused: true,
+        ..PlayOptions::default()
+    };
+    let mut ids = Vec::new();
+    for (i, filter) in filters.into_iter().enumerate() {
+        let mut sound = tone(30000, 1, 44100.0, 43 + i);
+        sound.set_filter(0, Some(filter));
+        let options = if i == 0 {
+            PlayOptions::default()
+        } else {
+            paused
+        };
+        ids.push(e.play_3d(&sound, [i as f32, 0.0, -20.0], STILL, options));
+    }
+    let mut out = e.mix(700);
+    for (step, speed) in [200.0, 260.0, 300.0].into_iter().enumerate() {
+        for (i, &id) in ids.iter().enumerate() {
+            e.source(id, [i as f32, 0.0, -20.0], [0.0, 0.0, speed]);
+        }
+        e.update();
+        if step == 1 {
+            e.pause(ids[1], false);
+            e.pause(ids[2], false);
+        }
+        out.extend(e.mix(600));
+    }
+    out
+}
+
 fn config(channels: u32, sample_rate: u32, left_handed_3d: bool) -> MixerConfig {
     MixerConfig {
         channels,
@@ -350,5 +391,7 @@ fn spatial_renders_the_same_samples_as_the_mixer() {
         compare(config, speakers(&mut mixer), speakers(&mut realtime));
         let (mut mixer, mut realtime) = both(config);
         compare(config, custom(&mut mixer), custom(&mut realtime));
+        let (mut mixer, mut realtime) = both(config);
+        compare(config, rising(&mut mixer), rising(&mut realtime));
     }
 }

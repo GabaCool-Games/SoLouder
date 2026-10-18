@@ -8,10 +8,11 @@ use std::path::Path;
 
 use solouder_parity::{parse, replay_realtime, run};
 
-/// Each spatial scenario, and the operation its replay stops at, if any.
-const SCENARIOS: &[(&str, Option<&str>)] = &[
-    ("spatial_3d", Some("`global`")),
-    ("spatial_custom", Some("`sound3d`")),
+/// Each spatial scenario, and the line and operation its replay stops at,
+/// if any. Editing a scenario above its stop moves the line: update it here.
+const SCENARIOS: &[(&str, Option<(usize, &str)>)] = &[
+    ("spatial_3d", Some((260, "`global`"))),
+    ("spatial_custom", Some((204, "`sound3d`"))),
     ("spatial_delay", None),
     ("spatial_doppler", None),
     ("spatial_sources", None),
@@ -35,7 +36,7 @@ fn spatial_scenarios_render_in_real_time_as_on_the_mixer() {
         );
         match (stopped, expected_stop) {
             (None, None) => {}
-            (Some((_, reason)), Some(op)) if reason.starts_with(op) => {}
+            (Some((line, reason)), Some((at, op))) if *line == at && reason.starts_with(op) => {}
             _ => failures.push(format!(
                 "{name}: stopped at {stopped:?}, not {expected_stop:?}"
             )),

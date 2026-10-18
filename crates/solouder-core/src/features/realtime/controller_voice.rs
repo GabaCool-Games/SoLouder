@@ -122,13 +122,16 @@ impl Controller {
             return Err(ControllerError::InvalidSpeed);
         }
         self.voice(id, VoiceCommand::Speed(speed))?;
-        self.buses.set_speed(id, speed);
+        self.spatial.set_speed(id, speed, false);
+        let doppler = self.spatial.doppler(id);
+        self.buses.set_speed(id, speed * doppler);
         Ok(())
     }
 
     /// Sets the rate the voice's sound plays at before speed.
     pub fn set_sample_rate(&mut self, id: VoiceId, rate: f32) -> Result<(), ControllerError> {
         self.voice(id, VoiceCommand::SampleRate(rate))?;
+        self.spatial.set_sample_rate(id, rate);
         self.buses.set_sample_rate(id, rate);
         Ok(())
     }
@@ -156,7 +159,9 @@ impl Controller {
         seconds: f64,
     ) -> Result<(), ControllerError> {
         self.voice(id, VoiceCommand::Fade(Faded::Speed, to, seconds))?;
-        self.buses.raise_speed(id, to);
+        self.spatial.set_speed(id, to, true);
+        let doppler = self.spatial.doppler(id);
+        self.buses.raise_speed(id, to * doppler);
         Ok(())
     }
 
@@ -194,7 +199,9 @@ impl Controller {
         seconds: f64,
     ) -> Result<(), ControllerError> {
         self.voice(id, VoiceCommand::Oscillate(Faded::Speed, from, to, seconds))?;
-        self.buses.raise_speed(id, from.max(to));
+        self.spatial.set_speed(id, from.max(to), true);
+        let doppler = self.spatial.doppler(id);
+        self.buses.raise_speed(id, from.max(to) * doppler);
         Ok(())
     }
 

@@ -121,6 +121,22 @@ pub trait FilterInstance: Send + fmt::Debug {
     /// Does nothing by default.
     fn prepare(&mut self, _channels: usize, _sample_rate: f32) {}
 
+    /// Hands over the memory [`FilterInstance::prepare`] reserved whose size
+    /// depends on the rate, for a running instance of the same filter to
+    /// take with [`FilterInstance::grow`]. The real-time controller prepares
+    /// a new instance at a higher rate and sends this memory to the audio
+    /// thread when a voice's Doppler factor rises past what its filters
+    /// were prepared for. `None` by default.
+    fn take_reserved(&mut self) -> Option<Vec<f32>> {
+        None
+    }
+
+    /// Moves the instance's rate-dependent memory into `spare` if `spare`
+    /// can hold more, keeping what it stores, and leaves the old memory in
+    /// `spare` to be freed elsewhere. Runs on the audio thread, so it must
+    /// not allocate or free. Does nothing by default.
+    fn grow(&mut self, _spare: &mut Vec<f32>) {}
+
     /// Filters one channel in place.
     fn filter_channel(
         &mut self,
@@ -156,6 +172,18 @@ pub(crate) fn zeroed(buffer: &mut Vec<f32>, len: usize) {
 /// error: the first use then allocates.
 pub(crate) fn reserve(buffer: &mut Vec<f32>, len: usize) {
     let _ = buffer.try_reserve_exact(len.saturating_sub(buffer.len()));
+}
+
+/// [`FilterInstance::grow`] for one buffer: when `spare` has more room,
+/// copies `buffer` into it and swaps them, so `buffer` keeps its contents
+/// in the larger memory and `spare` holds the old memory. Neither allocates
+/// nor frees.
+pub(crate) fn grow_into(buffer: &mut Vec<f32>, spare: &mut Vec<f32>) {
+    if spare.capacity() > buffer.capacity() {
+        spare.clear();
+        spare.extend_from_slice(buffer);
+        std::mem::swap(buffer, spare);
+    }
 }
 
 /// Frames in `seconds` of audio at `rate`, rounded up, as SoLoud sizes its

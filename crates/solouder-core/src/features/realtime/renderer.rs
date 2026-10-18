@@ -125,7 +125,14 @@ impl Renderer {
 
     /// Applies a 3D update's gains to the voices still playing; those it
     /// makes inaudible with an inaudible behavior that kills are stopped.
-    fn apply_spatial(&mut self, batch: Box<SpatialBatch>) {
+    /// Filters first take the memory the batch brings for the faster rate
+    /// its Doppler factors set; what they give up goes back in the batch.
+    fn apply_spatial(&mut self, mut batch: Box<SpatialBatch>) {
+        for growth in &mut batch.growth {
+            if let Some(handle) = self.live.handle(growth.id) {
+                self.mixer.grow_voice_filters(handle, &mut growth.spares);
+            }
+        }
         for (id, gains) in &batch.entries {
             if let Some(handle) = self.live.handle(*id) {
                 self.mixer.apply_3d_update(handle, gains);

@@ -16,7 +16,7 @@ use super::records::{Playback, Record};
 use super::spatial_sync::{play, send_emitters, send_listener};
 use crate::features::decoded_audio::AudioClip;
 use crate::features::output_lifecycle::{AudioOutput, AudioOutputState, SolouderController};
-use crate::features::spatial::{EmitterPose, SpatialSnapshot};
+use crate::features::spatial::{EmitterPose, SpatialEmitter, SpatialSnapshot};
 
 /// Loaded clips and their load states.
 #[derive(SystemParam)]
@@ -76,7 +76,7 @@ pub(crate) fn sync_playback(
     output: Res<AudioOutput>,
     mut playback: ResMut<Playback>,
     clips: Clips,
-    players: Query<(&SoundPlayer, Option<&PlaybackSettings>)>,
+    players: Query<(&SoundPlayer, Option<&PlaybackSettings>, Has<SpatialEmitter>)>,
     changed: Query<Entity, (With<SoundPlayer>, Changed<PlaybackSettings>)>,
     snapshot: Res<SpatialSnapshot>,
     mut reports: Reports,
@@ -122,18 +122,22 @@ pub(crate) fn sync_playback(
             continue;
         };
         record.queued = false;
-        let Ok((player, settings)) = players.get(entity) else {
+        let Ok((player, settings, has_emitter)) = players.get(entity) else {
             continue;
         };
         let settings = settings.copied().unwrap_or_default();
         let emitter = snapshot.emitters.get(&entity);
         let done = match record.state {
+            // An emitter with no usable position this frame (a non-finite
+            // transform) waits, rather than start in 2D for good.
+            PlaybackState::Loading if has_emitter && emitter.is_none() => false,
             PlaybackState::Loading => match start(controller, player, settings, &clips, emitter) {
                 Ok(Some((voice, sent))) => {
                     record.state = PlaybackState::Starting;
                     record.voice = Some(voice);
                     record.sent = Some(sent);
                     record.spatial = emitter.is_some();
+                    record.placed = emitter.copied();
                     owners.insert(voice, entity);
                     reports.show(entity, record);
                     true
@@ -160,7 +164,7 @@ pub(crate) fn sync_playback(
         }
     }
     *work = again;
-    send_emitters(controller, &snapshot, records);
+    send_emitters(controller, &snapshot, playback);
 }
 
 fn read_events(controller: &mut Controller, playback: &mut Playback, reports: &mut Reports) {

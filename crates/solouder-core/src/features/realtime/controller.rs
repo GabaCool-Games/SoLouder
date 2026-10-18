@@ -10,7 +10,7 @@ use super::VoiceId;
 use super::bus_layouts::BusLayouts;
 use super::command::{Command, PlayRequest};
 use super::ids::IdPool;
-use super::spatial_mirror::SpatialMirror;
+use super::spatial_mirror::{FilterLayout, SpatialMirror};
 use super::status::{Event, Shared, Status};
 use super::stream_worker::StreamWorker;
 use crate::features::playback::{
@@ -281,7 +281,7 @@ impl Controller {
                 clock: at.clock,
                 paused: options.paused,
             });
-            tracked = Some((voice.spatial.clone(), relative));
+            tracked = Some((voice.spatial.clone(), relative, gains.doppler));
             sent.pan = 0.0;
             sent.paused = true;
             speed *= gains.doppler.max(1.0);
@@ -300,8 +300,16 @@ impl Controller {
             return Err(error);
         }
         self.retire_credits -= 1;
-        if let Some((spatial, relative)) = tracked {
-            self.spatial.insert(id, spatial, relative);
+        if let Some((spatial, relative, doppler)) = tracked {
+            let filters = FilterLayout {
+                filters: source.filter_slots(),
+                channels: layout.0,
+                base_rate: layout.1,
+                speed: options.speed,
+                reserved: layout.1 * speed,
+                bus: source.bus_id(),
+            };
+            self.spatial.insert(id, spatial, relative, filters, doppler);
         }
         if let Some(feed) = feed {
             // Cannot fail: checked above, and only this thread pushes.

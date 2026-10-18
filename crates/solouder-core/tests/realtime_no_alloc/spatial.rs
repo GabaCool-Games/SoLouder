@@ -1,11 +1,12 @@
 //! 3D sections of the allocation test: 3D plays, batched updates, kills,
-//! buses and clocked plays, and Doppler raising the rate filters run at.
+//! buses and clocked plays, and Doppler raising the rate filters run at,
+//! from the start and as it rises later.
 
 use std::sync::Arc;
 
 use solouder_core::filters::{DcRemovalFilter, EchoFilter, Filter, FlangerFilter};
 use solouder_core::spatial::{Attenuation, Collider, SpatialVoice};
-use solouder_core::{Bus, Controller, PlayOptions, Renderer};
+use solouder_core::{Bus, Controller, PlayOptions, Renderer, VoiceId};
 
 use super::{drain, measured_render, sound};
 
@@ -121,5 +122,85 @@ pub(super) fn spatial(controller: &mut Controller, renderer: &mut Renderer, out:
         measured_render(renderer, &mut out[..2 * 64], "retiring 3D voices");
     }
     drain(controller);
+    assert_eq!(controller.status().retired_overflow, 0);
+}
+
+/// Doppler rising after the voices started: a still flanger at its largest
+/// delay, then approached at 200 m/s (a factor of 2.4); paused echo and DC
+/// removal voices given the same update, then unpaused, so their first
+/// block runs at the raised rate; a 3D bus whose flanger rises with it,
+/// and an echo swapped onto that bus afterwards; a speed set on a 3D voice
+/// before an update; and a factor rising a little at every update.
+pub(super) fn doppler_rises(controller: &mut Controller, renderer: &mut Renderer, out: &mut [f32]) {
+    let mut flanger = FlangerFilter::default();
+    flanger.set_params(0.1, 1.0).unwrap();
+    let flanger: Arc<dyn Filter> = Arc::new(flanger);
+    let filters: [Arc<dyn Filter>; 3] = [
+        Arc::clone(&flanger),
+        Arc::new(EchoFilter::default()),
+        Arc::new(DcRemovalFilter::default()),
+    ];
+    let paused = PlayOptions {
+        paused: true,
+        ..PlayOptions::default()
+    };
+    let mut ids = Vec::new();
+    for (i, filter) in filters.iter().enumerate() {
+        let mut filtered = sound(1, 44100, 44100.0);
+        filtered.set_looping(true);
+        filtered.set_filter(0, Some(Arc::clone(filter)));
+        let options = if i == 0 {
+            PlayOptions::default()
+        } else {
+            paused
+        };
+        let at = [i as f32, 0.0, -20.0];
+        ids.push(controller.play_3d(&filtered, at, STILL, options).unwrap());
+    }
+    let mut bus = Bus::new();
+    bus.set_filter(0, Some(Arc::clone(&flanger)));
+    let bus_id = controller
+        .play_3d(&bus, [0.0, 0.0, -3.0], STILL, PlayOptions::default())
+        .unwrap();
+    let mut child = sound(2, 44100, 44100.0);
+    child.set_looping(true);
+    controller
+        .bus_play(&bus, &child, PlayOptions::default())
+        .unwrap();
+    drop((filters, child));
+    measured_render(renderer, &mut out[..2 * 512], "still filtered 3D voices");
+    drain(controller);
+
+    let approach = |controller: &mut Controller, ids: &[VoiceId], speed: f32| {
+        for &id in ids {
+            controller.set_3d_source_velocity(id, [0.0, 0.0, speed]);
+        }
+        controller.update_3d_audio().unwrap();
+    };
+    let mut all = ids.clone();
+    all.push(bus_id);
+    approach(controller, &all, 200.0);
+    measured_render(renderer, &mut out[..2 * 512], "Doppler rising to 2.4");
+    for &id in &ids[1..] {
+        controller.set_pause(id, false).unwrap();
+    }
+    measured_render(renderer, &mut out[..2 * 512], "first blocks after the rise");
+    let echo: Arc<dyn Filter> = Arc::new(EchoFilter::default());
+    controller.set_bus_filter(&mut bus, 1, Some(echo)).unwrap();
+    measured_render(renderer, &mut out[..2 * 512], "a bus filter after the rise");
+    controller.set_relative_play_speed(ids[0], 1.5).unwrap();
+    controller.update_3d_audio().unwrap();
+    measured_render(renderer, &mut out[..2 * 512], "a speed set on a 3D voice");
+    for step in 0..12 {
+        approach(controller, &all, 200.0 + 10.0 * step as f32);
+        measured_render(renderer, &mut out[..2 * 256], "Doppler rising slowly");
+        drain(controller);
+    }
+    controller.stop_all().unwrap();
+    for _ in 0..4 {
+        measured_render(renderer, &mut out[..2 * 64], "retiring grown voices");
+    }
+    drain(controller);
+    drop(bus);
     assert_eq!(controller.status().retired_overflow, 0);
 }

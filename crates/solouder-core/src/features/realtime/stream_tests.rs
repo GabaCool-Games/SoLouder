@@ -202,6 +202,54 @@ fn seeks_continue_from_the_requested_frame() {
     assert_eq!(controller.status().stream_underflow_frames, 0);
 }
 
+/// Seeks while paused (#396, #156): a stream paused from its play, then
+/// after playing, seeks back and forward; with the worker caught up it
+/// resumes from the new place as the mixer's voice does, with no silence.
+#[test]
+fn seeks_while_paused_resume_from_the_requested_frame() {
+    let tone = stream(60000, 44100.0);
+    let paused = crate::PlayOptions {
+        paused: true,
+        ..crate::PlayOptions::default()
+    };
+    let mut mixer = Mixer::new(MixerConfig::default()).unwrap();
+    let handle = mixer.play_with(&tone, paused);
+    let (mut controller, mut renderer, mut worker) = runtime(RealtimeConfig::default());
+    let id = controller.play_with(&tone, paused).unwrap();
+    let steps: [(Option<f64>, Option<bool>, usize); 8] = [
+        (None, None, 512),
+        (Some(0.5), None, 256),
+        (Some(0.25), None, 256),
+        (None, Some(false), 1024),
+        (None, Some(true), 512),
+        (Some(0.75), None, 256),
+        (Some(0.1), None, 256),
+        (None, Some(false), 1536),
+    ];
+    let (mut expected, mut rendered) = (Vec::new(), Vec::new());
+    for (seek, pause, frames) in steps {
+        if let Some(to) = seek {
+            mixer.seek(handle, to).unwrap();
+            controller.seek(id, to).unwrap();
+        }
+        if let Some(on) = pause {
+            mixer.set_pause(handle, on);
+            controller.set_pause(id, on).unwrap();
+        }
+        let mut out = vec![0.0; frames * 2];
+        mixer.mix_interleaved(&mut out);
+        expected.extend(out);
+        // The worker reads ahead before each render, and after it learns
+        // of a seek the render applied.
+        serve(&mut worker);
+        rendered.extend(render(&mut renderer, frames));
+        serve(&mut worker);
+    }
+    assert!(expected.iter().any(|&s| s != 0.0));
+    assert_eq!(rendered, expected);
+    assert_eq!(controller.status().stream_underflow_frames, 0);
+}
+
 #[test]
 fn ended_and_missing_streams_finish_and_close_their_feeds() {
     let missing = Stream::new(Arc::new(Memory {

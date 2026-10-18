@@ -69,36 +69,51 @@ fn colliders_run_on_the_game_thread() {
     }
 }
 
-/// An update computed for a voice that has since stopped, its slot taken by
-/// another voice, leaves that voice alone (SoLoud's `update3dAudio` applies
-/// the old voice's gains to whatever voice holds the slot).
+/// An update computed for a voice that is gone, its slot taken by another
+/// 3D voice, leaves that voice alone (SoLoud's `update3dAudio` applies the
+/// old voice's gains to whatever voice holds the slot): the gone voice,
+/// stopped or ended and its final event unread, is moved far enough away to
+/// be killed, and the new one sounds as it would alone.
 #[test]
 fn updates_reach_only_their_own_voice() {
-    let mut far = tone(20000, 1, 44100.0, 41);
-    far.set_3d_attenuation(Attenuation::InverseDistance, 1.0);
-    far.set_inaudible_behavior(false, true);
-    let plain = tone(20000, 1, 44100.0, 17);
+    for stopped in [true, false] {
+        let mut far = tone(if stopped { 20000 } else { 100 }, 1, 44100.0, 41);
+        far.set_3d_attenuation(Attenuation::InverseDistance, 1.0);
+        far.set_inaudible_behavior(false, true);
+        let mut near = tone(20000, 1, 44100.0, 17);
+        near.set_3d_attenuation(Attenuation::InverseDistance, 1.0);
+        near.set_inaudible_behavior(false, true);
+        let at = [1.5, 0.0, -2.0];
+        let options = PlayOptions::default();
 
-    let mut expected = Mixer::new(MixerConfig::default()).unwrap();
-    expected.play_with(&plain, PlayOptions::default());
-    let mut alone = vec![0.0; 2 * 512];
-    expected.mix_interleaved(&mut alone);
+        let mut expected = Mixer::new(MixerConfig::default()).unwrap();
+        expected.play_3d(&near, at, STILL, options);
+        expected.update_3d_audio();
+        let mut alone = vec![0.0; 2 * 512];
+        expected.mix_interleaved(&mut alone);
 
-    let (mut c, mut r) = realtime(RealtimeConfig::default());
-    let id = c
-        .play_3d(&far, [0.0, 0.0, -50.0], STILL, PlayOptions::default())
-        .unwrap();
-    render(&mut r, 64);
-    c.stop(id).unwrap();
-    let other = c.play_with(&plain, PlayOptions::default()).unwrap();
-    // The stopped voice's final event has not been read: the update still
-    // carries it, now far enough away to be killed.
-    c.set_3d_source_position(id, [0.0, 0.0, -100000.0]);
-    c.update_3d_audio().unwrap();
-    assert_eq!(render(&mut r, 512), alone);
-    let seen = events(&mut c);
-    assert!(seen.contains(&Event::Started(other)));
-    assert!(!seen.iter().any(|e| e.id() == other && e.is_final()));
+        let (mut c, mut r) = realtime(RealtimeConfig::default());
+        let id = c.play_3d(&far, [0.0, 0.0, -3.0], STILL, options).unwrap();
+        render(&mut r, 256);
+        if stopped {
+            c.stop(id).unwrap();
+        }
+        let other = c.play_3d(&near, at, STILL, options).unwrap();
+        // The gone voice's final event has not been read: the update still
+        // carries it, now far enough away to be killed.
+        c.set_3d_source_position(id, [0.0, 0.0, -100000.0]);
+        c.update_3d_audio().unwrap();
+        assert_eq!(render(&mut r, 512), alone, "stopped: {stopped}");
+        let seen = events(&mut c);
+        let reason = if stopped {
+            FinishReason::Stopped
+        } else {
+            FinishReason::Ended
+        };
+        assert!(seen.contains(&Event::Finished(id, reason)));
+        assert!(seen.contains(&Event::Started(other)));
+        assert!(!seen.iter().any(|e| e.id() == other && e.is_final()));
+    }
 }
 
 /// A 3D play too quiet to start, and a voice an update makes inaudible,

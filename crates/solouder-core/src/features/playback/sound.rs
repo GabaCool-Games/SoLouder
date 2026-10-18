@@ -86,6 +86,10 @@ impl Playable for Sound {
 }
 
 impl Sealed for Sound {
+    fn filter_slots(&self) -> Option<std::sync::Arc<super::source::FilterSlots>> {
+        self.settings.filters.clone()
+    }
+
     fn prepare(&self) -> Prepared {
         Prepared {
             voice: self.voice(),

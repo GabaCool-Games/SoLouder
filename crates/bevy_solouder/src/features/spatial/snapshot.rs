@@ -40,48 +40,107 @@ pub(crate) struct EmitterPose {
 #[derive(Resource, Default, Debug)]
 pub(crate) struct SpatialSnapshot {
     pub listener: ListenerPose,
+    /// Emitters with a usable position this frame.
     pub emitters: HashMap<Entity, EmitterPose>,
     pub sound_speed: f32,
-    /// Last frame's positions, to derive velocities from.
-    tracks: HashMap<Entity, Vec3>,
-    /// Reused for the next frame's positions.
-    spare: HashMap<Entity, Vec3>,
+    /// Each entity's motion so far, to derive velocities from.
+    tracks: HashMap<Entity, Track>,
+    /// Reused for the next frame's tracks.
+    spare: HashMap<Entity, Track>,
+}
+
+/// Where an entity was when its position last changed, the time since, and
+/// the velocity derived then.
+#[derive(Clone, Copy, Debug, PartialEq)]
+struct Track {
+    position: Vec3,
+    since: f32,
+    velocity: Vec3,
+}
+
+impl Track {
+    fn at_rest(position: Vec3) -> Self {
+        Self {
+            position,
+            since: 0.0,
+            velocity: Vec3::ZERO,
+        }
+    }
 }
 
 /// How a velocity is found for one entity this frame.
+#[derive(Clone, Copy, Debug)]
 struct Motion {
     dt: f32,
     max_speed: f32,
+    hold: f32,
 }
 
 impl Motion {
-    /// The explicit velocity if any; otherwise the distance moved since
-    /// last frame over the time step, or 0 for a first sighting, a zero or
-    /// paused time step, a teleport, or a speed past the plausible maximum.
-    fn velocity(
+    /// The entity's track after this frame, whose `velocity` is the one to
+    /// use: the explicit velocity if any; otherwise, when the entity moved,
+    /// the distance over the time since its position last changed (one
+    /// frame after a rest longer than `hold`), so motion stepped less often
+    /// than frames (a fixed physics step) keeps a steady speed; when it did
+    /// not move, the last derived velocity, until it has been still for
+    /// `hold`. 0 for a first sighting, a zero or paused time step, a
+    /// teleport, or a speed past the plausible maximum.
+    fn step(
         &self,
-        previous: Option<Vec3>,
+        track: Option<Track>,
         position: Vec3,
         explicit: Option<&AudioVelocity>,
         teleport: bool,
-    ) -> Vec3 {
+    ) -> Track {
         if let Some(AudioVelocity(velocity)) = explicit {
-            return if velocity.is_finite() {
+            let velocity = if velocity.is_finite() {
                 *velocity
             } else {
                 Vec3::ZERO
             };
+            return Track {
+                velocity,
+                ..Track::at_rest(position)
+            };
         }
-        let Some(previous) = previous.filter(|_| !teleport && self.dt > 0.0) else {
-            return Vec3::ZERO;
+        let Some(track) = track.filter(|_| !teleport && self.dt > 0.0) else {
+            return Track::at_rest(position);
         };
-        let velocity = (position - previous) / self.dt;
-        if velocity.is_finite() && velocity.length() <= self.max_speed {
+        let since = track.since + self.dt;
+        if position == track.position {
+            let velocity = if since < self.hold {
+                track.velocity
+            } else {
+                Vec3::ZERO
+            };
+            return Track {
+                since,
+                velocity,
+                ..track
+            };
+        }
+        let span = if since <= self.hold { since } else { self.dt };
+        let velocity = (position - track.position) / span;
+        let velocity = if velocity.is_finite() && velocity.length() <= self.max_speed {
             velocity
         } else {
             Vec3::ZERO
+        };
+        Track {
+            velocity,
+            ..Track::at_rest(position)
         }
     }
+}
+
+/// The listener's facing (-Z) and up (+Y) directions, from the transform's
+/// axes; `None` for a degenerate transform (a zero or non-finite scale or
+/// rotation), whose directions `GlobalTransform::forward` would panic on.
+fn orientation(transform: &GlobalTransform) -> Option<(Vec3, Vec3)> {
+    let axes = transform.affine().matrix3;
+    let at = -Vec3::from(axes.z_axis).normalize_or_zero();
+    let up = Vec3::from(axes.y_axis).normalize_or_zero();
+    (at != Vec3::ZERO && up != Vec3::ZERO).then_some((at, up))
 }
 
 type Listener<'a> = (
@@ -115,6 +174,7 @@ pub(crate) fn take_snapshot(
     let motion = Motion {
         dt: time.map_or(0.0, |time| time.delta_secs()),
         max_speed: settings.max_derived_speed,
+        hold: settings.velocity_hold,
     };
     let mut next = std::mem::take(&mut snapshot.spare);
     next.clear();
@@ -131,22 +191,22 @@ pub(crate) fn take_snapshot(
         Some((used, ..)) => ListenerState::Several { used, count },
     };
     state.set_if_neq(new_state);
-    match chosen {
-        Some((entity, transform, explicit, teleport)) => {
-            let position = transform.translation();
+    let listener = &mut snapshot.listener;
+    listener.velocity = Vec3::ZERO;
+    if let Some((entity, transform, explicit, teleport)) = chosen {
+        let position = transform.translation();
+        // A degenerate transform keeps the last pose, at rest.
+        if position.is_finite()
+            && let Some((at, up)) = orientation(transform)
+        {
             let previous = snapshot.tracks.get(&entity).copied();
-            next.insert(entity, position);
-            let (at, up) = (Vec3::from(transform.forward()), Vec3::from(transform.up()));
-            let listener = &mut snapshot.listener;
-            // A degenerate transform (zero scale) keeps the last pose.
-            if position.is_finite() && at.is_finite() && up.is_finite() {
-                listener.position = position;
-                listener.at = at;
-                listener.up = up;
-            }
-            listener.velocity = motion.velocity(previous, position, explicit, teleport);
+            let track = motion.step(previous, position, explicit, teleport);
+            next.insert(entity, track);
+            listener.position = position;
+            listener.at = at;
+            listener.up = up;
+            listener.velocity = track.velocity;
         }
-        None => snapshot.listener.velocity = Vec3::ZERO,
     }
 
     snapshot.emitters.clear();
@@ -156,10 +216,11 @@ pub(crate) fn take_snapshot(
             continue;
         }
         let previous = snapshot.tracks.get(&entity).copied();
-        next.insert(entity, position);
+        let track = motion.step(previous, position, explicit, teleport);
+        next.insert(entity, track);
         let pose = EmitterPose {
             position,
-            velocity: motion.velocity(previous, position, explicit, teleport),
+            velocity: track.velocity,
             settings: *emitter,
         };
         snapshot.emitters.insert(entity, pose);
@@ -168,5 +229,84 @@ pub(crate) fn take_snapshot(
 
     for entity in &teleported {
         commands.entity(entity).try_remove::<AudioTeleport>();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    const MOTION: Motion = Motion {
+        dt: 1.0 / 144.0,
+        max_speed: 200.0,
+        hold: 0.1,
+    };
+
+    /// The velocities derived for positions seen once per frame.
+    fn derive(motion: Motion, positions: impl IntoIterator<Item = Vec3>) -> Vec<Vec3> {
+        let mut track = None;
+        positions
+            .into_iter()
+            .map(|position| {
+                let next = motion.step(track, position, None, false);
+                track = Some(next);
+                next.velocity
+            })
+            .collect()
+    }
+
+    /// Moved every third frame at 10 m/s: the derived velocity stays 10 m/s
+    /// between the moves, rather than alternating 0 and 30.
+    #[test]
+    fn motion_stepped_less_often_than_frames_keeps_a_steady_speed() {
+        let step = 10.0 * 3.0 * MOTION.dt;
+        let positions = (0..30).map(|frame| Vec3::new(0.0, 0.0, (frame / 3) as f32 * step));
+        let velocities = derive(MOTION, positions);
+        for velocity in &velocities[3..] {
+            assert!((velocity.z - 10.0).abs() < 1e-3, "{velocities:?}");
+        }
+    }
+
+    /// A fixed 64 Hz step seen at 144 frames per second moves on two or
+    /// three frames out of two or three: the speed stays within the ratio
+    /// of those gaps to the step, never 0 or 2.25 times.
+    #[test]
+    fn a_fixed_physics_step_does_not_flutter() {
+        let positions = (0..300).map(|frame| {
+            let steps = (frame as f32 * MOTION.dt * 64.0).floor();
+            Vec3::new(steps * 10.0 / 64.0, 0.0, 0.0)
+        });
+        for velocity in &derive(MOTION, positions)[10..] {
+            assert!((6.5..=12.5).contains(&velocity.x), "{velocity}");
+        }
+    }
+
+    /// A stopped entity reads 0 once it has been still for `hold`, and its
+    /// next move is measured over one frame, not over the rest.
+    #[test]
+    fn a_stop_reads_zero_after_the_hold() {
+        let dt = MOTION.dt;
+        let mut positions: Vec<Vec3> = (0..5).map(|i| Vec3::X * i as f32 * dt).collect();
+        positions.extend([Vec3::X * 4.0 * dt; 30]);
+        positions.push(Vec3::X * 5.0 * dt);
+        let velocities = derive(MOTION, positions);
+        assert!((velocities[4].x - 1.0).abs() < 1e-3);
+        let still = (MOTION.hold / dt) as usize;
+        assert!((velocities[4 + still - 1].x - 1.0).abs() < 1e-3);
+        assert_eq!(velocities[4 + still + 1], Vec3::ZERO);
+        assert!((velocities.last().unwrap().x - 1.0).abs() < 1e-3);
+    }
+
+    /// Zero, non-finite and NaN transforms have no orientation.
+    #[test]
+    fn degenerate_transforms_have_no_orientation() {
+        let zero = GlobalTransform::from(Transform::from_scale(Vec3::ZERO));
+        assert_eq!(orientation(&zero), None);
+        let nan = GlobalTransform::from(Transform::from_scale(Vec3::NAN));
+        assert_eq!(orientation(&nan), None);
+        let flat = GlobalTransform::from(Transform::from_scale(Vec3::new(1.0, 0.0, 1.0)));
+        assert_eq!(orientation(&flat), None);
+        let scaled = GlobalTransform::from(Transform::from_scale(Vec3::splat(3.0)));
+        assert_eq!(orientation(&scaled), Some((Vec3::NEG_Z, Vec3::Y)));
     }
 }

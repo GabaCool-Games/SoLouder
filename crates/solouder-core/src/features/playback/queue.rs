@@ -97,6 +97,10 @@ impl Playable for Queue {
 }
 
 impl Sealed for Queue {
+    fn filter_slots(&self) -> Option<std::sync::Arc<super::source::FilterSlots>> {
+        self.settings.filters.clone()
+    }
+
     fn prepare(&self) -> Prepared {
         let source = VoiceSource::Queue {
             channels: self.channels,

@@ -8,7 +8,8 @@ use super::voice::flags;
 use crate::features::filters::{FILTERS_PER_STREAM, Filter, FilterInstance};
 use crate::features::spatial::SpatialSettings;
 
-type FilterSlots = [Option<Arc<dyn Filter>>; FILTERS_PER_STREAM];
+/// A source's filters, by slot.
+pub(crate) type FilterSlots = [Option<Arc<dyn Filter>>; FILTERS_PER_STREAM];
 
 /// Something [`Mixer::play_with`](super::Mixer::play_with) can start: a
 /// [`Sound`](super::Sound), [`Bus`](super::Bus) or [`Queue`](super::Queue).
@@ -51,6 +52,10 @@ pub(crate) mod private {
         /// Builds a voice; allocates, so the real-time controller calls it
         /// on its own thread.
         fn prepare(&self) -> Prepared;
+
+        /// The source's filters, which its voices' filter instances come
+        /// from.
+        fn filter_slots(&self) -> Option<std::sync::Arc<super::FilterSlots>>;
 
         /// The queue whose sounds the voice plays, for a queue.
         fn queue_id(&self) -> Option<SoundId> {

@@ -18,6 +18,24 @@ pub enum FilterTarget {
 /// other slots, empty slots or stopped voices do nothing. Fades and
 /// oscillations run on the mixer's stream time.
 impl Mixer {
+    /// Lets the filter instances of `handle`'s voice grow into the memory
+    /// in `spares`, by slot
+    /// ([`FilterInstance::grow`](crate::filters::FilterInstance::grow)); `spares` is left
+    /// holding what they gave up. Neither allocates nor frees.
+    pub(crate) fn grow_voice_filters(&mut self, handle: Handle, spares: &mut [Option<Vec<f32>>]) {
+        let Some(slot) = self.voices.slot_of(handle) else {
+            return;
+        };
+        let Some(voice) = self.voices.slots[slot].as_mut() else {
+            return;
+        };
+        for (instance, spare) in voice.filters.iter_mut().zip(spares) {
+            if let (Some(instance), Some(spare)) = (instance, spare) {
+                instance.grow(spare);
+            }
+        }
+    }
+
     /// Sets or clears global filter `slot`, which filters the whole mix
     /// before clipping (`Soloud::setGlobalFilter`). The new instance has the
     /// filter's current settings and replaces the slot's previous instance.

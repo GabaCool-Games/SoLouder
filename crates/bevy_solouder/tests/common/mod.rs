@@ -2,6 +2,8 @@
 
 #![allow(dead_code)]
 
+pub mod spatial;
+
 use std::time::{Duration, Instant};
 
 use bevy::app::TaskPoolPlugin;
