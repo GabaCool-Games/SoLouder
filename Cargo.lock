@@ -2097,6 +2097,7 @@ version = "0.1.0"
 dependencies = [
  "solouder-core",
  "solouder-decoders",
+ "solouder-sources",
 ]
 
 [[package]]

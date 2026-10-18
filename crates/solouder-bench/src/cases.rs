@@ -55,7 +55,8 @@ pub fn all() -> Vec<Case> {
     cases.push(filters());
     cases.extend(cases_io::streams());
     cases.push(cases_io::spatial());
-    // Generated sources (solouder-sources) add their cases here.
+    #[cfg(feature = "sources")]
+    cases.extend(crate::cases_sources::sources());
     cases
 }
 

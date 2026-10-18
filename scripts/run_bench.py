@@ -9,7 +9,8 @@ against the callback budget (the buffer's length at 48 kHz). Requires CMake,
 a C++ compiler and the reference checkout from scripts/fetch_reference.py,
 unless --rust-only.
 
-The streams_* rows do not compare the same work: the C++ reference decodes
+The sources_* rows (the generated sources, feature `sources`) compare the
+same voices on both sides. The streams_* rows do not compare the same work: the C++ reference decodes
 inside mix, while Rust decodes on the stream worker's thread and renders at
 the output's pace.
 """
@@ -86,7 +87,7 @@ def main(argv: list[str] | None = None) -> int:
         options += ["--buffers", args.buffers]
     OUTPUT.mkdir(parents=True, exist_ok=True)
 
-    build = ["cargo", "build", "--release", "-p", "solouder-bench"]
+    build = ["cargo", "build", "--release", "-p", "solouder-bench", "--features", "sources"]
     if subprocess.run(build, cwd=REPOSITORY_ROOT).returncode != 0:
         return 1
     target = REPOSITORY_ROOT / os.environ.get("CARGO_TARGET_DIR", "target")

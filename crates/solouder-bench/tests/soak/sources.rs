@@ -4,7 +4,7 @@ use std::sync::Arc;
 
 use solouder_bench::signal::{STREAMS, TONE_RATE, TONES, fixture, tone_samples, tones};
 use solouder_core::filters::Filter;
-use solouder_core::{Bus, Pcm, Sound, Stream};
+use solouder_core::{Bus, Pcm, Sound, Stream, Synth};
 use solouder_decoders::WavStream;
 
 /// xorshift64*.
@@ -32,14 +32,28 @@ impl Rng {
     }
 }
 
-/// Looping tones, short clips, a clip per filter kind, a stream per codec
-/// and a bus.
+/// Looping tones, short clips, a clip per filter kind, a stream per codec,
+/// a bus, and with the `sources` feature the generated sources' looping
+/// generators (empty without it).
 pub struct Sources {
     pub tones: Vec<Sound>,
     pub shots: Vec<Sound>,
     pub filtered: Vec<Sound>,
     pub streams: Vec<Stream>,
     pub bus: Bus,
+    pub synths: Vec<Synth>,
+}
+
+/// Every generator of the `sources_*` benchmark cases.
+#[cfg(feature = "sources")]
+fn synths() -> Vec<Synth> {
+    use solouder_bench::cases_sources::{KINDS, synths};
+    KINDS.iter().flat_map(|kind| synths(kind)).collect()
+}
+
+#[cfg(not(feature = "sources"))]
+fn synths() -> Vec<Synth> {
+    Vec::new()
 }
 
 pub fn sources() -> Sources {
@@ -71,5 +85,6 @@ pub fn sources() -> Sources {
         filtered,
         streams,
         bus: Bus::new(),
+        synths: synths(),
     }
 }

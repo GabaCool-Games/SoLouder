@@ -122,8 +122,19 @@ jobs:
           - -p solouder-decoders --no-default-features
           - -p solouder-cpal --no-default-features
           - -p bevy_solouder --no-default-features
+          - -p solouder-sources --no-default-features
+          - -p solouder-sources --no-default-features --features ay
+          - -p solouder-sources --no-default-features --features monotone
+          - -p solouder-sources --no-default-features --features noise
+          - -p solouder-sources --no-default-features --features sfxr
+          - -p solouder-sources --no-default-features --features speech
+          - -p solouder-sources --no-default-features --features tedsid
+          - -p solouder-sources --no-default-features --features vic
+          - -p solouder-sources --no-default-features --features vizsn
           - -p solouder-parity
           - -p solouder-bench
+          - -p solouder-bench --features sources
+          - --workspace --all-features
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
@@ -149,6 +160,17 @@ jobs:
           cargo +nightly miri test -p solouder-core --lib --
           dsp:: contracts:: playback::visualization realtime::visual
           realtime::tests realtime::routing_tests
+      # The generated sources' unit tests (41 of 59, under 10 minutes; they
+      # read fixtures, hence no isolation). Speech, and the tests that render
+      # or fuzz whole files, are too slow under Miri.
+      - run: >-
+          cargo +nightly miri test -p solouder-sources --lib --
+          chipdump:: prg:: ay:: monotone:: noise:: sfxr:: tedsid:: vic:: vizsn::
+          --skip damaged_dumps_never_panic --skip arbitrary_text_never_panics
+          --skip every_prefix --skip fixtures_load_and_play --skip any_cells_render
+          --skip extreme_settings --skip fixtures_load_with_their_models
+        env:
+          MIRIFLAGS: -Zmiri-disable-isolation
 
   # The soak test for ten minutes in release (check_all runs three seconds).
   soak:
@@ -159,6 +181,6 @@ jobs:
       - uses: actions/checkout@v4
       - run: rustup show
       - uses: Swatinem/rust-cache@v2
-      - run: cargo test --release -p solouder-bench --test soak -- --nocapture
+      - run: cargo test --release -p solouder-bench --features sources --test soak -- --nocapture
         env:
           SOLOUDER_SOAK_SECONDS: "600"

@@ -118,8 +118,16 @@ impl Game {
                 let result = c.play_with(&s.tones[n as usize % TONES], options);
                 self.played(result, PLAIN);
             }
-            36..42 => {
+            36..40 => {
                 let result = c.play_with(&s.streams[n as usize % s.streams.len()], options);
+                self.played(result, PLAIN);
+            }
+            40..42 => {
+                // A generated source (feature `sources`), else a stream.
+                let result = match s.synths.len() {
+                    0 => c.play_with(&s.streams[n as usize % s.streams.len()], options),
+                    len => c.play_with(&s.synths[n as usize % len], options),
+                };
                 self.played(result, PLAIN);
             }
             42..47 => {

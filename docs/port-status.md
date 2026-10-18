@@ -222,7 +222,7 @@ every row but has not run: SoLouder is not pushed anywhere.
 | Linux | arm64 | ALSA | Not run | Not run | Not run | Not run |
 | macOS (CI `macos-latest`) | arm64 | CoreAudio | CI configured | CI configured: Rust tests and C++ regression tests | CI configured against the Windows golden, non-blocking until it has run | Unverified |
 | macOS | x86-64 | CoreAudio | Not run | Not run | Not run | Unverified |
-| Miri (nightly 2026-10-12, Linux container) | x86-64 | none | Verified | Verified, no undefined behavior: `dsp::` (16 tests), `contracts::` (3), `playback::visualization` (3), `realtime::visual` (3), `realtime::tests` (14, 13 minutes) and `realtime::routing_tests` (3) | n/a | n/a |
+| Miri (nightly 2026-10-12, Linux container) | x86-64 | none | Verified | Verified, no undefined behavior: `dsp::` (16 tests), `contracts::` (3), `playback::visualization` (3), `realtime::visual` (3), `realtime::tests` (14, 13 minutes) and `realtime::routing_tests` (3); in `solouder-sources` (fixtures read without isolation), 41 of 59 unit tests (chip dumps, zx7, the WELL512 generator, AY, Monotone, noise, Sfxr, TedSid, Vic, Vizsn), not Speech or the tests that render or fuzz whole files | n/a | n/a |
 
 Cross-platform parity, measured with `run_parity.py --cpp-dir` (compare
 against another machine's runner output) and `--profile` (per-scenario
@@ -281,8 +281,15 @@ levels (1, 4 and 16 buses) with 4 tones on each leaf; `filters` is 30 tones,
 three through each of the ten filters at their default settings, plus a
 global biquad; `streams_*` are 16 looping voices of one stereo 44.1 kHz file
 in memory; `spatial` is 256 3D tones that all move, with a turning listener
-and `update_3d_audio` before every render (untimed in both). The budget is
-the buffer's length; times are microseconds.
+and `update_3d_audio` before every render (untimed in both). The `sources_*`
+rows (`--features sources`, which `run_bench.py` builds; measured the same
+day, a separate run of 128 and 512 frames) are 16 looping voices of one
+generated source each, as in `crates/solouder-bench/src/cases_sources.rs`:
+pink noise, a Vic with three squares, the seven Sfxr presets, Monotone and
+TedSid playing the test fixtures (`monotone/demo.mon`, a square wave, 4
+channels; `chipdump/sidted.zx7.dump`), an AY dump (`chipdump/ay_ay.dump`),
+Speech and Vizsn reading a sentence. The budget is the buffer's length;
+times are microseconds.
 
 | Case | 128 frames (2,667 µs): Rust mean / max | C++ mean / max | 512 frames (10,667 µs): Rust mean / max | C++ mean / max | Rust / C++ (mean, 512) |
 |---|---|---|---|---|---|
@@ -305,14 +312,28 @@ the buffer's length; times are microseconds.
 | `streams_ogg` | 9.1 / 24.3 | 23.5 / 321 | 31.5 / 116 | 91.9 / 312 | 0.34 |
 | `streams_mp3` | 8.5 / 34.8 | 21.2 / 195 | 29.0 / 59.9 | 83.2 / 201 | 0.35 |
 | `spatial` | 91.6 / 129 | 54.7 / 66.0 | 216 / 244 | 117 / 132 | 1.85 |
+| `sources_noise` | 16.7 / 73.7 | 26.4 / 218 | 64.1 / 80.8 | 104 / 124 | 0.62 |
+| `sources_vic` | 4.9 / 14.2 | 3.7 / 13.6 | 17.5 / 19.7 | 13.9 / 16.0 | 1.26 |
+| `sources_sfxr` | 85.4 / 367 | 57.1 / 264 | 339 / 387 | 227 / 269 | 1.50 |
+| `sources_monotone` | 78.4 / 389 | 17.2 / 73.9 | 307 / 388 | 67.6 / 77.7 | 4.54 |
+| `sources_tedsid` | 238 / 445 | 246 / 577 | 1,005 / 1,151 | 1,013 / 1,233 | 0.99 |
+| `sources_ay` | 57.0 / 3,263 | 61.0 / 3,554 | 225 / 3,333 | 243 / 3,562 | 0.93 |
+| `sources_speech` | 15.9 / 788 | 8.7 / 411 | 61.6 / 797 | 34.1 / 416 | 1.81 |
+| `sources_vizsn` | 17.2 / 554 | 5.0 / 129 | 66.3 / 560 | 18.8 / 132 | 3.53 |
 
 `run_bench.py` also writes 256, 480 and 1024 frames (`build/bench/bench.md`,
 with the 99th percentiles). What they show:
 
-- **Against the budget:** the slowest render in any row is 15.6% of its
+- **Against the budget:** the slowest render in any mixing row is 15.6% of its
   budget (`voices1023_catmullrom` at 512 frames, 1,661 µs; 12.2% at 128
-  frames). Every other Rust row stays under 9%; a 128-frame callback with
-  1,023 linear voices takes at most 230 µs of its 2,667 µs.
+  frames). Every other Rust mixing row stays under 9%; a 128-frame callback with
+  1,023 linear voices takes at most 230 µs of its 2,667 µs. Of the
+  generated sources, `sources_ay` overruns the 128-frame budget in both
+  (Rust 3,263 µs, C++ 3,554 µs at most, 31% of 512 frames' budget): the
+  chip player renders a frame of about 4,000 samples at once, and the 16
+  voices, started together, all render theirs in the same callback. The
+  other generator rows peak at 30% in Rust (Speech at 128 frames, 788 µs;
+  C++ 411 µs) and 11% or less at 512 frames (TedSid, 1,151 µs).
 - **Against C++:** the mixing path is 1.3 to 2.7 times slower in Rust:
   about 2.1 to 2.7 times for point and linear resampling, 1.3 to 1.4 for
   Catmull-Rom (where the interpolation itself dominates), about 1.1 for the
@@ -321,6 +342,10 @@ with the 99th percentiles). What they show:
   the Rust port computes the same values in scalar code, bit exact, and has
   not been profiled or tuned. Not a budget problem at these sizes, but the
   largest gap left.
+- **Generators:** noise is faster in Rust (0.6), the chip emulations
+  (TedSid, AY) take the same time, Vic and Sfxr are 1.3 to 1.5 times slower,
+  Speech 1.8, Vizsn 3.5 and Monotone 4.5 times. None has been profiled;
+  Speech and Vizsn, like AY, synthesize in blocks, hence their maxima.
 - **Streams:** Rust renders FLAC, Ogg and MP3 streams 2 to 3 times faster
   (WAV, cheap to decode, 1.4 to 1.8 times slower, like other voices), with far smaller
   worst cases (FLAC, Ogg and MP3 maxima of 170 to 320 µs in C++ against 24
@@ -345,7 +370,8 @@ the C++ mean, a smaller gap than with MSVC.
 a `Renderer` on an audio thread (random buffers of 128 to 1024 frames at four
 times real time) and the `StreamWorker` on its own thread, with a seeded
 random mix of requests: sounds, filtered sounds, streams of every codec,
-bursts of 4 to 32 plays into a bus, 3D plays with moving sources and listener
+the generated sources (with `--features sources`, as the nightly CI soak
+runs; streams in their place otherwise), bursts of 4 to 32 plays into a bus, 3D plays with moving sources and listener
 updates, floods of 600 plays (past the 1024 voice slots, so voices are
 stolen, and past the 1024-command queue, so requests are refused), stops,
 volume, pan, fades, pauses, seeks, speed changes (not on filtered voices,

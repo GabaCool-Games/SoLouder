@@ -1,6 +1,6 @@
 //! Seeded soak test: a game thread drives the `Controller` with random
-//! requests (plays of sounds, filtered sounds, streams of every codec, bus
-//! bursts and 3D voices; stops, fades, pauses, seeks, speed changes,
+//! requests (plays of sounds, filtered sounds, streams of every codec,
+//! generated sources with the `sources` feature, bus bursts and 3D voices; stops, fades, pauses, seeks, speed changes,
 //! scheduled stops, 3D updates), an audio thread renders random buffer sizes
 //! through the `Renderer`, and the `StreamWorker` decodes on its own thread.
 //!

@@ -6,7 +6,9 @@
 //
 // Usage: reference_bench [--seconds S] [--case SUBSTRING] [--buffers 128,256]
 //
-// Streams are decoded inside mix here; the Rust renderer only copies audio
+// The sources_* cases play the generated sources (Noise, Vic, Sfxr,
+// Monotone, TedSid, Ay, Speech, Vizsn), as solouder-bench's `sources`
+// feature does. Streams are decoded inside mix here; the Rust renderer only copies audio
 // the stream worker decoded, so the streams_* rows do not compare the same
 // work. Build in Release.
 
@@ -21,6 +23,7 @@
 #include <vector>
 
 #include "soloud.h"
+#include "soloud_ay.h"
 #include "soloud_bassboostfilter.h"
 #include "soloud_biquadresonantfilter.h"
 #include "soloud_bus.h"
@@ -30,7 +33,14 @@
 #include "soloud_flangerfilter.h"
 #include "soloud_freeverbfilter.h"
 #include "soloud_lofifilter.h"
+#include "soloud_monotone.h"
+#include "soloud_noise.h"
 #include "soloud_robotizefilter.h"
+#include "soloud_sfxr.h"
+#include "soloud_speech.h"
+#include "soloud_tedsid.h"
+#include "soloud_vic.h"
+#include "soloud_vizsn.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_wav.h"
 #include "soloud_wavstream.h"
@@ -43,6 +53,10 @@ namespace
 	const unsigned int TONE_FRAMES = 88200;
 	const unsigned int SPATIAL_VOICES = 256;
 	const unsigned int STREAM_VOICES = 16;
+	const unsigned int SOURCE_VOICES = 16;
+	// crates/solouder-bench/src/cases_sources.rs: the texts.
+	const char *SPEECH_TEXT = "The quick brown fox jumps over the lazy dog.";
+	const char *VIZSN_TEXT = "hyv piv, mit kuuluu";
 	typedef std::chrono::steady_clock Clock;
 
 	// crates/solouder-bench/src/signal.rs: tone_samples and voice_options.
@@ -107,6 +121,87 @@ namespace
 		velocity[0] = -5.0f * std::sin(angle);
 		velocity[1] = 0.0f;
 		velocity[2] = 5.0f * std::cos(angle);
+	}
+
+	// The generators of case sources_<kind>, looping (see
+	// crates/solouder-bench/src/cases_sources.rs); voice i plays
+	// sources[i % size].
+	bool buildSources(Bench &b, const std::string &kind, unsigned int buffer)
+	{
+		if (!init(b, buffer, SOURCE_VOICES, SoLoud::Soloud::RESAMPLER_LINEAR))
+			return false;
+		std::vector<SoLoud::AudioSource *> sources;
+		std::string fixtures = std::string(SOLOUDER_FIXTURE_DIR) + "/";
+		if (kind == "noise")
+		{
+			SoLoud::Noise *noise = new SoLoud::Noise;
+			noise->setType(SoLoud::Noise::PINK);
+			sources.push_back(noise);
+		}
+		else if (kind == "vic")
+		{
+			SoLoud::Vic *vic = new SoLoud::Vic;
+			vic->setRegister(SoLoud::Vic::BASS, 200);
+			vic->setRegister(SoLoud::Vic::ALTO, 210);
+			vic->setRegister(SoLoud::Vic::SOPRANO, 220);
+			sources.push_back(vic);
+		}
+		else if (kind == "sfxr")
+		{
+			for (int p = 0; p < 7; p++)
+			{
+				SoLoud::Sfxr *sfxr = new SoLoud::Sfxr;
+				sources.push_back(sfxr);
+				if (sfxr->loadPreset(p, p + 1) != SoLoud::SO_NO_ERROR)
+					return false;
+			}
+		}
+		else if (kind == "monotone")
+		{
+			SoLoud::Monotone *song = new SoLoud::Monotone;
+			sources.push_back(song);
+			if (song->load((fixtures + "monotone/demo.mon").c_str()) != SoLoud::SO_NO_ERROR)
+				return false;
+			song->setParams(4, SoLoud::Soloud::WAVE_SQUARE);
+		}
+		else if (kind == "tedsid")
+		{
+			SoLoud::TedSid *tedsid = new SoLoud::TedSid;
+			sources.push_back(tedsid);
+			if (tedsid->load((fixtures + "chipdump/sidted.zx7.dump").c_str()) != SoLoud::SO_NO_ERROR)
+				return false;
+		}
+		else if (kind == "ay")
+		{
+			SoLoud::Ay *ay = new SoLoud::Ay;
+			sources.push_back(ay);
+			if (ay->load((fixtures + "chipdump/ay_ay.dump").c_str()) != SoLoud::SO_NO_ERROR)
+				return false;
+		}
+		else if (kind == "speech")
+		{
+			SoLoud::Speech *speech = new SoLoud::Speech;
+			sources.push_back(speech);
+			if (speech->setText(SPEECH_TEXT) != SoLoud::SO_NO_ERROR)
+				return false;
+		}
+		else if (kind == "vizsn")
+		{
+			SoLoud::Vizsn *vizsn = new SoLoud::Vizsn;
+			std::vector<char> text(VIZSN_TEXT, VIZSN_TEXT + std::strlen(VIZSN_TEXT) + 1);
+			vizsn->setText(text.data());
+			sources.push_back(vizsn);
+		}
+		else
+			return false;
+		for (SoLoud::AudioSource *source : sources)
+		{
+			source->setLooping(1);
+			b.sources.emplace_back(source);
+		}
+		for (unsigned int i = 0; i < SOURCE_VOICES; i++)
+			b.soloud.play(*sources[i % sources.size()], 0.05f, voicePan(i));
+		return true;
 	}
 
 	// Builds case `name` (see crates/solouder-bench/src/cases.rs).
@@ -199,6 +294,8 @@ namespace
 				b.soloud.play(*stream, 0.05f, voicePan(i));
 			return true;
 		}
+		if (name.compare(0, 8, "sources_") == 0)
+			return buildSources(b, name.substr(8), buffer);
 		if (name == "spatial")
 		{
 			if (!init(b, buffer, SPATIAL_VOICES, SoLoud::Soloud::RESAMPLER_LINEAR))
@@ -275,7 +372,9 @@ int main(int argc, char **argv)
 		"voices64_point", "voices64_linear", "voices64_catmullrom",
 		"voices256_point", "voices256_linear", "voices256_catmullrom",
 		"voices1023_point", "voices1023_linear", "voices1023_catmullrom",
-		"buses", "filters", "streams_wav", "streams_flac", "streams_ogg", "streams_mp3", "spatial"};
+		"buses", "filters", "streams_wav", "streams_flac", "streams_ogg", "streams_mp3", "spatial",
+		"sources_noise", "sources_vic", "sources_sfxr", "sources_monotone", "sources_tedsid", "sources_ay",
+		"sources_speech", "sources_vizsn"};
 	std::printf("case\tbuffer\trenders\tmean_us\tp99_us\tmax_us\tbudget_us\tactive\tnote\n");
 	for (const char *name : names)
 	{

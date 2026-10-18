@@ -13,6 +13,8 @@
 
 pub mod cases;
 mod cases_io;
+#[cfg(feature = "sources")]
+pub mod cases_sources;
 pub mod session;
 pub mod signal;
 pub mod timing;

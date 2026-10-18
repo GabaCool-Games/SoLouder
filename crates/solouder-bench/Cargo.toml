@@ -10,6 +10,11 @@ publish = false
 [dependencies]
 solouder-core.workspace = true
 solouder-decoders.workspace = true
+solouder-sources = { workspace = true, optional = true }
+
+[features]
+# The generated sources' cases and soak plays (solouder-sources).
+sources = ["dep:solouder-sources"]
 
 # The workspace forbids unsafe code. This crate only denies it, so the soak
 # test can install a counting global allocator (an unsafe trait) in one
