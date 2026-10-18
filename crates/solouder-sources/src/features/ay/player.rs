@@ -17,7 +17,7 @@ const VOL_DIV: i32 = 2;
 
 /// Ticks of a frame at `cpu_speed` ticks a second: half of what fits in
 /// the ring, with 20 samples to spare. 0 below 11 Hz, which `Ay` refuses
-/// (reference patch 0088).
+/// (reference patch 0095).
 pub(crate) fn ticks_per_frame(cpu_speed: u32) -> u32 {
     (i64::from(cpu_speed) * i64::from(RING_SIZE - 20) / i64::from(SAMPLE_RATE)) as u32 / 2
 }
@@ -33,7 +33,7 @@ pub(crate) struct Player {
     chip_speed: u32,
     ym: bool,
     playtick: u32,
-    /// Ticks of a wait left for the next frames (reference patch 0090).
+    /// Ticks of a wait left for the next frames (reference patch 0097).
     pub(crate) pending_ticks: u32,
     ticks_per_frame: u32,
 }
@@ -54,7 +54,7 @@ impl Player {
         }
     }
 
-    /// Back to the state of a new player (reference patch 0092).
+    /// Back to the state of a new player (reference patch 0099).
     pub(crate) fn reset(&mut self) {
         self.ring.reset();
         self.chip = Chip::new(self.cpu_speed, self.chip_speed, self.ym);
@@ -63,7 +63,7 @@ impl Player {
         self.pending_ticks = 0;
     }
 
-    /// Samples rendered and not yet read (reference patch 0091).
+    /// Samples rendered and not yet read (reference patch 0098).
     pub(crate) fn buffered(&self) -> u32 {
         self.ring
             .ready(&self.chip.render)
@@ -71,7 +71,7 @@ impl Player {
     }
 
     /// Reads `frames` frames into `out` (left, then right at `stride`;
-    /// reference patch 0084), rendering frames of `dump` from `*pos` as
+    /// reference patch 0091), rendering frames of `dump` from `*pos` as
     /// needed. Returns how many it read: fewer once the dump has played.
     pub(crate) fn play(
         &mut self,
@@ -113,7 +113,7 @@ impl Player {
         self.chip2.start_frame();
         let frame_tick = self.playtick;
         // The ring holds about twice a frame's ticks: a longer wait is
-        // played over several frames (reference patch 0090).
+        // played over several frames (reference patch 0097).
         let limit = self.ticks_per_frame * 2;
         let step = self.pending_ticks.min(limit);
         self.playtick = self.playtick.wrapping_add(step);
@@ -141,7 +141,7 @@ impl Player {
                 }
             }
             // Out of operations while waiting. A register write that is
-            // the last operation is still played (reference patch 0089).
+            // the last operation is still played (reference patch 0096).
             if op & 0x8000 != 0 {
                 break;
             }

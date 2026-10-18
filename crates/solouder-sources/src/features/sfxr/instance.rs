@@ -309,7 +309,7 @@ impl GeneratorInstance for SfxrInstance {
         _: usize,
         context: &GeneratorContext,
     ) -> usize {
-        // An ended sound gives nothing more (reference patch 0067; SoLoud's
+        // An ended sound gives nothing more (reference patch 0074; SoLoud's
         // envelope read past its stages when called again, as the generic
         // seek does).
         if !self.playing {

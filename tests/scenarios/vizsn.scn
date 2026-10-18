@@ -1,12 +1,12 @@
 # Vizsn (milestone F unit 7): Finnish text letter by letter, with ä and
 # ö as 0x84 and 0x94 or `{` and `|`, capitals, digits, punctuation and
 # bytes from 0x80 as pauses, text after a 0 (vizsn/finnish.txt), an
-# empty text and no text (reference patch 0099), each played to its
-# end and past it into silence (patch 0100); noise of its own per voice
-# (patch 0098); reads of odd and large sizes (patch 0101); looping at
-# the end of the text (patch 0103), with a loop point, seeks forward
-# and back (patch 0101) and rewinds to a new voice's state (patch
-# 0102); play speeds; storing a name again stopping its voices; an
+# empty text and no text (reference patch 0106), each played to its
+# end and past it into silence (patch 0107); noise of its own per voice
+# (patch 0105); reads of odd and large sizes (patch 0108); looping at
+# the end of the text (patch 0110), with a loop point, seeks forward
+# and back (patch 0108) and rewinds to a new voice's state (patch
+# 0109); play speeds; storing a name again stopping its voices; an
 # ended voice without auto stop; and a 44.1 kHz stereo engine
 # resampling, panning and filtering.
 init channels=1 rate=8000

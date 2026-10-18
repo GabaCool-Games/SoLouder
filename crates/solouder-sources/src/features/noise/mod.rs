@@ -57,7 +57,7 @@ impl NoiseType {
 /// Every voice starts from the same seed, so voices sound alike. The
 /// output is the sum of white noise and each octave's weighted value,
 /// divided by the sum of the weights; weights summing to 0 give silence
-/// (reference patch 0062; SoLoud computed infinity, then NaN).
+/// (reference patch 0069; SoLoud computed infinity, then NaN).
 #[derive(Debug)]
 pub struct Noise {
     octave_scale: [AtomicU32; OCTAVES],

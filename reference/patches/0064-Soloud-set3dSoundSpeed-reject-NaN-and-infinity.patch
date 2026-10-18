@@ -1,0 +1,23 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:25:29 +0300
+Subject: [PATCH] Soloud::set3dSoundSpeed: reject NaN and infinity
+
+---
+ src/core/soloud_core_3d.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/soloud_core_3d.cpp b/src/core/soloud_core_3d.cpp
+index f5ae82d..d7868d4 100644
+--- a/src/core/soloud_core_3d.cpp
++++ b/src/core/soloud_core_3d.cpp
+@@ -523,7 +523,8 @@ namespace SoLoud
+ 	
+ 	result Soloud::set3dSoundSpeed(float aSpeed)
+ 	{
+-		if (aSpeed <= 0)
++		// NaN and infinity make every 3D voice's Doppler NaN.
++		if (!(aSpeed > 0 && aSpeed <= FLT_MAX))
+ 			return INVALID_PARAMETER;
+ 		m3dSoundSpeed = aSpeed;
+ 		return SO_NO_ERROR;

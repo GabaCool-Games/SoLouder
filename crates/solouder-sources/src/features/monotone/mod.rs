@@ -98,7 +98,7 @@ impl Monotone {
 
     /// Sets the hardware channels, 1 to [`MONOTONE_CHANNELS`], and the waveform,
     /// 0 or more (`Monotone::setParams`). Out of range, nothing changes
-    /// (above 12 channels is reference patch 0071; SoLoud overran its
+    /// (above 12 channels is reference patch 0078; SoLoud overran its
     /// channels).
     pub fn set_params(&self, hardware_channels: u32, waveform: i32) -> Result<(), MonotoneError> {
         if !(1..=MONOTONE_CHANNELS).contains(&hardware_channels) || waveform < 0 {

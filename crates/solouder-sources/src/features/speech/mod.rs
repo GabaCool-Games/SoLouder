@@ -72,7 +72,7 @@ pub struct SpeechParams {
     /// an `int`, so values past `i32::MAX` wrap to negative.
     pub frequency: u32,
     /// Milliseconds per frame: higher is slower. Frames must hold 1 to 11025
-    /// samples, so 0.0907 to 1000 (reference patch 0093).
+    /// samples, so 0.0907 to 1000 (reference patch 0100).
     pub speed: f32,
     /// How fast the pitch falls, in tenths of Hz per frame.
     pub declination: f32,
@@ -157,7 +157,7 @@ impl Params {
 ///
 /// The frequency, declination and waveform reach playing voices at their
 /// next block, as in SoLoud; the speed reaches new voices only (reference
-/// patch 0094). Clones share the parameters.
+/// patch 0101). Clones share the parameters.
 #[derive(Clone, Debug)]
 pub struct Speech {
     elements: Arc<[u8]>,
@@ -210,7 +210,7 @@ impl Speech {
 
     /// Sets the voice (`Speech::setParams`). A speed whose frames would
     /// hold no samples or more than 11025 is an error and changes nothing
-    /// (SoLoud took any; reference patch 0093).
+    /// (SoLoud took any; reference patch 0100).
     pub fn set_params(&self, params: SpeechParams) -> Result<(), InvalidSpeechSpeed> {
         frame_samples(params.speed).ok_or(InvalidSpeechSpeed(params.speed))?;
         self.params.store(params);
@@ -249,7 +249,7 @@ impl Generator for Speech {
 struct SpeechInstance {
     params: Arc<Params>,
     elements: Arc<[u8]>,
-    /// The speed `samples` is sized for (reference patch 0094).
+    /// The speed `samples` is sized for (reference patch 0101).
     speed: f32,
     klatt: Klatt,
     /// One element's samples, the longest element at `speed`.

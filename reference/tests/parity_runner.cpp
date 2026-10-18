@@ -1147,7 +1147,7 @@ namespace
 				if (!known)
 					throw ScenarioError(step.line, "unknown from `" + from + "`");
 				// A name already in use reloads the same WavStream, which stops
-				// its voices (patch 0063); a failed reload leaves it empty, and
+				// its voices (patch 0070); a failed reload leaves it empty, and
 				// the name is forgotten.
 				std::map<std::string, SoLoud::WavStream *>::iterator old = streams.find(name);
 				SoLoud::WavStream *stream = old != streams.end() ? old->second : new SoLoud::WavStream;

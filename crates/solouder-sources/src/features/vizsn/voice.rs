@@ -222,7 +222,7 @@ impl Voice {
         }
     }
 
-    /// MSVC's `rand()`, per voice (reference patch 0098).
+    /// MSVC's `rand()`, per voice (reference patch 0105).
     fn rand(&mut self) -> i32 {
         self.rand_state = self
             .rand_state

@@ -28,24 +28,24 @@ const MAX_FILE: u64 = 80 << 20;
 #[non_exhaustive]
 pub enum ChipDumpError {
     /// Shorter than 34 bytes, or data shorter than the header says
-    /// (reference patch 0078).
+    /// (reference patch 0085).
     Truncated,
     /// The file does not start with `CHIPTUNE`.
     NotChipTune,
     /// A chip type this source does not play.
     UnsupportedChip(u8),
     /// No chunks, a data offset past the file's end, or for `TedSid` a
-    /// loop position at or past the data's end (reference patches 0078 and
-    /// 0086; SoLoud read outside its data).
+    /// loop position at or past the data's end (reference patches 0085 and
+    /// 0093; SoLoud read outside its data).
     BadHeader,
     /// A zx7 chunk reads past the data or writes past the ops (reference
-    /// patch 0080).
+    /// patch 0087).
     BadCompression,
     /// The loop never waits, so playing it would never return (reference
-    /// patch 0079).
+    /// patch 0086).
     NoWait,
     /// For `Ay`, a tick rate below 11 Hz or a chip clock below 352800 Hz,
-    /// which its player cannot render (reference patch 0088; SoLoud divided
+    /// which its player cannot render (reference patch 0095; SoLoud divided
     /// by zero, spun, or overran its buffer).
     UnsupportedSpeed,
     /// Longer than 80 MiB.

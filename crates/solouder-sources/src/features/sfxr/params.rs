@@ -111,7 +111,7 @@ impl Default for SfxrParams {
 pub enum SfxrError {
     /// The file's version is not 100, 101 or 102.
     UnknownVersion(i32),
-    /// The file ends before its last field (reference patch 0065: SoLoud
+    /// The file ends before its last field (reference patch 0072: SoLoud
     /// loaded what was there).
     Truncated,
     /// The preset number is not 0 to 6.
@@ -169,7 +169,7 @@ impl SfxrParams {
     /// `self` with the settings an sfxr parameter file holds, as
     /// `Sfxr::loadParamsFile` reads them: a version (100, 101 or 102), the
     /// wave type, then `f32` fields, with the filter flag as one byte (any
-    /// value but 0 is true; reference patch 0066). Version 102 adds the
+    /// value but 0 is true; reference patch 0073). Version 102 adds the
     /// sound volume (otherwise 0.5); versions before 101 have no
     /// `freq_dramp`, `arp_speed` or `arp_mod`, which keep their values in
     /// `self`, as in SoLoud. Bytes after the last field are ignored.

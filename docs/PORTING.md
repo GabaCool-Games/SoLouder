@@ -408,48 +408,48 @@ unpatched reference, and each needs a matching Rust test.
 | 0059 | — (found porting milestone E) | stb_vorbis reads an Ogg page without segments as `fread(data, 0, 1)`, and `Soloud_Filehack_fread` divided the bytes read by the element size of 0, so a `WavStream` of an Ogg file cut inside its first page crashed with an integer division by zero. An empty request now reads nothing, as `fread` does, and the file fails to load. | `oggstream_cut_first_page_fails` |
 | 0060 | — (found porting milestone E) | The inaudible-tick path of `mixBus_internal` called `getAudio` until the block was full; a looping voice whose source gives no audio (a loop point at or past its end) returned 0 every time, so the mix call never returned. It now stops when a read returns nothing, as the mixing path does. | `inaudible_tick_empty_loop_ends` |
 | 0061 | — (found porting milestone E) | The inaudible-tick path did not clear the rest of a block that ended short, as the mixing path does, so a voice ticked to its end and then made audible again (by `update3dAudio`) played the stale samples left in its resample buffer after its last frame. It now clears them. | `inaudible_tick_clears_short_block` |
-| 0062 | — (found porting milestone F) | `NoiseInstance::getAudio` divided its sum by the sum of the octave weights, so weights summing to 0 (all 0, or 1 and -1) made every sample infinite or NaN, silencing the whole mix. Such weights now give silence. | `noise_zero_octave_sum_is_silent` |
-| 0063 | — (found porting milestone F) | `WavStream::load`, `loadMem`, `loadFile` and `loadFileToMem` replaced the memory file and file name that playing instances read without stopping them, so those voices read freed memory. They now stop the stream's voices first, as `Wav`'s loaders do. | `wavstream_reload_stops_voices` |
-| 0064 | — (found porting milestone F) | `Vic::setRegister` and `getRegister` indexed the 4 registers with any `int`, writing and reading the noise table after them and the clocks before them. An index out of range is now ignored and reads 0. | `vic_register_index_in_range` |
-| 0065 | — (found porting milestone F) | `Sfxr::loadParamsFile` read fields one after another into the settings and succeeded whatever the file held, so a short file loaded with some settings changed. Fields are now read into a copy kept only when the file holds all of them; otherwise `FILE_LOAD_FAILED`. | `sfxr_short_file_fails` |
-| 0066 | — (found porting milestone F) | `Sfxr::loadParamsFile` read the filter flag's byte straight into a `bool`, so a byte other than 0 or 1 made a `bool` that is neither. It is now read as a byte; any value but 0 is true. | `sfxr_filter_flag_is_a_bool` |
-| 0067 | — (found porting milestone F) | `SfxrInstance::getAudio` called again after the sound's end, as the generic seek does while discarding, went on past the envelope's last stage and read `env_length[3]`. An ended sound now returns 0 frames. | `sfxr_ended_sound_stays_silent` |
-| 0068 | — (found porting milestone F) | `Monotone`'s constructor left the song's track count and order uninitialised, and a failed load kept the track count it had read (or the previous song's) without pattern data: playing either read through a null pointer. The song now starts empty and a failed load empties it. | `monotone_empty_song_is_silent` |
-| 0069 | — (found porting milestone F) | `Monotone::loadFile` ignored how many bytes each read gave, so a short file loaded with its missing bytes taken from the buffer's earlier, or uninitialised, contents. A short read now fails with `FILE_LOAD_FAILED`. | `monotone_short_file_fails` |
-| 0070 | — (found porting milestone F) | `Monotone::loadFile` ended a Pascal title or comment at the length in its first byte, up to 255, in a 200-byte buffer holding the 41 bytes read: over 40 it took stale bytes, over 198 it wrote past the buffer. The length is now at most 40. | `monotone_long_title_is_cut` |
-| 0071 | — (found porting milestone F) | Voices keep 12 channels and 12 hardware channels, but a song could have 255 tracks and `setParams` took any number of hardware channels: both overran the arrays. More than 12 now fail (`FILE_LOAD_FAILED`, `INVALID_PARAMETER`). | `monotone_at_most_12_channels` |
-| 0072 | — (found porting milestone F) | `MonotoneInstance::getAudio` indexed the 800-entry note table with notes up to 126 (and arpeggios 7 above) times 8, read the order past its 256 entries when a song had no end marker, and read patterns the song does not have. The table's last entry is used past its end, the order starts again after its last entry, and a missing pattern plays as empty rows. | `monotone_indices_in_range` |
-| 0073 | — (found porting milestone F) | `Monotone`'s constructor filled the note table below note 1 down to entry 2 only; vibrato on note 1 reads entry 1, which was uninitialised. The table now continues to entry 1. | `monotone_note_table_is_filled` |
-| 0074 | — (found porting milestone F) | `MonotoneInstance::getAudio` took `floor(rate / 60)` samples a tick, so below 60 Hz (a slow play speed) it took the sample count modulo 0. A tick is now at least a sample. | `monotone_slow_rate_does_not_divide_by_zero` |
-| 0075 | — (found porting milestone F) | `MonotoneInstance`'s constructor left each channel's frequencies and slide uninitialised, and a slide to a note on a channel's first row started from them. They now start at 0. | `monotone_first_slide_starts_at_zero` |
-| 0076 | — (milestone F plan) | `TedSid::loadFile` picked the SID model from bits 4 and 5 of `mFlags`, the source's own 3D flags, instead of the flags byte just read from the dump, so every dump played as a 6581 unless the source had those 3D settings. | `tedsid_model_from_dump` |
-| 0077 | — (milestone F plan) | `TedSid::loadFile` freed the ops without stopping the voices, which then read freed memory. It now stops them first, as the destructor does. | `tedsid_reload_stops_voices` |
-| 0078 | — (milestone F plan) | `TedSid::loadFile` used the header's sizes as they were: no chunks asked `new[]` for a negative size, a loop position at or past the end read past the ops, a data offset past the file's end read a negative length, and a short file left ops uninitialised; the loop position's halves were read in one expression, in either order. Such dumps now fail with `FILE_LOAD_FAILED`, the halves are read in turn, and the ops are zeroed and set only once loaded. | `tedsid_header_is_checked` |
-| 0079 | — (milestone F plan) | `TedSidInstance::tick` reads ops until one waits, so a dump whose loop held no wait, or only waits of 0, spun forever on the audio thread. Such dumps now fail with `FILE_LOAD_FAILED`. | `tedsid_loop_without_wait_fails` |
-| 0080 | — (milestone F plan) | `zx7_decompress` read and wrote without bounds, so a dump's compressed chunks could write past its ops and read past its data. A new `zx7_decompress_bounded` stops at both ends and a chunk going outside fails the load. | `tedsid_zx7_stays_in_bounds` |
-| 0081 | — (found porting milestone F) | `SIDsound::doEnvelopeGenerator`: an attack from level 0xFF (a gate turned off and on while sustaining at full level) counted on to 0x1FF, reading `envGenDRdivisors` past its end. The level now wraps from 0xFF to 0, as in reSID. | `sid_attack_from_full_level_wraps` |
-| 0082 | — (found porting milestone F) | `SIDsound::reset` set `envCounterCompare`, an index into `RateCountPeriod`, to `RateCountPeriod[0]` (0x7F00), so until a gate or rate write every envelope step read far past the table (a crash in GCC builds). It now starts at 0. | `sid_envelope_rate_starts_in_range` |
-| 0083 | — (found porting milestone F) | `SNDCHIP`'s constructor left the tone, noise and envelope counters, the noise output, the chip type and the registers uninitialised, so each voice's first periods (and two voices of one dump) depended on whatever memory the chip was built in. They now start at 0. | `ay_chip_starts_at_zero` |
-| 0084 | — (milestone F plan) | `AyInstance::getAudio` wrote the right channel `aSamplesToRead` floats after the left instead of `aBufferSize`, as patch 0004 fixed for `WavStream`. | `ay_right_channel_at_buffer_stride` |
-| 0085 | — (milestone F plan) | `Ay::loadFile` replaced the ops its voices were reading without stopping them, and leaked the old ones. | `ay_reload_stops_voices` |
-| 0086 | — (milestone F plan) | `Ay::loadFile` used the header's sizes as they were, as `TedSid` did before patch 0078 (no chunks asked `new[]` for a negative size, a data offset past the end, a short file, the loop position's halves read in either order). The loop position, which Ay does not use, is not checked. | `ay_header_is_checked` |
-| 0087 | — (milestone F plan) | `Ay::loadFile` decompressed zx7 without bounds; it now uses `zx7_decompress_bounded` (patch 0080), and the unbounded `zx7_decompress` is removed. | `ay_zx7_stays_in_bounds` |
-| 0088 | — (milestone F plan; extended while porting) | `ChipPlayer` divided by the CPU speed and the chip speed / 8, its frames of `(cpuspeed * 8172 / 44100) / 2` ticks never advanced below 11 Hz (spinning on the audio thread), and a chip clock below 8 x 44100 Hz rendered a chip tick's samples at once, which could overrun the 8192-sample buffer. Such dumps now fail with `FILE_LOAD_FAILED`. | `ay_speeds_are_checked` |
-| 0089 | — (found porting milestone F) | `ChipPlayer::play` stopped at the end of the ops before playing the op it had just read, so a dump's last register write was dropped. | `ay_last_write_is_played` |
-| 0090 | — (found porting milestone F) | `ChipPlayer::play` played a wait whole within its frame, so a wait longer than about 8000 samples overran the buffer onto its own samples (and rendered at once on the audio thread). A frame now takes at most twice its ticks of a wait; dumps without such waits play as before. | `ay_long_wait_is_spread` |
-| 0091 | — (found porting milestone F) | `AyInstance::hasEnded` turned true once the ops were read, with up to a frame of samples still buffered, cutting every dump's end. | `ay_tail_is_played` |
-| 0092 | — (milestone F plan) | `AyInstance::rewind` only went back to the first op: the chips kept their state and the buffer its samples, so loops did not restart the dump and seeks back were offset. It now starts a new player. | `ay_rewind_restarts` |
-| 0093 | — (milestone F plan) | `Speech::setParams` took any speed: 0 or below gave klatt frames of no or a negative number of samples, so `SpeechInstance` asked `new[]` for a negative size or played nothing, and a speed past the `int` range of 11025 * speed did the same. Speeds now give frames of 1 to 11025 samples (up to 1000 ms); others return `INVALID_PARAMETER` and change nothing. | `speech_speed_is_checked` |
-| 0094 | — (milestone F plan) | `SpeechInstance` sized its sample buffer for the speed at play, but `getAudio` and `rewind` took `Speech`'s speed every time: after `setParams` lengthened the frames, a long element wrote past the buffer. A voice now keeps its speed; the frequency, declination and waveform still reach playing voices. | `speech_voice_keeps_its_speed` |
-| 0095 | — (milestone F plan) | `klatt::synth`'s stress lookahead read a duration past the end of the elements: `darray`'s zero-filled spare usually held it, but an element array that filled its allocation read past the heap block. It now reads 0, as the spare gave. | `speech_stress_lookahead_in_bounds` |
-| 0096 | — (found porting milestone F) | `klatt::phone_to_elm` looked each phoneme up together with the byte after it, also after the last: phonemes that filled their allocation read past the heap block, and a byte there could make the last phoneme a two-byte one. The byte past the end now reads as 0. | `speech_phoneme_lookup_in_bounds` |
-| 0097 | — (found porting milestone F) | `klatt::phone_to_elm` read a byte that is no phoneme from the position after it and skipped that one too: stress marks in `[phonemes]` never applied, the phoneme after one was dropped, and an unknown last byte read past the phonemes. Text through the rules is unchanged. | `speech_stress_marks_apply` |
-| 0098 | — (milestone F plan) | `VizsnInstance` took its noise from the C runtime's `rand()`, shared by the process: each voice continued where the last left off, and MSVC and glibc gave different noise. Each voice now runs MSVC's generator, seeded 1. | `vizsn_voices_are_deterministic` |
-| 0099 | — (milestone F plan) | A `Vizsn` played before `setText` read its text through a null pointer. Its voices now end at once and play silence. | `vizsn_without_text_ends` |
-| 0100 | — (milestone F plan) | `VizsnInstance::hasEnded` turned true once the last phone was buffered, with up to 800 of its samples unplayed, and the read that reached the end of the text filled its block with old samples. Voices now end once the buffer is played, and the rest of the block is silent. | `vizsn_tail_is_played` |
-| 0101 | — (found porting milestone F) | `VizsnInstance::getAudio` buffered whole phones until the read was covered, so a read of more than 1248 samples (a seek's discard pass, or a loop's seek of 4096) wrote past its 2048-sample buffer. It now buffers one phone at a time. | `vizsn_long_reads_stay_in_bounds` |
-| 0102 | — (milestone F plan) | `VizsnInstance` had no `rewind`, so seeks back failed and loops could not restart. `rewind` now restarts the voice as a new one, noise included. | `vizsn_rewind_restarts` |
-| 0103 | — (found porting milestone F) | `VizsnInstance::getAudio` said it filled every read, also past the end of the text, so the mixer never saw the voice end: a looping Vizsn never looped and played silence. The read now ends with the text. | `vizsn_loops` |
+| 0069 | — (found porting milestone F) | `NoiseInstance::getAudio` divided its sum by the sum of the octave weights, so weights summing to 0 (all 0, or 1 and -1) made every sample infinite or NaN, silencing the whole mix. Such weights now give silence. | `noise_zero_octave_sum_is_silent` |
+| 0070 | — (found porting milestone F) | `WavStream::load`, `loadMem`, `loadFile` and `loadFileToMem` replaced the memory file and file name that playing instances read without stopping them, so those voices read freed memory. They now stop the stream's voices first, as `Wav`'s loaders do. | `wavstream_reload_stops_voices` |
+| 0071 | — (found porting milestone F) | `Vic::setRegister` and `getRegister` indexed the 4 registers with any `int`, writing and reading the noise table after them and the clocks before them. An index out of range is now ignored and reads 0. | `vic_register_index_in_range` |
+| 0072 | — (found porting milestone F) | `Sfxr::loadParamsFile` read fields one after another into the settings and succeeded whatever the file held, so a short file loaded with some settings changed. Fields are now read into a copy kept only when the file holds all of them; otherwise `FILE_LOAD_FAILED`. | `sfxr_short_file_fails` |
+| 0073 | — (found porting milestone F) | `Sfxr::loadParamsFile` read the filter flag's byte straight into a `bool`, so a byte other than 0 or 1 made a `bool` that is neither. It is now read as a byte; any value but 0 is true. | `sfxr_filter_flag_is_a_bool` |
+| 0074 | — (found porting milestone F) | `SfxrInstance::getAudio` called again after the sound's end, as the generic seek does while discarding, went on past the envelope's last stage and read `env_length[3]`. An ended sound now returns 0 frames. | `sfxr_ended_sound_stays_silent` |
+| 0075 | — (found porting milestone F) | `Monotone`'s constructor left the song's track count and order uninitialised, and a failed load kept the track count it had read (or the previous song's) without pattern data: playing either read through a null pointer. The song now starts empty and a failed load empties it. | `monotone_empty_song_is_silent` |
+| 0076 | — (found porting milestone F) | `Monotone::loadFile` ignored how many bytes each read gave, so a short file loaded with its missing bytes taken from the buffer's earlier, or uninitialised, contents. A short read now fails with `FILE_LOAD_FAILED`. | `monotone_short_file_fails` |
+| 0077 | — (found porting milestone F) | `Monotone::loadFile` ended a Pascal title or comment at the length in its first byte, up to 255, in a 200-byte buffer holding the 41 bytes read: over 40 it took stale bytes, over 198 it wrote past the buffer. The length is now at most 40. | `monotone_long_title_is_cut` |
+| 0078 | — (found porting milestone F) | Voices keep 12 channels and 12 hardware channels, but a song could have 255 tracks and `setParams` took any number of hardware channels: both overran the arrays. More than 12 now fail (`FILE_LOAD_FAILED`, `INVALID_PARAMETER`). | `monotone_at_most_12_channels` |
+| 0079 | — (found porting milestone F) | `MonotoneInstance::getAudio` indexed the 800-entry note table with notes up to 126 (and arpeggios 7 above) times 8, read the order past its 256 entries when a song had no end marker, and read patterns the song does not have. The table's last entry is used past its end, the order starts again after its last entry, and a missing pattern plays as empty rows. | `monotone_indices_in_range` |
+| 0080 | — (found porting milestone F) | `Monotone`'s constructor filled the note table below note 1 down to entry 2 only; vibrato on note 1 reads entry 1, which was uninitialised. The table now continues to entry 1. | `monotone_note_table_is_filled` |
+| 0081 | — (found porting milestone F) | `MonotoneInstance::getAudio` took `floor(rate / 60)` samples a tick, so below 60 Hz (a slow play speed) it took the sample count modulo 0. A tick is now at least a sample. | `monotone_slow_rate_does_not_divide_by_zero` |
+| 0082 | — (found porting milestone F) | `MonotoneInstance`'s constructor left each channel's frequencies and slide uninitialised, and a slide to a note on a channel's first row started from them. They now start at 0. | `monotone_first_slide_starts_at_zero` |
+| 0083 | — (milestone F plan) | `TedSid::loadFile` picked the SID model from bits 4 and 5 of `mFlags`, the source's own 3D flags, instead of the flags byte just read from the dump, so every dump played as a 6581 unless the source had those 3D settings. | `tedsid_model_from_dump` |
+| 0084 | — (milestone F plan) | `TedSid::loadFile` freed the ops without stopping the voices, which then read freed memory. It now stops them first, as the destructor does. | `tedsid_reload_stops_voices` |
+| 0085 | — (milestone F plan) | `TedSid::loadFile` used the header's sizes as they were: no chunks asked `new[]` for a negative size, a loop position at or past the end read past the ops, a data offset past the file's end read a negative length, and a short file left ops uninitialised; the loop position's halves were read in one expression, in either order. Such dumps now fail with `FILE_LOAD_FAILED`, the halves are read in turn, and the ops are zeroed and set only once loaded. | `tedsid_header_is_checked` |
+| 0086 | — (milestone F plan) | `TedSidInstance::tick` reads ops until one waits, so a dump whose loop held no wait, or only waits of 0, spun forever on the audio thread. Such dumps now fail with `FILE_LOAD_FAILED`. | `tedsid_loop_without_wait_fails` |
+| 0087 | — (milestone F plan) | `zx7_decompress` read and wrote without bounds, so a dump's compressed chunks could write past its ops and read past its data. A new `zx7_decompress_bounded` stops at both ends and a chunk going outside fails the load. | `tedsid_zx7_stays_in_bounds` |
+| 0088 | — (found porting milestone F) | `SIDsound::doEnvelopeGenerator`: an attack from level 0xFF (a gate turned off and on while sustaining at full level) counted on to 0x1FF, reading `envGenDRdivisors` past its end. The level now wraps from 0xFF to 0, as in reSID. | `sid_attack_from_full_level_wraps` |
+| 0089 | — (found porting milestone F) | `SIDsound::reset` set `envCounterCompare`, an index into `RateCountPeriod`, to `RateCountPeriod[0]` (0x7F00), so until a gate or rate write every envelope step read far past the table (a crash in GCC builds). It now starts at 0. | `sid_envelope_rate_starts_in_range` |
+| 0090 | — (found porting milestone F) | `SNDCHIP`'s constructor left the tone, noise and envelope counters, the noise output, the chip type and the registers uninitialised, so each voice's first periods (and two voices of one dump) depended on whatever memory the chip was built in. They now start at 0. | `ay_chip_starts_at_zero` |
+| 0091 | — (milestone F plan) | `AyInstance::getAudio` wrote the right channel `aSamplesToRead` floats after the left instead of `aBufferSize`, as patch 0004 fixed for `WavStream`. | `ay_right_channel_at_buffer_stride` |
+| 0092 | — (milestone F plan) | `Ay::loadFile` replaced the ops its voices were reading without stopping them, and leaked the old ones. | `ay_reload_stops_voices` |
+| 0093 | — (milestone F plan) | `Ay::loadFile` used the header's sizes as they were, as `TedSid` did before patch 0085 (no chunks asked `new[]` for a negative size, a data offset past the end, a short file, the loop position's halves read in either order). The loop position, which Ay does not use, is not checked. | `ay_header_is_checked` |
+| 0094 | — (milestone F plan) | `Ay::loadFile` decompressed zx7 without bounds; it now uses `zx7_decompress_bounded` (patch 0087), and the unbounded `zx7_decompress` is removed. | `ay_zx7_stays_in_bounds` |
+| 0095 | — (milestone F plan; extended while porting) | `ChipPlayer` divided by the CPU speed and the chip speed / 8, its frames of `(cpuspeed * 8172 / 44100) / 2` ticks never advanced below 11 Hz (spinning on the audio thread), and a chip clock below 8 x 44100 Hz rendered a chip tick's samples at once, which could overrun the 8192-sample buffer. Such dumps now fail with `FILE_LOAD_FAILED`. | `ay_speeds_are_checked` |
+| 0096 | — (found porting milestone F) | `ChipPlayer::play` stopped at the end of the ops before playing the op it had just read, so a dump's last register write was dropped. | `ay_last_write_is_played` |
+| 0097 | — (found porting milestone F) | `ChipPlayer::play` played a wait whole within its frame, so a wait longer than about 8000 samples overran the buffer onto its own samples (and rendered at once on the audio thread). A frame now takes at most twice its ticks of a wait; dumps without such waits play as before. | `ay_long_wait_is_spread` |
+| 0098 | — (found porting milestone F) | `AyInstance::hasEnded` turned true once the ops were read, with up to a frame of samples still buffered, cutting every dump's end. | `ay_tail_is_played` |
+| 0099 | — (milestone F plan) | `AyInstance::rewind` only went back to the first op: the chips kept their state and the buffer its samples, so loops did not restart the dump and seeks back were offset. It now starts a new player. | `ay_rewind_restarts` |
+| 0100 | — (milestone F plan) | `Speech::setParams` took any speed: 0 or below gave klatt frames of no or a negative number of samples, so `SpeechInstance` asked `new[]` for a negative size or played nothing, and a speed past the `int` range of 11025 * speed did the same. Speeds now give frames of 1 to 11025 samples (up to 1000 ms); others return `INVALID_PARAMETER` and change nothing. | `speech_speed_is_checked` |
+| 0101 | — (milestone F plan) | `SpeechInstance` sized its sample buffer for the speed at play, but `getAudio` and `rewind` took `Speech`'s speed every time: after `setParams` lengthened the frames, a long element wrote past the buffer. A voice now keeps its speed; the frequency, declination and waveform still reach playing voices. | `speech_voice_keeps_its_speed` |
+| 0102 | — (milestone F plan) | `klatt::synth`'s stress lookahead read a duration past the end of the elements: `darray`'s zero-filled spare usually held it, but an element array that filled its allocation read past the heap block. It now reads 0, as the spare gave. | `speech_stress_lookahead_in_bounds` |
+| 0103 | — (found porting milestone F) | `klatt::phone_to_elm` looked each phoneme up together with the byte after it, also after the last: phonemes that filled their allocation read past the heap block, and a byte there could make the last phoneme a two-byte one. The byte past the end now reads as 0. | `speech_phoneme_lookup_in_bounds` |
+| 0104 | — (found porting milestone F) | `klatt::phone_to_elm` read a byte that is no phoneme from the position after it and skipped that one too: stress marks in `[phonemes]` never applied, the phoneme after one was dropped, and an unknown last byte read past the phonemes. Text through the rules is unchanged. | `speech_stress_marks_apply` |
+| 0105 | — (milestone F plan) | `VizsnInstance` took its noise from the C runtime's `rand()`, shared by the process: each voice continued where the last left off, and MSVC and glibc gave different noise. Each voice now runs MSVC's generator, seeded 1. | `vizsn_voices_are_deterministic` |
+| 0106 | — (milestone F plan) | A `Vizsn` played before `setText` read its text through a null pointer. Its voices now end at once and play silence. | `vizsn_without_text_ends` |
+| 0107 | — (milestone F plan) | `VizsnInstance::hasEnded` turned true once the last phone was buffered, with up to 800 of its samples unplayed, and the read that reached the end of the text filled its block with old samples. Voices now end once the buffer is played, and the rest of the block is silent. | `vizsn_tail_is_played` |
+| 0108 | — (found porting milestone F) | `VizsnInstance::getAudio` buffered whole phones until the read was covered, so a read of more than 1248 samples (a seek's discard pass, or a loop's seek of 4096) wrote past its 2048-sample buffer. It now buffers one phone at a time. | `vizsn_long_reads_stay_in_bounds` |
+| 0109 | — (milestone F plan) | `VizsnInstance` had no `rewind`, so seeks back failed and loops could not restart. `rewind` now restarts the voice as a new one, noise included. | `vizsn_rewind_restarts` |
+| 0110 | — (found porting milestone F) | `VizsnInstance::getAudio` said it filled every read, also past the end of the text, so the mixer never saw the voice end: a looping Vizsn never looped and played silence. The read now ends with the text. | `vizsn_loops` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -477,7 +477,7 @@ fixes are welcome as new patches.
 | — (found 2026-10-12) | `Soloud::mix`, `Soloud::mixSigned16` | No bound on the frame count: a request for more frames than the scratch buffer holds (at least 4096, or the buffer size rounded up to 16) writes past `mScratch`. Parity scenarios stay at or below 4096 frames. | Done: `Mixer::mix_interleaved` renders long requests in passes of at most the scratch size (`mix_without_sources_is_silent`, `split_mixes_match_one_mix`). |
 | — (found 2026-10-12) | `Queue::play`, `QueueInstance::getAudio` | A queued sound is an instance that reads its `Wav`'s samples; destroying the `Wav` while it is queued stops only its own voices, so the queue later reads freed memory. Queued instances are also never freed: `QueueInstance::getAudio` deletes the ones it finishes, but `Queue` has no destructor, so whatever is still queued leaks. | Done: a queued `Sound` holds its `Pcm`, and dropped queue entries go through retirement like ended voices (scenario `queues`). |
 | — (found 2026-10-18) | `WavStream::loadFile`, `WavStreamInstance` | Every instance reads through the caller's one `File` and seeks the same cursor, so two voices of the stream corrupt each other's reads; lengths and seeks are 32-bit. | Done: `WavStream::from_file` takes a `StreamFile` that each voice opens on its own (`voices_read_their_own_cursor`). Single-voice scenarios (`file_loading`) match. |
-| — (found 2026-10-18) | `WavStream::load*` under `Queue::play` | Patch 0063 stops a reloaded stream's voices, but an instance waiting in a queue is not a voice: it goes on reading the freed memory file. | Done: a queued `Stream` holds its source; a `WavStream` cannot be reloaded. Scenarios do not reload queued streams. |
+| — (found 2026-10-18) | `WavStream::load*` under `Queue::play` | Patch 0070 stops a reloaded stream's voices, but an instance waiting in a queue is not a voice: it goes on reading the freed memory file. | Done: a queued `Stream` holds its source; a `WavStream` cannot be reloaded. Scenarios do not reload queued streams. |
 | #307, #241 | `Soloud::deinit`, `Soloud::~Soloud` | `SOLOUD_ASSERT(!mInsideAudioThreadMutex)` in `deinit` can fire at shutdown; ordering of `stopAll` versus backend teardown. | `Drop` is safe in every state; test repeated init/teardown. See the shutdown lesson below. |
 
 Also reported upstream and worth a test once the feature is ported: #274
@@ -958,8 +958,8 @@ Rules for units 1 to 8:
   the zx7 compressor has a different licence). `legal.mmd` mentions neither AY
   nor zx7.
 
-1. **Generator contract, file readers and Noise** (done; patches 0062 and
-   0063): a generic seek (rewind, then
+1. **Generator contract, file readers and Noise** (done; patches 0069 and
+   0070): a generic seek (rewind, then
    decode and discard) and `rewind`; looping voices whose rewind fails end
    instead of playing silence forever. Port `Misc::Prg` (WELL512, 111 lines)
    and `noise` (132 + h 74). Rows: `Noise::*` (3), plus `Wav::loadFile`,
@@ -984,10 +984,10 @@ Rules for units 1 to 8:
    `open` or `from_bytes` (a `DiskFile` or a `MemoryFile` in the
    reference), while other types read as a `MemoryFile`. The parity
    runners reload a `stream` name into the same C++ `WavStream`; a
-   stream-replacement case is in `stream_wav`. Patch 0063 covers only the
+   stream-replacement case is in `stream_wav`. Patch 0070 covers only the
    voices: a queued instance of a reloaded stream still reads freed memory
    (see "Still open in the reference").
-2. **Vic** (done; patch 0064; 167 + h 108; Petri Häkkinen, zlib): integer phases and floats;
+2. **Vic** (done; patch 0071; 167 + h 108; Petri Häkkinen, zlib): integer phases and floats;
    44100 Hz is hard-coded into the phase step. Rows: `Vic::*` (5). Defect:
    `setRegister`/`getRegister` index past 4 registers (bounds patch; Rust returns
    `Option`/`Err`). Scenario `vic` writes registers between mixes.
@@ -996,7 +996,7 @@ Rules for units 1 to 8:
    noise table is computed at compile time. `VicModel` replaces the
    `int` model. Through the `Controller` with live register changes in
    the sources' `realtime_no_alloc`.
-3. **Sfxr** (done; patches 0065 to 0067; 602 + h 158; Tomas Pettersson, zlib by permission): uses `Prg`,
+3. **Sfxr** (done; patches 0072 to 0074; 602 + h 158; Tomas Pettersson, zlib by permission): uses `Prg`,
    seeded `0x792352` per instance and `aRandSeed` for presets; the period is
    `double`, the filters `float`. Rows: `Sfxr::*` (6). Defects:
    `loadParamsFile` reads raw `int`/`bool`/`float` (a bool byte other than 0/1 is
@@ -1008,15 +1008,15 @@ Rules for units 1 to 8:
    `SfxrPreset` and `SfxrError`; settings sit behind a mutex read when a
    voice is prepared, so voices copy them as SoLoud's do. Bit-exact
    with `pow` of `float`s widened to `double`. The truncated file and
-   the `bool` byte are patched (0065, 0066); v100 keeping old values is
+   the `bool` byte are patched (0072, 0073); v100 keeping old values is
    preserved. Found while porting: `getAudio` called after the end (the
-   generic seek does) read `env_length[3]` (patch 0067). The seed
+   generic seek does) read `env_length[3]` (patch 0074). The seed
    arithmetic wraps in Rust; MSVC and GCC wrap it too (not patched: no
    test can observe it without a sanitizer). Fixtures from
    `scripts/gen_source_fixtures.py`; prefixes and corrupted bytes of a
    file are tested to load or fail with a typed error, and extreme
    settings to render without panicking.
-4. **Monotone** (done; patches 0068 to 0075; 434 + h 109; SoLoud proper): uses `generateWaveform` (already
+4. **Monotone** (done; patches 0075 to 0082; 434 + h 109; SoLoud proper): uses `generateWaveform` (already
    ported); tempo follows `mSamplerate`, which includes play speed. Rows:
    `Monotone::*` (5). Several memory-safety defects (patch them): a Pascal title
    length over 199 writes past `temp[200]`; the song is uninitialised before
@@ -1028,18 +1028,18 @@ Rules for units 1 to 8:
    parsed into an immutable `MonotoneSong` shared by its voices, so
    Rust has constructors instead of reloading (`load` stopped the voices
    in SoLoud); hardware channels and the waveform are atomics read every
-   block. Patches: an empty song before and after a failed load (0068),
-   short files failing (0069), titles cut at 40 bytes (0070), at most 12
-   tracks and hardware channels (0071), note indices clamped to the
+   block. Patches: an empty song before and after a failed load (0075),
+   short files failing (0076), titles cut at 40 bytes (0077), at most 12
+   tracks and hardware channels (0078), note indices clamped to the
    table, the order wrapping after 256 entries and missing patterns
-   playing empty rows (0072), and at least a sample a tick (0074). Found
+   playing empty rows (0079), and at least a sample a tick (0081). Found
    while porting: the note table's entry 1 was never set, and vibrato on
-   note 1 reads it (0073); channel frequencies started uninitialised, and
-   a slide to a note on a channel's first row starts from them (0075).
+   note 1 reads it (0080); channel frequencies started uninitialised, and
+   a slide to a note on a channel's first row starts from them (0082).
    The sample counter and slides wrap on overflow (after 13 hours, or
    days of sliding), as MSVC does. Bit-exact.
-5. **TedSid, then Ay**, as 5a (done; patches 0076 to 0082) and 5b (done; patches 0083 to
-   0092). TedSid: `soloud_tedsid` 222, sid 623+180,
+5. **TedSid, then Ay**, as 5a (done; patches 0083 to 0089) and 5b (done; patches 0090 to
+   0099). TedSid: `soloud_tedsid` 222, sid 623+180,
    ted 236+43, tedplay (Unlicense). AY: `soloud_ay` 179, chipplayer, sndbuffer,
    sndchip and sndrender together 991 lines (SMT, public domain). Both use zx7
    (114). Integer emulation; the SID's filter tables use `tanh`/`exp` in
@@ -1063,16 +1063,16 @@ Rules for units 1 to 8:
    voices, so Rust has constructors instead of reloading. `getInfo`
    (`GeneratorInstance::info`) reports register `key & 127`; scenarios
    read it with the new `voice_info` operation. Patches: the SID model
-   from the dump's flags (0076), voices stopped before a reload frees
-   their ops (0077), header sizes, the data offset and the loop position
+   from the dump's flags (0083), voices stopped before a reload frees
+   their ops (0084), header sizes, the data offset and the loop position
    checked, the loop position's halves read in turn and the ops zeroed
-   (0078), loops without a wait refused (0079), and zx7 chunks
+   (0085), loops without a wait refused (0086), and zx7 chunks
    decompressed within their bounds by a new `zx7_decompress_bounded`
-   (0080; Ay keeps the old one until 5b). Found while porting: an attack
+   (0087; Ay keeps the old one until 5b). Found while porting: an attack
    from level 0xFF counted on to 0x1FF and read past the decay table, so
-   the level now wraps at 8 bits, as in reSID (0081); and `reset` set
+   the level now wraps at 8 bits, as in reSID (0088); and `reset` set
    each envelope's rate to the first period (0x7F00) instead of its
-   index, which read far past the table (a GCC crash; 0082). Kept as in
+   index, which read far past the table (a GCC crash; 0089). Kept as in
    SoLoud: the filter's cutoff stays 0 until a cutoff register is
    written, a release from level 0 wraps to 255, and only the TED's
    square and noise are ported (SoLoud never selects its other
@@ -1084,23 +1084,23 @@ Rules for units 1 to 8:
    voice's ring of 8192 samples is allocated once and reset in place on
    rewind. `getInfo` reports the first chip's registers 0 to 13 and the
    second chip's at bit 4. Patches from the plan: the right channel at
-   the buffer's stride (0084), voices stopped and the old ops freed on a
-   reload (0085), sizes checked as for TedSid (0086), bounded zx7, the
-   unbounded decompressor removed (0087), speeds that divide by zero or
-   never advance refused (0088), and a rewind restarting the chips
-   (0092). Found while porting: SNDCHIP's counters, noise output, chip
+   the buffer's stride (0091), voices stopped and the old ops freed on a
+   reload (0092), sizes checked as for TedSid (0093), bounded zx7, the
+   unbounded decompressor removed (0094), speeds that divide by zero or
+   never advance refused (0095), and a rewind restarting the chips
+   (0099). Found while porting: SNDCHIP's counters, noise output, chip
    type and registers started uninitialised, so voices of one dump
-   differed (0083, applied first so the other tests are
+   differed (0090, applied first so the other tests are
    deterministic); a chip clock below 8 x 44100 Hz renders more than a
-   sample a chip tick and can overrun the ring, so 0088 also refuses
+   sample a chip tick and can overrun the ring, so 0095 also refuses
    those (real chips run at 1 to 2 MHz); the last register write of a
-   dump was dropped (0089); a wait longer than a frame's room overran
-   the ring (0090); and voices ended with up to a frame still buffered
-   (0091). Plan change: the dump's loop position stays unused, as in
+   dump was dropped (0096); a wait longer than a frame's room overran
+   the ring (0097); and voices ended with up to a frame still buffered
+   (0098). Plan change: the dump's loop position stays unused, as in
    SoLoud. Ay voices end, and looping goes through SoLoud's rewind, which
    seeks also use, so a rewind to the loop position would break seeks;
    the loop position is not checked against the length either. Bit-exact.
-6. **Speech** (done; patches 0093 to 0097) (`soloud_speech` 148, klatt 1074+152, tts 1425, darray 92,
+6. **Speech** (done; patches 0100 to 0104) (`soloud_speech` 148, klatt 1074+152, tts 1425, darray 92,
    resonator 117, `Elements.def` 1659; rsynth public domain, `soloud_speech.*`
    zlib). The noise generator is klatt's own LCG (seed 5); `PI` is a `float`
    literal. `init` runs on every `getAudio` and resets the glottal and
@@ -1120,13 +1120,13 @@ Rules for units 1 to 8:
    sample buffer is sized for the longest element (16 frames) at its
    speed. F0 flutter (never on in SoLoud) and the filters klatt sets but
    never reads are not kept. Patches from the plan: speeds giving frames
-   of no samples or more than 11025 are refused (0093), a voice keeps the
-   speed its buffer was sized for, in reads and rewinds (0094; the
+   of no samples or more than 11025 are refused (0100), a voice keeps the
+   speed its buffer was sized for, in reads and rewinds (0101; the
    frequency, declination and waveform stay live), and the stress
-   lookahead reads 0 past the elements (0095). Found while porting: the
-   phoneme lookup read the byte after the last phoneme (0096), and a byte
+   lookahead reads 0 past the elements (0102). Found while porting: the
+   phoneme lookup read the byte after the last phoneme (0103), and a byte
    that is no phoneme was read from the position after it, so stress
-   marks never applied and the next phoneme was dropped (0097; only
+   marks never applied and the next phoneme was dropped (0104; only
    `[phonemes]` reach it, as the rules output phonemes only). Plan
    change: no patch for `ctype` on negative `char`s. The standard leaves
    it undefined, but both C runtimes the reference builds with (UCRT,
@@ -1136,7 +1136,7 @@ Rules for units 1 to 8:
    history, as in SoLoud. The scenario's filter has no feedback: a
    biquad over speech decays into subnormals in the silences between
    words, which the reference flushes. Bit-exact.
-7. **Vizsn** (done; patches 0098 to 0103) (540 + h 84; Ville-Matias Heikkilä, WTFPL), 8 kHz mono. It uses the
+7. **Vizsn** (done; patches 0105 to 0110) (540 + h 84; Ville-Matias Heikkilä, WTFPL), 8 kHz mono. It uses the
    CRT's process-wide `rand()`, so voices, scenarios in the same runner process,
    and MSVC versus glibc all change its output. Proposed patch: a per-instance
    MSVC LCG with seed 1. Defects: playing without `setText` dereferences null;
@@ -1144,18 +1144,18 @@ Rules for units 1 to 8:
    copies stale buffer contents; `mA` overflows (undefined); there is no
    `rewind`. Rows: `Vizsn::*` (2). Scenario `vizsn`.
    Done: `solouder_sources::Vizsn` (feature `vizsn`) in `features/vizsn/`.
-   Patches from the plan: a per-voice MSVC `rand()` seeded 1 (0098), a
-   voice without a text ends at once and plays silence (0099),
+   Patches from the plan: a per-voice MSVC `rand()` seeded 1 (0105), a
+   voice without a text ends at once and plays silence (0106),
    `hasEnded` waits for the buffered samples and the read past the text
-   is silent (0100), and `rewind` restarts the voice as a new one
-   (0102). Found while porting: `getAudio` buffered whole phones until
+   is silent (0107), and `rewind` restarts the voice as a new one
+   (0109). Found while porting: `getAudio` buffered whole phones until
    the read was covered, so a read of more than 1248 samples (a seek's
    discard pass, or the 4096-sample read of a loop's seek) wrote past
    its 2048-sample buffer; it now buffers one phone (at most 800
-   samples) at a time (0101). And `getAudio` said it filled every
+   samples) at a time (0108). And `getAudio` said it filled every
    read, also past the text, so the mixer never saw the end and a
    looping Vizsn played silence instead of looping; the read now ends
-   with the text (0103). Plan changes: no patch for `mA`'s overflow:
+   with the text (0110). Plan changes: no patch for `mA`'s overflow:
    it needs some 5.6 minutes of one voice without a rewind, MSVC wraps
    it, and Rust wraps it too, so no test fails before a fix. The
    voice types SoLoud never selects (all but the sawtooth) are not

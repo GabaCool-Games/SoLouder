@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:22:48 +0300
+Subject: [PATCH] Soloud::getApproximateVolume: channels past the engine's read
+ 0, not past the array
+
+The channel was compared with `>` instead of `>=`, so channel 8 of an
+8-channel engine read past mVisualizationChannelVolume (into the wave
+data). Bus::getApproximateVolume had the same defect (patch 0047).
+---
+ src/core/soloud.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 5cd5da0..26246a6 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -769,7 +769,7 @@ namespace SoLoud
+ 
+ 	float Soloud::getApproximateVolume(unsigned int aChannel)
+ 	{
+-		if (aChannel > mChannels)
++		if (aChannel >= mChannels)
+ 			return 0;
+ 		float vol = 0;
+ 		lockAudioMutex_internal();

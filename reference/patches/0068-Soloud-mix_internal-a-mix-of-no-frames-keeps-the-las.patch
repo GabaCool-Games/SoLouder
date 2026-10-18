@@ -1,0 +1,29 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:22:58 +0300
+Subject: [PATCH] Soloud::mix_internal: a mix of no frames keeps the last
+ visualization data
+
+With ENABLE_VISUALIZATION, a mix of no frames (Soloud::mix with 0
+samples) took the short-mix path, which reads the mix at `i % aSamples`:
+an integer division by zero that crashes on x86. A mix of no frames now
+leaves the wave data and channel volumes as the last mix set them.
+---
+ src/core/soloud.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/soloud.cpp b/src/core/soloud.cpp
+index 26246a6..ef4cd4e 100644
+--- a/src/core/soloud.cpp
++++ b/src/core/soloud.cpp
+@@ -2311,7 +2311,9 @@ namespace SoLoud
+ 		// The buffers should be large enough for it, we just may do a few bytes of unneccessary work.
+ 		clip_internal(mOutputScratch, mScratch, aStride, globalVolume[0], globalVolume[1]);
+ 
+-		if (mFlags & ENABLE_VISUALIZATION)
++		// A mix of no frames has nothing to show: keep the last data (the
++		// short-mix path below would divide by zero).
++		if ((mFlags & ENABLE_VISUALIZATION) && aSamples > 0)
+ 		{
+ 			for (i = 0; i < MAX_CHANNELS; i++)
+ 			{

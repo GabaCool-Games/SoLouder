@@ -2,7 +2,7 @@
 # off below 128 and at the highest step at 255; registers and the model
 # written between mixes and inside a mix's blocks reaching playing voices
 # at their next block; indices past the last register ignored and read as
-# 0 (reference patch 0064); PAL and NTSC clocks; two voices with their own
+# 0 (reference patch 0071); PAL and NTSC clocks; two voices with their own
 # phases; speed, sample rate, a seek forward in passes of the scratch size
 # and one back (NOT_IMPLEMENTED: Vic cannot rewind); SoLoud's suggested
 # lowpass; looping, single instance, 3D and a queue; a 48 kHz engine.

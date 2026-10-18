@@ -81,11 +81,11 @@ fn text_becomes_phonemes() {
 #[test]
 fn stress_marks_apply() {
     // '@' (ELM_A, 52) with primary stress, then a byte that is no phoneme
-    // (reference patch 0097).
+    // (reference patch 0104).
     let mut out = Vec::new();
     elements::phone_to_elm(b"'@?", &mut out);
     assert_eq!(out, [52, 4, 3]);
-    // The last phoneme is looked up alone (reference patch 0096).
+    // The last phoneme is looked up alone (reference patch 0103).
     let mut out = Vec::new();
     elements::phone_to_elm(b"@", &mut out);
     assert_eq!(out.len(), 3);

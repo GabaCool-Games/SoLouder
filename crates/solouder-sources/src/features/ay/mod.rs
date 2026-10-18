@@ -27,7 +27,7 @@ const DEFAULT_CPU_SPEED: u32 = 50;
 const DEFAULT_CHIP_SPEED: u32 = 1_774_400;
 
 /// The slowest chip clock: the chip ticks at its clock / 8, at least as
-/// often as samples are made (reference patch 0088).
+/// often as samples are made (reference patch 0095).
 const MIN_CHIP_SPEED: u32 = 8 * 44100;
 
 /// An AY or YM register dump (SoLoud's `Ay`), stereo at 44100 Hz, made by
@@ -146,12 +146,12 @@ impl GeneratorInstance for AyInstance {
     }
 
     /// Once the operations are read, any wait has played and the ring is
-    /// empty (reference patch 0091).
+    /// empty (reference patch 0098).
     fn has_ended(&self) -> bool {
         self.pos >= self.length() && self.player.pending_ticks == 0 && self.player.buffered() == 0
     }
 
-    /// Starts the chips again, as a new voice does (reference patch 0092).
+    /// Starts the chips again, as a new voice does (reference patch 0099).
     fn rewind(&mut self) -> bool {
         self.player.reset();
         self.pos = 0;

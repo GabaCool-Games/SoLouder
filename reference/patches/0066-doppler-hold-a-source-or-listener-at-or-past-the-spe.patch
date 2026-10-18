@@ -1,0 +1,44 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:07:24 +0300
+Subject: [PATCH] doppler: hold a source or listener at or past the speed of
+ sound before dividing
+
+Clamping the projected speeds to the speed of sound over the Doppler
+factor could leave the divisor a rounding error above 0 (factor 1.032,
+a source approaching at 400: about 11 million times the play speed).
+Compare the scaled speeds with the speed of sound instead.
+---
+ src/core/soloud_core_3d.cpp | 19 ++++++++++++-------
+ 1 file changed, 12 insertions(+), 7 deletions(-)
+
+diff --git a/src/core/soloud_core_3d.cpp b/src/core/soloud_core_3d.cpp
+index 2b1c62f..9aefd90 100644
+--- a/src/core/soloud_core_3d.cpp
++++ b/src/core/soloud_core_3d.cpp
+@@ -152,13 +152,18 @@ namespace SoLoud
+ 			return 1.0f;
+ 		float vls = aDeltaPos.dot(aDstVel) / deltamag;
+ 		float vss = aDeltaPos.dot(aSrcVel) / deltamag;
+-		float maxspeed = aSoundSpeed / aFactor;
+-		vss = MIN(vss, maxspeed);
+-		vls = MIN(vls, maxspeed);
+-		float value = (aSoundSpeed - aFactor * vls) / (aSoundSpeed - aFactor * vss);
+-		// At the speed of sound this divides by zero. Hold the voice, as the
+-		// mixer does for any speed it cannot play, instead of giving it an
+-		// infinite or NaN speed that its stream position would keep.
++		// A source approaching, or a listener receding, at or past the speed
++		// of sound (over the Doppler factor) is never heard: hold the voice,
++		// as the mixer does for any speed it cannot play. Deciding this on
++		// the scaled speeds, before dividing, leaves the divisor above 0;
++		// clamping them to the speed of sound instead could leave it a
++		// rounding error above 0 and the voice racing ahead.
++		float fss = aFactor * vss;
++		float fls = aFactor * vls;
++		if (!(fss < aSoundSpeed && fls < aSoundSpeed))
++			return 0;
++		float value = (aSoundSpeed - fls) / (aSoundSpeed - fss);
++		// Very near the speed of sound the value can still overflow.
+ 		if (!(value >= 0 && value <= FLT_MAX))
+ 			return 0;
+ 		return value;

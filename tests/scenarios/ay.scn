@@ -1,14 +1,14 @@
 # Ay (milestone F unit 5b): AY and YM dumps, stored and zx7-compressed,
 # with every tone, noise and mixer setting, fixed and enveloped volumes,
 # every envelope shape, register numbers past 15 and a pause longer than
-# a frame's room (reference patch 0090); TurboSound and TurboSound Next
-# dumps driving a second chip; the slowest speeds (patch 0088) and a fast
+# a frame's room (reference patch 0097); TurboSound and TurboSound Next
+# dumps driving a second chip; the slowest speeds (patch 0095) and a fast
 # tick rate; a dump over several chunks; registers of both chips through
-# getInfo; each dump's last write (patch 0089) and tail (patch 0091)
-# played; looping voices restarting their chips (patch 0092), with
-# reads shorter than the buffer (patch 0084) and a loop point; storing a
+# getInfo; each dump's last write (patch 0096) and tail (patch 0098)
+# played; looping voices restarting their chips (patch 0099), with
+# reads shorter than the buffer (patch 0091) and a loop point; storing a
 # name again stopping its voices; damaged dumps from a path, memory and
-# a DiskFile failing (patches 0085 to 0088) and ending at once; seeks
+# a DiskFile failing (patches 0092 to 0095) and ending at once; seeks
 # forward and back; play speeds; a filter; and a 48 kHz engine.
 init channels=2
 # ay_ay.dump

@@ -189,7 +189,7 @@ impl Klatt {
 
     /// Finds the next stressed element or vowel ahead, setting the stress
     /// contour's end and length. Past the elements, an element reads as
-    /// END with stress 3 and a duration as 0 (reference patch 0095).
+    /// END with stress 3 and a duration as 0 (reference patch 0102).
     fn next_stress(&mut self, elements: &[u8], duration: i32) {
         let table = elements::elements();
         let count = self.synth.count;

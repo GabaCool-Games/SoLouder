@@ -1,6 +1,6 @@
 # Noise (milestone F unit 1): the four presets, an unknown type (white),
 # custom octave weights and weights summing to 0 (silence, reference patch
-# 0062); every voice from the same seed; weights changed after a play
+# 0069); every voice from the same seed; weights changed after a play
 # reaching only later voices; 512-frame reads at any mix size, resampled
 # and sped up; seeking forward in passes of the scratch size and back
 # (NOT_IMPLEMENTED: noise cannot rewind); a filter, volume, pan, single

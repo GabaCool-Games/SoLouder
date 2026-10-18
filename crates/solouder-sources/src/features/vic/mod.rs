@@ -167,14 +167,14 @@ impl Vic {
     }
 
     /// A register's value (`Vic::getRegister`), or `None` past the last
-    /// (SoLoud read past its registers; reference patch 0064 reads 0).
+    /// (SoLoud read past its registers; reference patch 0071 reads 0).
     pub fn register(&self, index: usize) -> Option<u8> {
         let reg = self.registers.regs.get(index)?;
         Some(reg.load(Ordering::Relaxed))
     }
 
     /// Sets a register (`Vic::setRegister`); an index past the last is an
-    /// error (SoLoud wrote past its registers; reference patch 0064 ignores
+    /// error (SoLoud wrote past its registers; reference patch 0071 ignores
     /// it).
     pub fn set_register(&self, index: usize, value: u8) -> Result<(), RegisterOutOfRange> {
         let reg = self

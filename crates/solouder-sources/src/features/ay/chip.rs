@@ -76,7 +76,7 @@ pub(crate) struct Chip {
 
 impl Chip {
     /// A chip as `ChipPlayer` sets it up: everything at 0 (reference patch
-    /// 0083), timed to `system_clock_rate` ticks and a `chip_clock_rate`
+    /// 0090), timed to `system_clock_rate` ticks and a `chip_clock_rate`
     /// clock, the AY's or the YM's levels at half volume, panned ABC.
     pub(crate) fn new(system_clock_rate: u32, chip_clock_rate: u32, ym: bool) -> Self {
         let mut chip = Self {

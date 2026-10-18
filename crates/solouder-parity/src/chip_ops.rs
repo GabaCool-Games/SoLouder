@@ -52,7 +52,7 @@ impl ChipSource for Ay {
 }
 
 /// A source and its result code. A failed load leaves SoLoud's source
-/// without a dump (reference patches 0078 and 0085): the default.
+/// without a dump (reference patches 0085 and 0092): the default.
 fn loaded<T: ChipSource>(result: Result<T, ChipDumpError>) -> (T, i32) {
     match result {
         Ok(source) => (source, SO_NO_ERROR),

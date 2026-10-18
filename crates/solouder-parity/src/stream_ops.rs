@@ -52,7 +52,7 @@ impl State {
         let looping = step.flag_or("looping", false)?;
         let loop_point = step.seconds_or("loop_point", 0.0)?;
         // Reloading a name stops the old stream's voices, whether or not
-        // the new file loads (patch 0063); a failed reload forgets the name.
+        // the new file loads (patch 0070); a failed reload forgets the name.
         if let Some(old) = self.streams.remove(&name) {
             self.mixer(step)?.stop_sound(&old);
         }

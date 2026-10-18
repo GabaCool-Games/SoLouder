@@ -515,7 +515,7 @@ def ay_tune(second_chip: bool = False, steps: int = 16) -> list[int]:
     w(8, 0)
     w(9, 0)
     wait(2)
-    w(7, 0x3F)  # the last op writes (reference patch 0089)
+    w(7, 0x3F)  # the last op writes (reference patch 0096)
     return ops
 
 
@@ -528,7 +528,7 @@ def ay_fixtures() -> dict[str, bytes]:
         "ay_ym.zx7.dump": chip_dump(1, 0x40, tune, chip_speed=clock),
         "ay_turbo.dump": chip_dump(2, 0x41, turbo, chip_speed=clock),
         "ay_next.zx7.dump": chip_dump(3, 0x00, turbo, cpu_speed=60, chip_speed=2000000),
-        # The slowest speeds the player renders (reference patch 0088).
+        # The slowest speeds the player renders (reference patch 0095).
         "ay_slow.dump": chip_dump(1, 0x01, ay_tune(steps=4), cpu_speed=11, chip_speed=8 * 44100),
         "ay_fast.zx7.dump": chip_dump(1, 0x40, tune * 4, cpu_speed=1000, chip_speed=3546900),
         # Over several chunks, with the loop position at the end, which Ay

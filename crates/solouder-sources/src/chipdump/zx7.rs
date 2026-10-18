@@ -5,7 +5,7 @@
 // scripts/gen_source_fixtures.py).
 
 //! zx7 decompression within bounds (`zx7_decompress_bounded`, reference
-//! patch 0080; SoLoud's `zx7_decompress` read and wrote without bounds).
+//! patch 0087; SoLoud's `zx7_decompress` read and wrote without bounds).
 
 struct Reader<'a> {
     input: &'a [u8],

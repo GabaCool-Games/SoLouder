@@ -193,7 +193,7 @@ static PHONEME_TABLE: LazyLock<Vec<Phoneme>> = LazyLock::new(|| {
 
 /// The phoneme at `s`, and where the next starts
 /// (`phoneme_to_element_lookup`). A byte past `phonemes` reads as 0
-/// (reference patch 0096).
+/// (reference patch 0103).
 fn lookup(phonemes: &[u8], s: usize) -> (usize, Option<&'static [u8]>) {
     // C's `char` is signed: bytes from 0x80 give negative keys, which no
     // phoneme has.
@@ -218,7 +218,7 @@ fn lookup(phonemes: &[u8], s: usize) -> (usize, Option<&'static [u8]>) {
 /// Appends each element of `phonemes` with its duration and stress
 /// (`klatt::phone_to_elm`); returns the frames they play. Phonemes end at
 /// the first 0. `'`, `,` and `+` set the stress of the vowel after them
-/// (reference patch 0097); other unknown bytes are skipped.
+/// (reference patch 0104); other unknown bytes are skipped.
 pub(super) fn phone_to_elm(phonemes: &[u8], out: &mut Vec<u8>) -> i32 {
     let table = elements();
     let mut stress = 0;

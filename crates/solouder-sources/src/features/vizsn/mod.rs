@@ -43,7 +43,7 @@ pub struct Vizsn {
 }
 
 impl Default for Vizsn {
-    /// No text: voices end at once (reference patch 0099), as SoLoud's
+    /// No text: voices end at once (reference patch 0106), as SoLoud's
     /// before `setText`.
     fn default() -> Self {
         Self {
@@ -127,7 +127,7 @@ struct VizsnInstance {
     voice: Voice,
     /// The next phone's bank (`mBank1`).
     next: Bank,
-    /// One phone's samples (reference patch 0101).
+    /// One phone's samples (reference patch 0108).
     buffer: [f32; PHONE_SAMPLES],
     read: usize,
     written: usize,
@@ -193,7 +193,7 @@ impl GeneratorInstance for VizsnInstance {
             self.written = 0;
             if !self.render_phone() {
                 // Past the text the block is silent, and the read ends there
-                // so that the mixer sees the end (reference patch 0103).
+                // so that the mixer sees the end (reference patch 0110).
                 out[idx..].fill(0.0);
                 return idx;
             }
@@ -206,7 +206,7 @@ impl GeneratorInstance for VizsnInstance {
     }
 
     fn rewind(&mut self) -> bool {
-        // A new voice's state (reference patch 0102).
+        // A new voice's state (reference patch 0109).
         self.at = 0;
         self.voice = Voice::new();
         self.next = Bank::default();

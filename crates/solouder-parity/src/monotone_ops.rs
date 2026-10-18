@@ -20,7 +20,7 @@ const INVALID_PARAMETER: i32 = 1;
 const FILE_NOT_FOUND: i32 = 2;
 
 /// A song and its result code. A failed load leaves SoLoud's `Monotone`
-/// with an empty song (reference patch 0068): `Monotone::new`.
+/// with an empty song (reference patch 0075): `Monotone::new`.
 fn song(result: Result<Monotone, MonotoneError>) -> (Monotone, i32) {
     match result {
         Ok(song) => (song, SO_NO_ERROR),

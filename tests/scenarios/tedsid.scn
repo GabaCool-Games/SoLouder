@@ -1,13 +1,13 @@
 # TedSid (milestone F unit 5a): SID dumps for each model, taken from the
-# dump's flags (reference patch 0076), stored and zx7-compressed; every
+# dump's flags (reference patch 0083), stored and zx7-compressed; every
 # SID waveform, ring modulation, sync, the test bit, every filter type
-# over a cutoff sweep, an attack from full level (patch 0081) and a
+# over a cutoff sweep, an attack from full level (patch 0088) and a
 # release from 0; a TED dump with both voices and noise; SID and TED
 # together over two zx7 chunks looping into the second from an odd
 # byte, and chip type 6 with a later data offset; an odd length; the
 # registers through getInfo; a reload stopping the voices (patch
-# 0077); damaged dumps from a path, memory and a DiskFile failing
-# (patches 0078 to 0080) and playing the idle chips; seeks forward and
+# 0084); damaged dumps from a path, memory and a DiskFile failing
+# (patches 0085 to 0087) and playing the idle chips; seeks forward and
 # back (NOT_IMPLEMENTED), play speeds, a filter, and a 48 kHz engine.
 init channels=2
 # sid_6581.dump

@@ -22,7 +22,7 @@ const MAGIC: &[u8; 9] = b"\x08MONOTONE";
 pub enum MonotoneError {
     /// The file does not start with Monotone's magic bytes.
     NotMonotone,
-    /// The file ends before its last cell (reference patch 0069; SoLoud
+    /// The file ends before its last cell (reference patch 0076; SoLoud
     /// loaded the missing bytes from earlier reads).
     Truncated,
     /// A file version other than 1, or cells of other than 2 bytes.
@@ -32,7 +32,7 @@ pub enum MonotoneError {
         /// The file's cell size.
         cell_size: u8,
     },
-    /// More than [`MONOTONE_CHANNELS`] tracks (reference patch 0071; SoLoud
+    /// More than [`MONOTONE_CHANNELS`] tracks (reference patch 0078; SoLoud
     /// overran its 12 channels).
     TooManyTracks(u8),
     /// Hardware channels outside 1 to [`MONOTONE_CHANNELS`], or a negative
@@ -94,7 +94,7 @@ pub struct MonotoneSong {
 
 impl Default for MonotoneSong {
     /// An empty song: no tracks, so it plays silence (reference patch
-    /// 0068; SoLoud left the song uninitialised).
+    /// 0075; SoLoud left the song uninitialised).
     fn default() -> Self {
         Self {
             title: Vec::new(),
@@ -136,7 +136,7 @@ impl MonotoneSong {
     }
 
     /// The cell of `track` in `row` of `pattern`, 0 (an empty cell) for a
-    /// pattern the song does not have (reference patch 0072).
+    /// pattern the song does not have (reference patch 0079).
     pub(crate) fn cell(&self, pattern: usize, row: usize, track: usize) -> u16 {
         if pattern >= usize::from(self.patterns) {
             return 0;
@@ -195,7 +195,7 @@ fn read_exact(reader: &mut impl Read, buffer: &mut [u8]) -> Result<(), MonotoneE
 }
 
 /// A Pascal string of 40 bytes after its length: at most 40 bytes, up to
-/// the first NUL (reference patch 0070; SoLoud took up to 255).
+/// the first NUL (reference patch 0077; SoLoud took up to 255).
 fn pascal(reader: &mut impl Read) -> Result<Vec<u8>, MonotoneError> {
     let mut field = [0; 41];
     read_exact(reader, &mut field)?;

@@ -45,7 +45,7 @@ stop_sound name=music
 counts
 mix frames=600
 # Reloading a name reloads the same WavStream, which stops its voices (patch
-# 0063), from a file of another format and from bytes; a failed reload stops
+# 0070), from a file of another format and from bytes; a failed reload stops
 # them too and forgets the name.
 play sound=voice as=r1
 play sound=voice as=r2 volume=0.4

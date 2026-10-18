@@ -45,11 +45,11 @@ pub(crate) struct Envelope {
     decay: u32,
     sustain: u32,
     release: u32,
-    /// 8 bits (reference patch 0081; SoLoud's attack counted on to 0x1FF).
+    /// 8 bits (reference patch 0088; SoLoud's attack counted on to 0x1FF).
     level: u32,
     counter: u32,
     exp_counter: u32,
-    /// An index into [`RATE_COUNT_PERIOD`] (reference patch 0082; SoLoud
+    /// An index into [`RATE_COUNT_PERIOD`] (reference patch 0089; SoLoud
     /// started it at the first period itself).
     rate: u32,
     gate: u32,

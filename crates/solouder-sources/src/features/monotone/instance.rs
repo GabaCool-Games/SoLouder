@@ -18,7 +18,7 @@ const NOTE_ENTRIES: usize = 800;
 
 /// Each note's frequency in Hz, in eighths of a semitone from 27.5 Hz at
 /// entry 8 (`Monotone::mNotesHz`). Entry 0 is 440; entries 1 to 7 go
-/// below 27.5 Hz, down to 19 at most (entry 1 is reference patch 0073).
+/// below 27.5 Hz, down to 19 at most (entry 1 is reference patch 0080).
 static NOTES_HZ: [i32; NOTE_ENTRIES] = notes_hz();
 
 const fn notes_hz() -> [i32; NOTE_ENTRIES] {
@@ -60,7 +60,7 @@ static VIBRATO: LazyLock<[i32; 32]> = LazyLock::new(|| {
 });
 
 /// The note table's entry `index`, or its last past the end (reference
-/// patch 0072; SoLoud read past the table for notes over 99).
+/// patch 0079; SoLoud read past the table for notes over 99).
 fn note_hz(index: i32) -> i32 {
     NOTES_HZ[index.clamp(0, NOTE_ENTRIES as i32 - 1) as usize]
 }
@@ -70,7 +70,7 @@ fn note_hz(index: i32) -> i32 {
 struct Channel {
     active: bool,
     /// The note's frequency and the arpeggio's two others; 0 at the start
-    /// (reference patch 0075; SoLoud left them uninitialised).
+    /// (reference patch 0082; SoLoud left them uninitialised).
     freq: [i32; 3],
     portamento: i32,
     arp_counter: usize,
@@ -278,7 +278,7 @@ impl MonotoneInstance {
                 self.order = 0;
             }
         }
-        // Past the order's last entry, start again (reference patch 0072).
+        // Past the order's last entry, start again (reference patch 0079).
         if self.order >= 256 {
             self.order = 0;
         }
@@ -294,7 +294,7 @@ impl GeneratorInstance for MonotoneInstance {
         context: &GeneratorContext,
     ) -> usize {
         let rate = context.sample_rate;
-        // At least a sample a tick (reference patch 0074; SoLoud divided
+        // At least a sample a tick (reference patch 0081; SoLoud divided
         // by 0 below 60 Hz).
         let per_tick = c_int(f64::from((rate / 60.0).floor())).max(1);
         let hardware = self.live.hardware_channels.load(Ordering::Relaxed) as usize;

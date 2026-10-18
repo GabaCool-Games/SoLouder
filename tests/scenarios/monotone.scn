@@ -1,15 +1,15 @@
 # Monotone (milestone F unit 4): a song using every effect (arpeggios,
 # slides up, down and to a note, the first from 0 Hz (reference patch
-# 0075), vibrato, including on note 1 (patch 0073), notes past 99 (patch
-# 0072), tempo changes and a row jump) played with tracks taking turns
+# 0082), vibrato, including on note 1 (patch 0080), notes past 99 (patch
+# 0079), tempo changes and a row jump) played with tracks taking turns
 # on one hardware channel, then on four, changed while playing; every
 # waveform and one past the last; order and row jumps into a missing
-# pattern (patch 0072); twelve tracks on three hardware channels, then
-# twelve, and thirteen refused (patch 0071); a song without an end
-# marker passing the order's last entry (patch 0072); titles cut at 40
-# bytes (patch 0070); damaged songs from a path, memory and a DiskFile
-# failing (patches 0068, 0069, 0071) and playing silence; a play speed
-# below 60 Hz (patch 0074), seeks forward and back (NOT_IMPLEMENTED), a
+# pattern (patch 0079); twelve tracks on three hardware channels, then
+# twelve, and thirteen refused (patch 0078); a song without an end
+# marker passing the order's last entry (patch 0079); titles cut at 40
+# bytes (patch 0077); damaged songs from a path, memory and a DiskFile
+# failing (patches 0075, 0076, 0078) and playing silence; a play speed
+# below 60 Hz (patch 0081), seeks forward and back (NOT_IMPLEMENTED), a
 # filter, and a 48 kHz engine.
 init channels=2
 monotone name=demo file=monotone/demo.mon

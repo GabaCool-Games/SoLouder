@@ -4,8 +4,8 @@
 # of its filters; an unknown preset (INVALID_PARAMETER); parameter files of
 # versions 100, 101 and 102 loaded from a path, from memory and through a
 # DiskFile, a wave type without a waveform, a filter flag byte of 2
-# (reference patch 0066), trailing bytes, and damaged files that fail
-# without changing the settings (patch 0065), while version 100 keeps the
+# (reference patch 0073), trailing bytes, and damaged files that fail
+# without changing the settings (patch 0072), while version 100 keeps the
 # previous arpeggio and slide change; settings changed after a play
 # reaching only later voices; looping inside the source (also switched
 # off while playing), seeking forward and back (NOT_IMPLEMENTED), a filter,

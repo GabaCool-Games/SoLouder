@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:25:29 +0300
+Subject: [PATCH] doppler: a speed of sound reached holds the voice instead of
+ an infinite or NaN play speed
+
+---
+ src/core/soloud_core_3d.cpp | 9 ++++++++-
+ 1 file changed, 8 insertions(+), 1 deletion(-)
+
+diff --git a/src/core/soloud_core_3d.cpp b/src/core/soloud_core_3d.cpp
+index 4ce4b2d..f5ae82d 100644
+--- a/src/core/soloud_core_3d.cpp
++++ b/src/core/soloud_core_3d.cpp
+@@ -22,6 +22,7 @@ freely, subject to the following restrictions:
+    distribution.
+ */
+ 
++#include <float.h>
+ #include <math.h>
+ #include "soloud_internal.h"
+ 
+@@ -154,7 +155,13 @@ namespace SoLoud
+ 		float maxspeed = aSoundSpeed / aFactor;
+ 		vss = MIN(vss, maxspeed);
+ 		vls = MIN(vls, maxspeed);
+-		return (aSoundSpeed - aFactor * vls) / (aSoundSpeed - aFactor * vss);
++		float value = (aSoundSpeed - aFactor * vls) / (aSoundSpeed - aFactor * vss);
++		// At the speed of sound this divides by zero. Hold the voice, as the
++		// mixer does for any speed it cannot play, instead of giving it an
++		// infinite or NaN speed that its stream position would keep.
++		if (!(value >= 0 && value <= FLT_MAX))
++			return 0;
++		return value;
+ 	}
+ 
+ 	float attenuateInvDistance(float aDistance, float aMinDistance, float aMaxDistance, float aRolloffFactor)

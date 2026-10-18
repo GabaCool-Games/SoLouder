@@ -1,12 +1,12 @@
 # Speech (milestone F unit 6): text through the letter-to-sound rules,
 # numbers (with a point, negative, past the int range), spelled words,
 # punctuation, [phonemes] with stress marks and bytes that are no
-# phonemes (reference patches 0096 and 0097), bytes from 0x80 and
+# phonemes (reference patches 0103 and 0104), bytes from 0x80 and
 # control bytes, text after a 0, a text of more than 128 elements
-# (patch 0095) and no text; every waveform at several frequencies,
+# (patch 0102) and no text; every waveform at several frequencies,
 # speeds and declinations, each played to its end; speeds refused
-# (patch 0093); parameters changed under a playing voice, which keeps
-# its speed (patch 0094); reads of odd sizes (every read restarts the
+# (patch 0100); parameters changed under a playing voice, which keeps
+# its speed (patch 0101); reads of odd sizes (every read restarts the
 # glottal period, as in SoLoud); looping with a loop point, seeks, play
 # speeds, storing a name again stopping its voices; and a 44.1 kHz
 # stereo engine resampling, panning and filtering.

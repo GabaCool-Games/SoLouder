@@ -39,7 +39,7 @@ pub enum SidModel {
 }
 
 impl SidModel {
-    /// The model in bits 4 and 5 of a dump's flags (reference patch 0076;
+    /// The model in bits 4 and 5 of a dump's flags (reference patch 0083;
     /// SoLoud read the source's own 3D flags).
     fn from_flags(flags: u8) -> Self {
         match flags & 0x30 {
@@ -79,7 +79,7 @@ impl TedSid {
     }
 
     fn with_dump(dump: ChipDump) -> Result<Self, ChipDumpError> {
-        // The loop must be inside the data (reference patch 0078).
+        // The loop must be inside the data (reference patch 0085).
         if dump.loop_pos >= dump.length {
             return Err(ChipDumpError::BadHeader);
         }
@@ -148,7 +148,7 @@ struct TedSidInstance {
 
 impl TedSidInstance {
     /// Runs operations up to the next wait (`TedSidInstance::tick`). The
-    /// loop holds a wait (reference patch 0079), so this returns.
+    /// loop holds a wait (reference patch 0086), so this returns.
     fn tick(&mut self) {
         let Some(dump) = &self.dump else {
             return;

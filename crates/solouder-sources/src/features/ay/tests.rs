@@ -165,7 +165,7 @@ fn no_dump_ends_at_once() {
 
 #[test]
 fn short_reads_put_the_right_channel_at_the_stride() {
-    // Reference patch 0084.
+    // Reference patch 0091.
     let ay = Ay::from_bytes(fixture!("ay_ay.dump")).unwrap();
     let (mut full, mut part) = (ay.instance(), ay.instance());
     let mut a = vec![-1.0; 1024];
@@ -179,7 +179,7 @@ fn short_reads_put_the_right_channel_at_the_stride() {
 
 #[test]
 fn the_last_write_long_waits_and_the_tail_play() {
-    // Reference patches 0089, 0090 and 0091: a tone for one wait of 60
+    // Reference patches 0096, 0097 and 0098: a tone for one wait of 60
     // ticks at 50 Hz (52920 frames), then a last write.
     let ops = [0x073e, 0x0040, 0x080f, 0x8000 | 60, 0x0803];
     let ay = Ay::from_bytes(&dump(&ops, 50)).unwrap();
@@ -195,7 +195,7 @@ fn the_last_write_long_waits_and_the_tail_play() {
 
 #[test]
 fn rewind_restarts_the_chips() {
-    // Reference patch 0092.
+    // Reference patch 0099.
     let ay = Ay::from_bytes(fixture!("ay_turbo.dump")).unwrap();
     let mut voice = ay.instance();
     render(voice.as_mut(), 512, 1536);

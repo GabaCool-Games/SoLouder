@@ -182,14 +182,14 @@ fn info_reports_the_registers_last_written() {
 
 #[test]
 fn envelope_rate_starts_in_range() {
-    // Reference patch 0082: the rate is an index from the start.
+    // Reference patch 0089: the rate is an index from the start.
     let mut envelope = Envelope::new();
     assert_eq!(envelope.run(100_000), 0);
 }
 
 #[test]
 fn attack_from_full_level_wraps() {
-    // Reference patch 0081: the level is 8 bits, so attacking from 0xFF
+    // Reference patch 0088: the level is 8 bits, so attacking from 0xFF
     // wraps to 0 and climbs again, as in reSID.
     let mut envelope = Envelope::new();
     envelope.set_attack_decay(0x00);
