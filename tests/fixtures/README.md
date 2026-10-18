@@ -78,5 +78,8 @@ repository's license and contain no third-party audio.
   unclosed bracket (`phonemes`); UTF-8, control bytes, spelled words,
   numbers past the int range and suffix rules (`odd`); text after a 0
   (`stops_at_zero`); and more than 128 elements (`long`).
+  Vizsn text (`vizsn/finnish.txt`, CP437): ä and ö as 0x84 and 0x94 and
+  as `{` and `|`, capitals, digits, punctuation, bytes from 0x80 that
+  are no letters, and text after a 0.
 
 Change a fixture by editing the generator and rerunning it, never by hand.

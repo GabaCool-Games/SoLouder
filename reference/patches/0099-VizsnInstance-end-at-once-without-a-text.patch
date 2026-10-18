@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:54:48 +0300
+Subject: [PATCH] VizsnInstance: end at once without a text
+
+A Vizsn played before setText read its text through a null pointer. Such a voice now has ended and plays silence.
+---
+ src/audiosource/vizsn/soloud_vizsn.cpp | 4 +++-
+ 1 file changed, 3 insertions(+), 1 deletion(-)
+
+diff --git a/src/audiosource/vizsn/soloud_vizsn.cpp b/src/audiosource/vizsn/soloud_vizsn.cpp
+index 5a3d7b8..6e169a2 100644
+--- a/src/audiosource/vizsn/soloud_vizsn.cpp
++++ b/src/audiosource/vizsn/soloud_vizsn.cpp
+@@ -215,7 +215,9 @@ namespace SoLoud
+ 		mCurrentVoiceType = 6;
+ 		memset(mEchobuf, 0, 1024 * sizeof(int));
+ 		mPitch = 800;
+-		mS = mParent->mText;
++		// Without a text the voice has ended.
++		static char noText[] = { P_END, 0 };
++		mS = mParent->mText ? mParent->mText : noText;
+ 		mBufwrite = 0;
+ 		mBufread = 0;
+ 		mA = 0;

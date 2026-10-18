@@ -14,3 +14,5 @@ pub mod speech;
 pub mod tedsid;
 #[cfg(feature = "vic")]
 pub mod vic;
+#[cfg(feature = "vizsn")]
+pub mod vizsn;

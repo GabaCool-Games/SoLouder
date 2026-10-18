@@ -43,6 +43,7 @@
 #include "soloud_queue.h"
 #include "soloud_tedsid.h"
 #include "soloud_vic.h"
+#include "soloud_vizsn.h"
 #include "soloud_wav.h"
 #include "soloud_wavstream.h"
 // The SID and AY emulators TedSid and Ay play; their state is private.
@@ -1954,6 +1955,127 @@ namespace
 		check(elements.getSize() == 3 && e[0] == ELM_A_INDEX && e[2] == 3, "the vowel plays with primary stress");
 	}
 
+	// Vizsn::setText takes a char *: a copy of aText.
+	void setVizsnText(Vizsn &aVizsn, const char *aText)
+	{
+		std::vector<char> copy(aText, aText + std::strlen(aText) + 1);
+		aVizsn.setText(copy.data());
+	}
+
+	// aFrames of a new Vizsn voice, read aBlock frames at a time.
+	std::vector<float> vizsnAudio(Vizsn &aVizsn, unsigned int aFrames, unsigned int aBlock)
+	{
+		AudioSourceInstance *instance = aVizsn.createInstance();
+		instance->init(aVizsn, 0);
+		std::vector<float> out(aFrames, 0.0f);
+		for (unsigned int f = 0; f < aFrames; f += aBlock)
+			instance->getAudio(&out[f], aFrames - f < aBlock ? aFrames - f : aBlock, aBlock);
+		delete instance;
+		return out;
+	}
+
+	// VizsnInstance's noise came from the C runtime's rand(), shared by the
+	// process: each voice continued where the last left off, and MSVC and
+	// glibc gave different noise.
+	void vizsn_voices_are_deterministic()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "hei sisko"); // h and s take noise
+		std::vector<float> first = vizsnAudio(vizsn, 8000, 512);
+		std::srand(1234);
+		std::rand();
+		check(vizsnAudio(vizsn, 8000, 512) == first, "a second voice plays the same");
+	}
+
+	// A Vizsn played before setText read its text through a null pointer.
+	void vizsn_without_text_ends()
+	{
+		Vizsn vizsn;
+		AudioSourceInstance *instance = vizsn.createInstance();
+		instance->init(vizsn, 0);
+		check(instance->hasEnded(), "a voice without text has ended");
+		std::vector<float> block(512, 1.0f);
+		instance->getAudio(block.data(), 512, 512);
+		delete instance;
+		check(block == std::vector<float>(512, 0.0f), "and plays silence");
+	}
+
+	// VizsnInstance::hasEnded turned true once the last phone was buffered,
+	// with up to 800 of its samples unplayed, and the read that reached the
+	// end of the text filled the rest of its block with old samples.
+	void vizsn_tail_is_played()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "ma"); // phones of 600, 800 and 800 samples
+		AudioSourceInstance *instance = vizsn.createInstance();
+		instance->init(vizsn, 0);
+		std::vector<float> out, block(512);
+		while (!instance->hasEnded() && out.size() < 100000)
+		{
+			std::fill(block.begin(), block.end(), 9.0f);
+			instance->getAudio(block.data(), 512, 512);
+			out.insert(out.end(), block.begin(), block.end());
+		}
+		delete instance;
+		check(out.size() >= 2200, "every phone plays");
+		bool silent = out.size() > 2200;
+		for (size_t i = 2200; i < out.size(); i++)
+			silent = silent && out[i] == 0.0f;
+		check(silent, "after the text, silence");
+	}
+
+	// VizsnInstance::getAudio buffered whole phones until the read was
+	// covered, so a read of more than 1248 samples (a seek's discard pass,
+	// or a loop's seek of 4096) wrote past its 2048-sample buffer.
+	void vizsn_long_reads_stay_in_bounds()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "moi maailma");
+		check(vizsnAudio(vizsn, 16384, 4096) == vizsnAudio(vizsn, 16384, 512), "long reads play as short ones");
+	}
+
+	// VizsnInstance had no rewind, so looping and seeking back failed.
+	void vizsn_rewind_restarts()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "moi maailma");
+		AudioSourceInstance *instance = vizsn.createInstance();
+		instance->init(vizsn, 0);
+		std::vector<float> block(512), again;
+		for (int i = 0; i < 3; i++)
+			instance->getAudio(block.data(), 512, 512);
+		check(instance->rewind() == SO_NO_ERROR, "the voice rewinds");
+		for (int i = 0; i < 4; i++)
+		{
+			instance->getAudio(block.data(), 512, 512);
+			again.insert(again.end(), block.begin(), block.end());
+		}
+		delete instance;
+		check(again == vizsnAudio(vizsn, 2048, 512), "a rewound voice plays as a new one");
+	}
+
+	// VizsnInstance::getAudio said it filled every read, so the mixer never
+	// saw the text end: a looping Vizsn never looped, and played silence.
+	void vizsn_loops()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "ma"); // 2200 samples at 8000 Hz
+		AudioSourceInstance *instance = vizsn.createInstance();
+		instance->init(vizsn, 0);
+		std::vector<float> block(4096, 1.0f);
+		unsigned int read = instance->getAudio(block.data(), 4096, 4096);
+		delete instance;
+		check(read == 2200, "the read ends with the text");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		vizsn.setLooping(true);
+		handle h = soloud.play(vizsn);
+		std::vector<float> out(2 * 4096);
+		for (int i = 0; i < 8; i++)
+			soloud.mix(out.data(), 4096);
+		check(soloud.getLoopCount(h) > 0, "the voice loops");
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -2712,6 +2834,12 @@ namespace
 		{ "speech_stress_lookahead_in_bounds", speech_stress_lookahead_in_bounds },
 		{ "speech_phoneme_lookup_in_bounds", speech_phoneme_lookup_in_bounds },
 		{ "speech_stress_marks_apply", speech_stress_marks_apply },
+		{ "vizsn_voices_are_deterministic", vizsn_voices_are_deterministic },
+		{ "vizsn_without_text_ends", vizsn_without_text_ends },
+		{ "vizsn_tail_is_played", vizsn_tail_is_played },
+		{ "vizsn_long_reads_stay_in_bounds", vizsn_long_reads_stay_in_bounds },
+		{ "vizsn_rewind_restarts", vizsn_rewind_restarts },
+		{ "vizsn_loops", vizsn_loops },
 	};
 }
 

@@ -28,5 +28,7 @@ pub use features::speech::{InvalidSpeechSpeed, KlattWaveform, Speech, SpeechPara
 pub use features::tedsid::{SidModel, TedSid};
 #[cfg(feature = "vic")]
 pub use features::vic::{RegisterOutOfRange, VIC_REGISTERS, Vic, VicModel};
+#[cfg(feature = "vizsn")]
+pub use features::vizsn::Vizsn;
 #[cfg(feature = "prg")]
 pub use prg::Prg;

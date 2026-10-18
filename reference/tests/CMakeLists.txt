@@ -145,6 +145,12 @@ set(REFERENCE_TESTS
   speech_stress_lookahead_in_bounds
   speech_phoneme_lookup_in_bounds
   speech_stress_marks_apply
+  vizsn_voices_are_deterministic
+  vizsn_without_text_ends
+  vizsn_tail_is_played
+  vizsn_long_reads_stay_in_bounds
+  vizsn_rewind_restarts
+  vizsn_loops
 )
 
 enable_testing()

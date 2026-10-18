@@ -123,6 +123,7 @@ names: a sound, stream, bus or queue of the same name is found first.
 | `speech` | `name`, `text` (`_` for spaces) or `file` (a fixture's bytes; not both; without either there is no text), source settings | A new `Speech`, then `setText` of the text, which reads up to its first 0 (Rust: `Speech::new` of the bytes). Storing again under a name stops the old one's voices. | `speech <name> <setText code>` (0 without text) |
 | `speech_set` | `name`, any of `frequency`, `speed`, `declination`, `waveform` (0 to 6), each the current value when absent | `Speech::setParams` (Rust: `set_params`), which refuses speeds whose frames hold no samples or more than 11025 (patch 0093). | `speech_set <name> <code>` |
 | `speech_query` | `name` | Reads `mBaseFrequency`, `mBaseSpeed`, `mBaseDeclination`, `mBaseWaveform` and `mFrames`. | `speech_query <name> frequency=<n> speed=<f32 hex> declination=<f32 hex> waveform=<n> frames=<n>` |
+| `vizsn` | `name`, `text` (`_` for spaces) or `file` (a fixture's bytes; not both; without either there is no text), source settings | A new `Vizsn`, then `setText` of the text, which reads up to its first 0 (Rust: `Vizsn::new` of the bytes, `Vizsn::default` without a text). Storing again under a name stops the old one's voices. | `vizsn <name> 0` |
 
 Every operation except `tolerance`, `init`, `samples` and `fft` needs a
 successful `init`. Unknown sound or handle names are scenario errors. `<code>` is the

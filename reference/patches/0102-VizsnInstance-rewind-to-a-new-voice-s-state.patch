@@ -1,0 +1,65 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:54:55 +0300
+Subject: [PATCH] VizsnInstance: rewind to a new voice's state
+
+VizsnInstance had no rewind, so looping voices ended and seeks back failed. rewind now restarts the voice as a new one, noise included.
+---
+ include/soloud_vizsn.h                 |  3 +++
+ src/audiosource/vizsn/soloud_vizsn.cpp | 15 +++++++++++++++
+ 2 files changed, 18 insertions(+)
+
+diff --git a/include/soloud_vizsn.h b/include/soloud_vizsn.h
+index 3b59ef7..88a2338 100644
+--- a/include/soloud_vizsn.h
++++ b/include/soloud_vizsn.h
+@@ -45,6 +45,7 @@ namespace SoLoud
+ 
+ 		virtual unsigned int getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize);
+ 		virtual bool hasEnded();
++		virtual result rewind();
+ 
+     public:
+         Vizsn *mParent;
+@@ -70,6 +71,8 @@ namespace SoLoud
+ 		// MSVC's rand(), per voice (the CRT's is shared by the process).
+ 		unsigned int mRandState;
+ 		int nextRand();
++		// The state of a new voice (the constructor and rewind).
++		void start();
+ 	};
+ 
+ 	class Vizsn : public AudioSource
+diff --git a/src/audiosource/vizsn/soloud_vizsn.cpp b/src/audiosource/vizsn/soloud_vizsn.cpp
+index b62a733..665b6a8 100644
+--- a/src/audiosource/vizsn/soloud_vizsn.cpp
++++ b/src/audiosource/vizsn/soloud_vizsn.cpp
+@@ -211,6 +211,14 @@ namespace SoLoud
+ 	VizsnInstance::VizsnInstance(Vizsn *aParent)
+ 	{
+ 		mParent = aParent;
++		start();
++	}
++
++	void VizsnInstance::start()
++	{
++		mBank0 = VizsnBank();
++		mBank1 = VizsnBank();
++		mBank0to1 = VizsnBank();
+ 		mPtr = 0;
+ 		mCurrentVoiceType = 6;
+ 		memset(mEchobuf, 0, 1024 * sizeof(int));
+@@ -231,6 +239,13 @@ namespace SoLoud
+ 		memset(mBuf, 0, sizeof(float) * 2048);
+ 	}
+ 
++	result VizsnInstance::rewind()
++	{
++		start();
++		mStreamPosition = 0.0f;
++		return SO_NO_ERROR;
++	}
++
+ 	VizsnInstance::~VizsnInstance()
+ 	{
+ 	}

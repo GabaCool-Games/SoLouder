@@ -1,6 +1,6 @@
 [package]
 name = "solouder-sources"
-description = "SoLouder sources: SoLoud's generators (noise, sfxr, chip music, speech) for solouder-core"
+description = "SoLouder sources: SoLoud's generators (noise, sfxr, chip music, speech, vizsn) for solouder-core"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -8,7 +8,7 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-default = ["ay", "monotone", "noise", "sfxr", "speech", "tedsid", "vic"]
+default = ["ay", "monotone", "noise", "sfxr", "speech", "tedsid", "vic", "vizsn"]
 # WELL512, shared by noise and sfxr.
 prg = []
 ay = ["chipdump"]
@@ -18,6 +18,7 @@ sfxr = ["prg"]
 speech = []
 tedsid = ["chipdump"]
 vic = []
+vizsn = []
 # Chip register dumps and zx7, shared by tedsid and ay.
 chipdump = []
 

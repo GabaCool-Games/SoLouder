@@ -45,6 +45,7 @@ pub(crate) fn is_generator_op(op: &str) -> bool {
             | "speech"
             | "speech_set"
             | "speech_query"
+            | "vizsn"
     )
 }
 
@@ -105,7 +106,7 @@ impl State {
             op if op.starts_with("sfxr") => self.sfxr_op(step),
             op if op.starts_with("monotone") => self.monotone_op(step),
             "tedsid" | "ay" => self.chip_op(step),
-            op if op.starts_with("speech") => self.speech_op(step),
+            op if op.starts_with("speech") || op == "vizsn" => self.speech_op(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }

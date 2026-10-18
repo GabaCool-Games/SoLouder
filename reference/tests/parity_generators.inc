@@ -224,7 +224,7 @@
 			return op == "noise" || op == "noise_set" || op == "vic" || op == "vic_set" || op == "vic_query" ||
 				op == "sfxr" || op == "sfxr_load" || op == "sfxr_reset" || op == "sfxr_query" || op == "monotone" ||
 				op == "monotone_set" || op == "monotone_query" || op == "tedsid" || op == "ay" ||
-				op == "speech" || op == "speech_set" || op == "speech_query";
+				op == "speech" || op == "speech_set" || op == "speech_query" || op == "vizsn";
 		}
 
 		void generatorOp(const Step &step)
@@ -390,7 +390,7 @@
 				chipOp(step, new SoLoud::Ay);
 			static const char *const speechKeys[] = { "name", "text", "file" };
 			static const char *const speechSetKeys[] = { "name", "frequency", "speed", "declination", "waveform" };
-			if (step.op == "speech")
+			if (step.op == "speech" || step.op == "vizsn")
 			{
 				checkGeneratorKeys(step, speechKeys, 3);
 				engine(step);
@@ -416,13 +416,26 @@
 					text.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
 					hasText = true;
 				}
-				SoLoud::Speech *speech = new SoLoud::Speech;
-				// setText reads up to the first 0.
-				SoLoud::result code = hasText ? speech->setText(text.c_str()) : SoLoud::SO_NO_ERROR;
-				sourceSettings(step, *speech);
-				storeGenerator(name, speech);
+				SoLoud::result code = SoLoud::SO_NO_ERROR;
+				if (step.op == "vizsn")
+				{
+					SoLoud::Vizsn *vizsn = new SoLoud::Vizsn;
+					// setText reads up to the first 0.
+					if (hasText)
+						vizsn->setText(&text[0]);
+					sourceSettings(step, *vizsn);
+					storeGenerator(name, vizsn);
+				}
+				else
+				{
+					SoLoud::Speech *speech = new SoLoud::Speech;
+					// setText reads up to the first 0.
+					code = hasText ? speech->setText(text.c_str()) : SoLoud::SO_NO_ERROR;
+					sourceSettings(step, *speech);
+					storeGenerator(name, speech);
+				}
 				std::ostringstream line;
-				line << "speech " << name << " " << code;
+				line << step.op << " " << name << " " << code;
 				logLine(line);
 			}
 			else if (step.op == "speech_set")

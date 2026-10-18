@@ -12,3 +12,4 @@
 
 # Speech texts are read byte for byte.
 tests/fixtures/speech/*.txt -text
+tests/fixtures/vizsn/*.txt -text

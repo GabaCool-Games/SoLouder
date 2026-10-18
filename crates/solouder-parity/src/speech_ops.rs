@@ -1,10 +1,10 @@
-//! Scenario operations on `Speech`: `speech`, `speech_set` and
-//! `speech_query`. Each mirrors the operation of the same name in
+//! Scenario operations on `Speech` and `Vizsn`: `speech`, `speech_set`,
+//! `speech_query` and `vizsn`. Each mirrors the operation of the same name in
 //! `reference/tests/parity_generators.inc`.
 
 use std::sync::Arc;
 
-use solouder_sources::{KlattWaveform, Speech};
+use solouder_sources::{KlattWaveform, Speech, Vizsn};
 
 use crate::files::{fixture_path, read_fixture};
 use crate::generator_ops::check_generator_keys;
@@ -69,6 +69,17 @@ impl State {
                     p.waveform.index(),
                     speech.frames()
                 ));
+                Ok(())
+            }
+            "vizsn" => {
+                check_generator_keys(step, &SPEECH_KEYS)?;
+                self.mixer(step)?;
+                let vizsn = match text(step)? {
+                    Some(text) => Vizsn::new(text),
+                    None => Vizsn::default(),
+                };
+                self.store_generator(step, Arc::new(vizsn))?;
+                self.log(format!("vizsn {} {SO_NO_ERROR}", step.text("name")?));
                 Ok(())
             }
             other => Err(step.error(format!("unsupported operation `{other}`"))),

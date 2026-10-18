@@ -18,7 +18,7 @@ Rows saying "ported" name the SoLouder code translated from them; the rest has n
 | FFT | `src/core/soloud_fft.cpp` | Based on fftreal by Laurent de Soras, WTFPL | Port with attribution |
 | Sfxr | `src/audiosource/sfxr/` | Tomas Pettersson, relicensed to zlib by permission | Ported to `solouder-sources` (`features/sfxr/`); each file names him and the permission |
 | Speech synthesizer | `src/audiosource/speech/` | rsynth by Nick Ing-Simmons et al., public domain; SoLoud changes public domain/CC0; `soloud_speech.*` zlib | Ported to `solouder-sources` (`features/speech/`); `Elements.def` and the rule tables copied into `features/speech/data/`; each file credits rsynth |
-| Vizsn | `src/audiosource/vizsn/` | Ville-Matias Heikkilä, WTFPL | Port with attribution |
+| Vizsn | `src/audiosource/vizsn/` | Ville-Matias Heikkilä, WTFPL | Ported to `solouder-sources` (`features/vizsn/`); each file credits Ville-Matias Heikkilä and the WTFPL |
 | VIC 6560/6561 emulator | `src/audiosource/vic/` | Petri Häkkinen, zlib/libpng | Ported to `solouder-sources` (`features/vic/`), with his zlib notice in the file |
 | TED/SID | `src/audiosource/tedsid/` | Based on tedplay by Attila Grósz, Unlicense | Ported to `solouder-sources` (`features/tedsid/`); each file names him and the Unlicense |
 | AY | `src/audiosource/ay/` | YM-2149F emulator and resampler from Unreal Speccy by SMT, public domain; SoLoud wrapper zlib | Ported to `solouder-sources` (`features/ay/`); each file credits SMT |

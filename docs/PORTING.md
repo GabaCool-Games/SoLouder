@@ -444,6 +444,12 @@ unpatched reference, and each needs a matching Rust test.
 | 0095 | — (milestone F plan) | `klatt::synth`'s stress lookahead read a duration past the end of the elements: `darray`'s zero-filled spare usually held it, but an element array that filled its allocation read past the heap block. It now reads 0, as the spare gave. | `speech_stress_lookahead_in_bounds` |
 | 0096 | — (found porting milestone F) | `klatt::phone_to_elm` looked each phoneme up together with the byte after it, also after the last: phonemes that filled their allocation read past the heap block, and a byte there could make the last phoneme a two-byte one. The byte past the end now reads as 0. | `speech_phoneme_lookup_in_bounds` |
 | 0097 | — (found porting milestone F) | `klatt::phone_to_elm` read a byte that is no phoneme from the position after it and skipped that one too: stress marks in `[phonemes]` never applied, the phoneme after one was dropped, and an unknown last byte read past the phonemes. Text through the rules is unchanged. | `speech_stress_marks_apply` |
+| 0098 | — (milestone F plan) | `VizsnInstance` took its noise from the C runtime's `rand()`, shared by the process: each voice continued where the last left off, and MSVC and glibc gave different noise. Each voice now runs MSVC's generator, seeded 1. | `vizsn_voices_are_deterministic` |
+| 0099 | — (milestone F plan) | A `Vizsn` played before `setText` read its text through a null pointer. Its voices now end at once and play silence. | `vizsn_without_text_ends` |
+| 0100 | — (milestone F plan) | `VizsnInstance::hasEnded` turned true once the last phone was buffered, with up to 800 of its samples unplayed, and the read that reached the end of the text filled its block with old samples. Voices now end once the buffer is played, and the rest of the block is silent. | `vizsn_tail_is_played` |
+| 0101 | — (found porting milestone F) | `VizsnInstance::getAudio` buffered whole phones until the read was covered, so a read of more than 1248 samples (a seek's discard pass, or a loop's seek of 4096) wrote past its 2048-sample buffer. It now buffers one phone at a time. | `vizsn_long_reads_stay_in_bounds` |
+| 0102 | — (milestone F plan) | `VizsnInstance` had no `rewind`, so seeks back failed and loops could not restart. `rewind` now restarts the voice as a new one, noise included. | `vizsn_rewind_restarts` |
+| 0103 | — (found porting milestone F) | `VizsnInstance::getAudio` said it filled every read, also past the end of the text, so the mixer never saw the voice end: a looping Vizsn never looped and played silence. The read now ends with the text. | `vizsn_loops` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -1130,13 +1136,32 @@ Rules for units 1 to 8:
    history, as in SoLoud. The scenario's filter has no feedback: a
    biquad over speech decays into subnormals in the silences between
    words, which the reference flushes. Bit-exact.
-7. **Vizsn** (540 + h 84; Ville-Matias Heikkilä, WTFPL), 8 kHz mono. It uses the
+7. **Vizsn** (done; patches 0098 to 0103) (540 + h 84; Ville-Matias Heikkilä, WTFPL), 8 kHz mono. It uses the
    CRT's process-wide `rand()`, so voices, scenarios in the same runner process,
    and MSVC versus glibc all change its output. Proposed patch: a per-instance
    MSVC LCG with seed 1. Defects: playing without `setText` dereferences null;
    `hasEnded` turns true while buffered samples remain, and the last block
    copies stale buffer contents; `mA` overflows (undefined); there is no
    `rewind`. Rows: `Vizsn::*` (2). Scenario `vizsn`.
+   Done: `solouder_sources::Vizsn` (feature `vizsn`) in `features/vizsn/`.
+   Patches from the plan: a per-voice MSVC `rand()` seeded 1 (0098), a
+   voice without a text ends at once and plays silence (0099),
+   `hasEnded` waits for the buffered samples and the read past the text
+   is silent (0100), and `rewind` restarts the voice as a new one
+   (0102). Found while porting: `getAudio` buffered whole phones until
+   the read was covered, so a read of more than 1248 samples (a seek's
+   discard pass, or the 4096-sample read of a loop's seek) wrote past
+   its 2048-sample buffer; it now buffers one phone (at most 800
+   samples) at a time (0101). And `getAudio` said it filled every
+   read, also past the text, so the mixer never saw the end and a
+   looping Vizsn played silence instead of looping; the read now ends
+   with the text (0103). Plan changes: no patch for `mA`'s overflow:
+   it needs some 5.6 minutes of one voice without a rewind, MSVC wraps
+   it, and Rust wraps it too, so no test fails before a fix. The
+   voice types SoLoud never selects (all but the sawtooth) are not
+   kept. `~Vizsn` leaks its text; Rust has nothing to patch, so the
+   reference is left as it is. Output stays between 0 and 1, centred
+   on 128/255, as in SoLoud. Bit-exact.
 8. **Openmpt and the source-common rows:** exclude the four `Openmpt::*` rows
    (reason below). Close `AudioSource::setVolume` and `setLooping`, and re-audit
    every source-common row against all the classes in its `c_functions`.

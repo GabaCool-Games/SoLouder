@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """Generate the generator fixtures in tests/fixtures/ (sfxr/, monotone/,
-chipdump/, speech/).
+chipdump/, speech/, vizsn/).
 
 SoLoud ships none: sfxr parameter files, Monotone songs and CHIPTUNE
 register dumps are built here field by field, in the layouts
@@ -602,15 +602,26 @@ def speech_fixtures() -> dict[str, bytes]:
     }
 
 
+def vizsn_fixtures() -> dict[str, bytes]:
+    """Texts for `Vizsn::setText`: CP437 Finnish, read up to the first 0."""
+    return {
+        # 0x84 and 0x94 are ä and ö, as are `{` and `|`; capitals, digits,
+        # punctuation and bytes from 0x80 are pauses.
+        "finnish.txt": b"Hyv\x84\x84 p\x84iv\x84\x84, mit\x84 kuuluu? t{m{ on s|p|, "
+                       b"\x8e\x99 \xe4 kolme 3 - loppu.\0 ei luettu",
+    }
+
+
 def fixtures() -> dict[str, bytes]:
     out = {f"sfxr/{name}": data for name, data in sfxr_fixtures().items()}
     out.update({f"monotone/{name}": data for name, data in monotone_fixtures().items()})
     out.update({f"chipdump/{name}": data for name, data in chipdump_fixtures().items()})
     out.update({f"speech/{name}": data for name, data in speech_fixtures().items()})
+    out.update({f"vizsn/{name}": data for name, data in vizsn_fixtures().items()})
     return out
 
 
-GLOBS = ["sfxr/*.sfx", "monotone/*.mon", "chipdump/*.dump", "speech/*.txt"]
+GLOBS = ["sfxr/*.sfx", "monotone/*.mon", "chipdump/*.dump", "speech/*.txt", "vizsn/*.txt"]
 
 
 def main(argv: list[str] | None = None) -> int:
