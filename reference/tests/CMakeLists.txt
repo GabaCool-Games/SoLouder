@@ -130,6 +130,16 @@ set(REFERENCE_TESTS
   tedsid_zx7_stays_in_bounds
   sid_envelope_rate_starts_in_range
   sid_attack_from_full_level_wraps
+  ay_right_channel_at_buffer_stride
+  ay_reload_stops_voices
+  ay_header_is_checked
+  ay_zx7_stays_in_bounds
+  ay_speeds_are_checked
+  ay_chip_starts_at_zero
+  ay_last_write_is_played
+  ay_long_wait_is_spread
+  ay_tail_is_played
+  ay_rewind_restarts
 )
 
 enable_testing()

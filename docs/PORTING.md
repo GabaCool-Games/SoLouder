@@ -429,6 +429,16 @@ unpatched reference, and each needs a matching Rust test.
 | 0080 | — (milestone F plan) | `zx7_decompress` read and wrote without bounds, so a dump's compressed chunks could write past its ops and read past its data. A new `zx7_decompress_bounded` stops at both ends and a chunk going outside fails the load. | `tedsid_zx7_stays_in_bounds` |
 | 0081 | — (found porting milestone F) | `SIDsound::doEnvelopeGenerator`: an attack from level 0xFF (a gate turned off and on while sustaining at full level) counted on to 0x1FF, reading `envGenDRdivisors` past its end. The level now wraps from 0xFF to 0, as in reSID. | `sid_attack_from_full_level_wraps` |
 | 0082 | — (found porting milestone F) | `SIDsound::reset` set `envCounterCompare`, an index into `RateCountPeriod`, to `RateCountPeriod[0]` (0x7F00), so until a gate or rate write every envelope step read far past the table (a crash in GCC builds). It now starts at 0. | `sid_envelope_rate_starts_in_range` |
+| 0083 | — (found porting milestone F) | `SNDCHIP`'s constructor left the tone, noise and envelope counters, the noise output, the chip type and the registers uninitialised, so each voice's first periods (and two voices of one dump) depended on whatever memory the chip was built in. They now start at 0. | `ay_chip_starts_at_zero` |
+| 0084 | — (milestone F plan) | `AyInstance::getAudio` wrote the right channel `aSamplesToRead` floats after the left instead of `aBufferSize`, as patch 0004 fixed for `WavStream`. | `ay_right_channel_at_buffer_stride` |
+| 0085 | — (milestone F plan) | `Ay::loadFile` replaced the ops its voices were reading without stopping them, and leaked the old ones. | `ay_reload_stops_voices` |
+| 0086 | — (milestone F plan) | `Ay::loadFile` used the header's sizes as they were, as `TedSid` did before patch 0078 (no chunks asked `new[]` for a negative size, a data offset past the end, a short file, the loop position's halves read in either order). The loop position, which Ay does not use, is not checked. | `ay_header_is_checked` |
+| 0087 | — (milestone F plan) | `Ay::loadFile` decompressed zx7 without bounds; it now uses `zx7_decompress_bounded` (patch 0080), and the unbounded `zx7_decompress` is removed. | `ay_zx7_stays_in_bounds` |
+| 0088 | — (milestone F plan; extended while porting) | `ChipPlayer` divided by the CPU speed and the chip speed / 8, its frames of `(cpuspeed * 8172 / 44100) / 2` ticks never advanced below 11 Hz (spinning on the audio thread), and a chip clock below 8 x 44100 Hz rendered a chip tick's samples at once, which could overrun the 8192-sample buffer. Such dumps now fail with `FILE_LOAD_FAILED`. | `ay_speeds_are_checked` |
+| 0089 | — (found porting milestone F) | `ChipPlayer::play` stopped at the end of the ops before playing the op it had just read, so a dump's last register write was dropped. | `ay_last_write_is_played` |
+| 0090 | — (found porting milestone F) | `ChipPlayer::play` played a wait whole within its frame, so a wait longer than about 8000 samples overran the buffer onto its own samples (and rendered at once on the audio thread). A frame now takes at most twice its ticks of a wait; dumps without such waits play as before. | `ay_long_wait_is_spread` |
+| 0091 | — (found porting milestone F) | `AyInstance::hasEnded` turned true once the ops were read, with up to a frame of samples still buffered, cutting every dump's end. | `ay_tail_is_played` |
+| 0092 | — (milestone F plan) | `AyInstance::rewind` only went back to the first op: the chips kept their state and the buffer its samples, so loops did not restart the dump and seeks back were offset. It now starts a new player. | `ay_rewind_restarts` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -1017,7 +1027,8 @@ Rules for units 1 to 8:
    a slide to a note on a channel's first row starts from them (0075).
    The sample counter and slides wrap on overflow (after 13 hours, or
    days of sliding), as MSVC does. Bit-exact.
-5. **TedSid, then Ay**, as 5a (done; patches 0076 to 0082) and 5b. TedSid: `soloud_tedsid` 222, sid 623+180,
+5. **TedSid, then Ay**, as 5a (done; patches 0076 to 0082) and 5b (done; patches 0083 to
+   0092). TedSid: `soloud_tedsid` 222, sid 623+180,
    ted 236+43, tedplay (Unlicense). AY: `soloud_ay` 179, chipplayer, sndbuffer,
    sndchip and sndrender together 991 lines (SMT, public domain). Both use zx7
    (114). Integer emulation; the SID's filter tables use `tanh`/`exp` in
@@ -1056,6 +1067,28 @@ Rules for units 1 to 8:
    square and noise are ported (SoLoud never selects its other
    waveforms). The filter tables use `tanh` and `exp` from the platform
    libm, like MSVC. Bit-exact.
+   Done (5b): `solouder_sources::Ay` (feature `ay`) over the same
+   `chipdump` module; the resampler, the chip and the player are ported
+   in `features/ay/` with SoLoud's wrapping 32-bit arithmetic, and a
+   voice's ring of 8192 samples is allocated once and reset in place on
+   rewind. `getInfo` reports the first chip's registers 0 to 13 and the
+   second chip's at bit 4. Patches from the plan: the right channel at
+   the buffer's stride (0084), voices stopped and the old ops freed on a
+   reload (0085), sizes checked as for TedSid (0086), bounded zx7, the
+   unbounded decompressor removed (0087), speeds that divide by zero or
+   never advance refused (0088), and a rewind restarting the chips
+   (0092). Found while porting: SNDCHIP's counters, noise output, chip
+   type and registers started uninitialised, so voices of one dump
+   differed (0083, applied first so the other tests are
+   deterministic); a chip clock below 8 x 44100 Hz renders more than a
+   sample a chip tick and can overrun the ring, so 0088 also refuses
+   those (real chips run at 1 to 2 MHz); the last register write of a
+   dump was dropped (0089); a wait longer than a frame's room overran
+   the ring (0090); and voices ended with up to a frame still buffered
+   (0091). Plan change: the dump's loop position stays unused, as in
+   SoLoud. Ay voices end, and looping goes through SoLoud's rewind, which
+   seeks also use, so a rewind to the loop position would break seeks;
+   the loop position is not checked against the length either. Bit-exact.
 6. **Speech** (`soloud_speech` 148, klatt 1074+152, tts 1425, darray 92,
    resonator 117, `Elements.def` 1659; rsynth public domain, `soloud_speech.*`
    zlib). The noise generator is klatt's own LCG (seed 5); `PI` is a `float`

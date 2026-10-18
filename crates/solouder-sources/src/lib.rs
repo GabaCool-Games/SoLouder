@@ -12,6 +12,10 @@ mod features;
 #[cfg(feature = "prg")]
 mod prg;
 
+#[cfg(feature = "chipdump")]
+pub use chipdump::ChipDumpError;
+#[cfg(feature = "ay")]
+pub use features::ay::Ay;
 #[cfg(feature = "monotone")]
 pub use features::monotone::{MONOTONE_CHANNELS, Monotone, MonotoneError, MonotoneSong};
 #[cfg(feature = "noise")]
@@ -19,7 +23,7 @@ pub use features::noise::{Noise, NoiseType, OCTAVES};
 #[cfg(feature = "sfxr")]
 pub use features::sfxr::{Sfxr, SfxrError, SfxrParams, SfxrPreset};
 #[cfg(feature = "tedsid")]
-pub use features::tedsid::{ChipDumpError, SidModel, TedSid};
+pub use features::tedsid::{SidModel, TedSid};
 #[cfg(feature = "vic")]
 pub use features::vic::{RegisterOutOfRange, VIC_REGISTERS, Vic, VicModel};
 #[cfg(feature = "prg")]

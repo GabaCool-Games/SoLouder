@@ -1,0 +1,76 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:10:20 +0300
+Subject: [PATCH] Ay::loadFile: check the dump's sizes
+
+As in TedSid, the header's sizes were used as they were: a dump of no
+chunks asked new[] for a negative size, a data offset past the file's
+end read a negative length, a short file left the missing ops
+uninitialised, and the two halves of the loop position were read in one
+expression, in either order. Such dumps now fail with FILE_LOAD_FAILED;
+the halves are read in turn; the ops are zeroed, and the dump is set
+only once loaded. Ay never loops to the loop position, so it is not
+checked.
+---
+ src/audiosource/ay/soloud_ay.cpp | 34 +++++++++++++++++++++++---------
+ 1 file changed, 25 insertions(+), 9 deletions(-)
+
+diff --git a/src/audiosource/ay/soloud_ay.cpp b/src/audiosource/ay/soloud_ay.cpp
+index e75e3e4..c1f68df 100644
+--- a/src/audiosource/ay/soloud_ay.cpp
++++ b/src/audiosource/ay/soloud_ay.cpp
+@@ -150,18 +150,28 @@ namespace SoLoud
+ 		int flags = aFile->read8();
+ 		int kchunks = aFile->read16();
+ 		int lastchunk = aFile->read16();
+-		mLength = (kchunks - 1) * 1024 + lastchunk;
+-		mLooppos = aFile->read16() * 1024 + aFile->read16();
+-		mCpuspeed = aFile->read32();
+-		mChipspeed = aFile->read32();
+-		mYm = false;
+-		if (flags & 64) mYm = true;
+-		mOps = new unsigned short[mLength];
++		// Read in turn: the operands of one expression may be read in
++		// either order.
++		int loopchunk = aFile->read16();
++		int loopofs = aFile->read16();
++		int length = (kchunks - 1) * 1024 + lastchunk;
++		int looppos = loopchunk * 1024 + loopofs;
++		int cpuspeed = aFile->read32();
++		int chipspeed = aFile->read32();
++		// The ops must be in the file.
++		if (kchunks == 0 || length <= 0 || dataofs > (int)aFile->length())
++			return FILE_LOAD_FAILED;
++		// Zeroed: an odd last byte makes an op with a high byte of 0.
++		unsigned short *ops = new unsigned short[(length + 1) / 2]();
+ 		aFile->seek(dataofs);
+ 		if (flags & 1)
+ 		{
+ 			// uncompressed
+-			aFile->read((unsigned char*)mOps, mLength);
++			if (aFile->read((unsigned char*)ops, length) != (unsigned int)length)
++			{
++				delete[] ops;
++				return FILE_LOAD_FAILED;
++			}
+ 		}
+ 		else
+ 		{
+@@ -172,10 +182,16 @@ namespace SoLoud
+ 			int bufofs = 0;
+ 			for (int i = 0; i < kchunks; i++)
+ 			{
+-				bufofs += zx7_decompress(buf + bufofs, ((unsigned char*)mOps) + i * 1024);
++				bufofs += zx7_decompress(buf + bufofs, ((unsigned char*)ops) + i * 1024);
+ 			}
+ 			delete[] buf;
+ 		}
++		mOps = ops;
++		mLength = length;
++		mLooppos = looppos;
++		mCpuspeed = cpuspeed;
++		mChipspeed = chipspeed;
++		mYm = (flags & 64) != 0;
+ 		return SO_NO_ERROR;
+ 	}
+ 

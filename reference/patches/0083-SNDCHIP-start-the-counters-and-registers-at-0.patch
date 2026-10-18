@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:10:01 +0300
+Subject: [PATCH] SNDCHIP: start the counters and registers at 0
+
+The constructor left the tone, noise and envelope counters, the noise
+output, the chip type and the registers uninitialised (set_timings then
+applied the registers it had not set): each voice's first period, and
+the noise until its first period, came from whatever memory the chip was
+built in, so two voices of one dump played differently. They now start
+at 0.
+---
+ src/audiosource/ay/sndchip.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/audiosource/ay/sndchip.cpp b/src/audiosource/ay/sndchip.cpp
+index 4ae2300..6182997 100644
+--- a/src/audiosource/ay/sndchip.cpp
++++ b/src/audiosource/ay/sndchip.cpp
+@@ -204,6 +204,12 @@ SNDCHIP::SNDCHIP(SNDBUFFER& buffer)
+                 : SNDRENDER(buffer)
+ {
+         bitA = bitB = bitC = 0;
++        // What set_timings and reset do not set, and the registers
++        // apply_regs reads.
++        ta = tb = tc = tn = te = 0;
++        bitN = 0;
++        chiptype = CHIP_YM;
++        memset(reg, 0, sizeof(reg));
+         set_timings(SNDR_DEFAULT_SYSTICK_RATE, SNDR_DEFAULT_AY_RATE, SNDR_DEFAULT_SAMPLE_RATE);
+         set_chip(CHIP_YM);
+         set_volumes(0x7FFF, SNDR_VOL_YM, SNDR_PAN_ABC);

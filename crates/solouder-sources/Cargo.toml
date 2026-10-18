@@ -8,9 +8,10 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-default = ["monotone", "noise", "sfxr", "tedsid", "vic"]
+default = ["ay", "monotone", "noise", "sfxr", "tedsid", "vic"]
 # WELL512, shared by noise and sfxr.
 prg = []
+ay = ["chipdump"]
 monotone = []
 noise = ["prg"]
 sfxr = ["prg"]

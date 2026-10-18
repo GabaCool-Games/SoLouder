@@ -1,0 +1,86 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:10:08 +0300
+Subject: [PATCH] AyInstance::getAudio: write the right channel at the buffer's
+ stride
+
+ChipPlayer::play wrote the right channel aSamplesToRead floats after the
+left, but the mixer reads it aBufferSize floats after: a read shorter
+than the buffer (at a loop, a seek or the end) put the right channel
+inside the left one's buffer and left the right one stale. play now
+takes the stride.
+---
+ src/audiosource/ay/chipplayer.cpp | 10 +++++-----
+ src/audiosource/ay/chipplayer.h   |  5 +++--
+ src/audiosource/ay/soloud_ay.cpp  |  5 +++--
+ 3 files changed, 11 insertions(+), 9 deletions(-)
+
+diff --git a/src/audiosource/ay/chipplayer.cpp b/src/audiosource/ay/chipplayer.cpp
+index f556975..2042ee3 100644
+--- a/src/audiosource/ay/chipplayer.cpp
++++ b/src/audiosource/ay/chipplayer.cpp
+@@ -57,9 +57,9 @@ void ChipPlayer::set_volumes(SNDCHIP::CHIP_TYPE t, unsigned global_vol, const SN
+ 
+ inline int _min(int a, int b) { return (a < b) ? a : b; }
+ 
+-unsigned ChipPlayer::play(float *dst, unsigned need_samples)
++unsigned ChipPlayer::play(float *dst, unsigned need_samples, unsigned stride)
+ {
+-	unsigned stride = need_samples;
++	unsigned requested = need_samples;
+ 	while (need_samples)
+ 	{
+ 		// read from buffer
+@@ -87,10 +87,10 @@ unsigned ChipPlayer::play(float *dst, unsigned need_samples)
+ 		buffer.samples_read(from_buffer);
+ 
+ 		need_samples -= from_buffer;
+-		if (!need_samples) return stride;
++		if (!need_samples) return requested;
+ 
+ 		if (mInstance->mPos >= mInstance->mParent->mLength)
+-			return stride - need_samples;
++			return requested - need_samples;
+ 
+ 		// render to buffer
+ 		chip.start_frame();
+@@ -130,5 +130,5 @@ unsigned ChipPlayer::play(float *dst, unsigned need_samples)
+ 		chip.end_frame((unsigned)(playtick - frame_tick));
+ 		chip2.end_frame((unsigned)(playtick - frame_tick));
+ 	}
+-	return stride;
++	return requested;
+ }
+diff --git a/src/audiosource/ay/chipplayer.h b/src/audiosource/ay/chipplayer.h
+index 2ed50ca..af31b89 100644
+--- a/src/audiosource/ay/chipplayer.h
++++ b/src/audiosource/ay/chipplayer.h
+@@ -12,8 +12,9 @@ class ChipPlayer
+ {
+  public:
+ 
+-   // play next song chunk to buffer
+-   unsigned play(float *dst, unsigned need_samples);
++   // play next song chunk to buffer: the left channel at dst, the right
++   // at dst + stride
++   unsigned play(float *dst, unsigned need_samples, unsigned stride);
+ 
+    // for internal use by ChipSong class
+    void set_timings(unsigned system_clock_rate, unsigned chip_clock_rate, unsigned sample_rate);
+diff --git a/src/audiosource/ay/soloud_ay.cpp b/src/audiosource/ay/soloud_ay.cpp
+index 21780ca..a41a90b 100644
+--- a/src/audiosource/ay/soloud_ay.cpp
++++ b/src/audiosource/ay/soloud_ay.cpp
+@@ -45,9 +45,10 @@ namespace SoLoud
+ 		mChip = new ChipPlayer(this);
+ 	}
+ 
+-	unsigned int AyInstance::getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int /*aBufferSize*/)
++	unsigned int AyInstance::getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int aBufferSize)
+ 	{
+-		int samples = mChip->play(aBuffer, aSamplesToRead);
++		// The right channel is aBufferSize floats after the left.
++		int samples = mChip->play(aBuffer, aSamplesToRead, aBufferSize);
+ 		return samples;
+ 	}
+ 	

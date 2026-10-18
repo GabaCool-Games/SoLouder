@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "soloud.h"
+#include "soloud_ay.h"
 #include "soloud_bassboostfilter.h"
 #include "soloud_biquadresonantfilter.h"
 #include "soloud_bus.h"

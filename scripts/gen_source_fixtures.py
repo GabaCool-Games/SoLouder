@@ -4,7 +4,8 @@ chipdump/, ...).
 
 SoLoud ships none: sfxr parameter files, Monotone songs and CHIPTUNE
 register dumps are built here field by field, in the layouts
-`Sfxr::loadParamsFile`, `Monotone::loadFile` and `TedSid::loadFile` read,
+`Sfxr::loadParamsFile`, `Monotone::loadFile`, `TedSid::loadFile` and
+`Ay::loadFile` read,
 together with damaged variants. Compressed dumps use the zx7 encoder below,
 written for SoLouder from the format SoLoud's decompressor reads (the zx7
 compressor itself has a different licence).
@@ -333,7 +334,8 @@ def zx7_decompress(data: bytes) -> tuple[bytes, int]:
 
 
 def chip_dump(chip: int, flags: int, ops: list[int], loop_pos: int = 0, compress: bool | None = None,
-              length: int | None = None, data_offset: int = 28) -> bytes:
+              length: int | None = None, data_offset: int = 28, cpu_speed: int = 50,
+              chip_speed: int = 985248) -> bytes:
     """A CHIPTUNE dump: stored (flags bit 0) unless `compress`, in which case
     each 1024-byte chunk is a zx7 stream. `length` overrides the data length."""
     data = b"".join(struct.pack("<H", op) for op in ops)
@@ -343,7 +345,7 @@ def chip_dump(chip: int, flags: int, ops: list[int], loop_pos: int = 0, compress
     if compress is None:
         compress = not flags & 1
     header = b"CHIPTUNE" + struct.pack("<HBBHHHHII", data_offset, chip, flags, chunks, last,
-                                       loop_pos // 1024, loop_pos % 1024, 50, 985248)
+                                       loop_pos // 1024, loop_pos % 1024, cpu_speed, chip_speed)
     if compress:
         payload = b"".join(zx7_compress(data[i:i + 1024]) for i in range(0, len(data), 1024))
     else:
@@ -466,6 +468,85 @@ def ted_tune() -> tuple[list[int], int]:
     return ops, loop
 
 
+def ay_tune(second_chip: bool = False, steps: int = 16) -> list[int]:
+    """Every channel's tone, noise at several periods, every mixer setting
+    used, fixed and enveloped volumes, every envelope shape, register
+    numbers past 15, a pause longer than a frame's room, and a last op that
+    writes. With `second_chip`, writes with bit 4 set drive a second chip.
+    Waits are in ticks."""
+    ops: list[int] = []
+
+    def w(reg: int, value: int, chip2: bool = False) -> None:
+        ops.append((reg | 0x10 if chip2 else reg) << 8 | value)
+
+    def wait(ticks: int) -> None:
+        ops.append(0x8000 | ticks)
+
+    periods = [0x1AB, 0x17C, 0x152, 0x11D, 0x0FD, 0x0E1, 0x0BE, 0x0A9]
+    mixers = [0x38, 0x30, 0x28, 0x18, 0x07, 0x00, 0x3E, 0x2A]
+    for step in range(steps):
+        for ch in range(3):
+            period = periods[(step + 3 * ch) % 8] >> (ch % 2)
+            w(2 * ch, period & 0xFF)
+            w(2 * ch + 1, period >> 8 | 0xF0)  # the high bits are masked off
+        w(6, (step * 3) % 40)  # noise period, past 31 masked
+        w(7, mixers[step % 8])
+        w(8, 0x0F - step % 4)
+        w(9, 0x0A + step % 6)
+        w(10, 0x10 if step % 2 else 0x08)
+        w(11, (step * 37) & 0xFF)
+        w(12, step % 3)
+        w(13, step % 16)  # every envelope shape
+        if step % 5 == 0:
+            w(13, step % 16)  # a rewrite of 13 restarts the envelope
+        if second_chip:
+            w(0, periods[step % 8] & 0xFF, True)
+            w(1, 0, True)
+            w(7, 0x3C, True)
+            w(8, 0x10 if step % 3 else 0x0C, True)
+            w(13, (step + 5) % 16, True)
+        if step == 7:
+            w(0x2E, 0x55)  # an AY masks this to register 14; a YM ignores it
+        wait(1 + step % 3)
+    # A pause longer than a frame's room, the envelope running.
+    w(10, 0x10)
+    w(13, 0x0E)
+    wait(30)
+    w(8, 0)
+    w(9, 0)
+    wait(2)
+    w(7, 0x3F)  # the last op writes (reference patch 0089)
+    return ops
+
+
+def ay_fixtures() -> dict[str, bytes]:
+    tune = ay_tune()
+    turbo = ay_tune(second_chip=True)
+    clock = 1774400
+    files = {
+        "ay_ay.dump": chip_dump(1, 0x01, tune, chip_speed=clock),
+        "ay_ym.zx7.dump": chip_dump(1, 0x40, tune, chip_speed=clock),
+        "ay_turbo.dump": chip_dump(2, 0x41, turbo, chip_speed=clock),
+        "ay_next.zx7.dump": chip_dump(3, 0x00, turbo, cpu_speed=60, chip_speed=2000000),
+        # The slowest speeds the player renders (reference patch 0088).
+        "ay_slow.dump": chip_dump(1, 0x01, ay_tune(steps=4), cpu_speed=11, chip_speed=8 * 44100),
+        "ay_fast.zx7.dump": chip_dump(1, 0x40, tune * 4, cpu_speed=1000, chip_speed=3546900),
+        # Over several chunks, with the loop position at the end, which Ay
+        # does not use.
+        "ay_long.zx7.dump": chip_dump(1, 0x00, ay_tune(steps=96), loop_pos=len(ay_tune(steps=96)) * 2,
+                                      chip_speed=clock),
+    }
+    good = chip_dump(1, 0x01, tune, chip_speed=clock)
+    files["bad_ay_chip_0.dump"] = chip_dump(0, 0x01, tune, chip_speed=clock)
+    files["bad_ay_cpu_0.dump"] = chip_dump(1, 0x01, tune, cpu_speed=0, chip_speed=clock)
+    files["bad_ay_cpu_10.dump"] = chip_dump(1, 0x01, tune, cpu_speed=10, chip_speed=clock)
+    files["bad_ay_chip_speed.dump"] = chip_dump(1, 0x01, tune, chip_speed=8 * 44100 - 1)
+    files["bad_ay_no_chunks.dump"] = good[:12] + b"\0\0" + good[14:]
+    files["bad_ay_cut.dump"] = good[:-3]
+    files["bad_ay_zx7_cut.dump"] = chip_dump(1, 0x40, tune, chip_speed=clock)[:-4]
+    return files
+
+
 def chipdump_fixtures() -> dict[str, bytes]:
     sid, sid_loop = sid_tune()
     ted, ted_loop = ted_tune()
@@ -495,6 +576,7 @@ def chipdump_fixtures() -> dict[str, bytes]:
     files["bad_zx7_overrun.dump"] = chip_dump(0, 0x00, [0] * 20, length=40)[:28] + zx7_compress(bytes(3001))
     packed = chip_dump(0, 0x10, sid, sid_loop)
     files["bad_zx7_cut.dump"] = packed[:-5]
+    files.update(ay_fixtures())
     return files
 
 

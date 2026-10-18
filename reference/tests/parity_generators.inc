@@ -144,7 +144,7 @@
 
 		// `file` with `from` (`path`, default: load; `memory`: loadMem of the
 		// bytes, copied; `file`: loadFile of a DiskFile) for Monotone and
-		// TedSid. The result code, or SO_NO_ERROR when no file is given.
+		// TedSid and Ay. The result code, or SO_NO_ERROR when no file is given.
 		template <class T> SoLoud::result loadSongFile(const Step &step, T &song)
 		{
 			if (step.get("from") && !step.get("file"))
@@ -194,11 +194,36 @@
 			return out;
 		}
 
+		// `tedsid` and `ay`: a new source, loaded as loadSongFile does.
+		template <class T> void chipOp(const Step &step, T *tune)
+		{
+			static const char *const keys[] = { "name", "file", "from" };
+			SoLoud::result code;
+			std::string name;
+			try
+			{
+				checkGeneratorKeys(step, keys, 3);
+				engine(step);
+				name = textArg(step, "name");
+				code = loadSongFile(step, *tune);
+			}
+			catch (...)
+			{
+				delete tune;
+				throw;
+			}
+			sourceSettings(step, *tune);
+			storeGenerator(name, tune);
+			std::ostringstream line;
+			line << step.op << " " << name << " " << code;
+			logLine(line);
+		}
+
 		static bool isGeneratorOp(const std::string &op)
 		{
 			return op == "noise" || op == "noise_set" || op == "vic" || op == "vic_set" || op == "vic_query" ||
 				op == "sfxr" || op == "sfxr_load" || op == "sfxr_reset" || op == "sfxr_query" || op == "monotone" ||
-				op == "monotone_set" || op == "monotone_query" || op == "tedsid";
+				op == "monotone_set" || op == "monotone_query" || op == "tedsid" || op == "ay";
 		}
 
 		void generatorOp(const Step &step)
@@ -358,27 +383,8 @@
 				}
 				logLine(line);
 			}
-			static const char *const tedsidKeys[] = { "name", "file", "from" };
 			if (step.op == "tedsid")
-			{
-				checkGeneratorKeys(step, tedsidKeys, 3);
-				engine(step);
-				std::string name = textArg(step, "name");
-				SoLoud::TedSid *tune = new SoLoud::TedSid;
-				SoLoud::result code;
-				try
-				{
-					code = loadSongFile(step, *tune);
-				}
-				catch (...)
-				{
-					delete tune;
-					throw;
-				}
-				sourceSettings(step, *tune);
-				storeGenerator(name, tune);
-				std::ostringstream line;
-				line << "tedsid " << name << " " << code;
-				logLine(line);
-			}
+				chipOp(step, new SoLoud::TedSid);
+			else if (step.op == "ay")
+				chipOp(step, new SoLoud::Ay);
 		}

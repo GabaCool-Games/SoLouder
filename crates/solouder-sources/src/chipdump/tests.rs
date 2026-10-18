@@ -28,13 +28,13 @@ fn headers_are_checked() {
     assert_eq!((good.length, good.loop_pos, good.flags), (8, 2, 1));
     assert_eq!((good.cpu_speed, good.chip_speed), (50, 985_248));
     assert_eq!(good.ops, ops);
-    assert!(good.loop_waits());
     let bad = |bytes: &[u8]| ChipDump::parse(bytes, &[0]).unwrap_err();
     assert!(matches!(
         ChipDump::parse(&dump(&ops, 0), &[1, 2]).unwrap_err(),
         ChipDumpError::UnsupportedChip(0)
     ));
-    assert!(matches!(bad(&dump(&ops, 8)), ChipDumpError::BadHeader));
+    // The loop position is checked by TedSid, which uses it.
+    assert_eq!(ChipDump::parse(&dump(&ops, 8), &[0]).unwrap().loop_pos, 8);
     let mut bytes = dump(&ops, 0);
     bytes[12] = 0;
     assert!(matches!(bad(&bytes), ChipDumpError::BadHeader));
@@ -56,16 +56,17 @@ fn headers_are_checked() {
     bytes[14] = 7;
     let odd = ChipDump::parse(&bytes, &[0]).unwrap();
     assert_eq!(odd.ops[3], 0x0034);
-    assert!(
-        !ChipDump::parse(&dump(&[0x8100, 0x0400, 0x0401, 0x0402], 2), &[0])
-            .unwrap()
-            .loop_waits()
-    );
-    assert!(
-        !ChipDump::parse(&dump(&[0x8000, 0x0400, 0x0401, 0x0402], 0), &[0])
-            .unwrap()
-            .loop_waits()
-    );
+}
+
+#[cfg(feature = "tedsid")]
+#[test]
+fn loops_must_wait() {
+    let ops = [0x1811, 0x8100, 0x0400, 0x8200];
+    assert!(ChipDump::parse(&dump(&ops, 2), &[0]).unwrap().loop_waits());
+    let after_the_wait = dump(&[0x8100, 0x0400, 0x0401, 0x0402], 2);
+    assert!(!ChipDump::parse(&after_the_wait, &[0]).unwrap().loop_waits());
+    let zero_wait = dump(&[0x8000, 0x0400, 0x0401, 0x0402], 0);
+    assert!(!ChipDump::parse(&zero_wait, &[0]).unwrap().loop_waits());
 }
 
 #[test]

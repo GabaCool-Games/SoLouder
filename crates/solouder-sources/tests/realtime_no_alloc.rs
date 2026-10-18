@@ -1,11 +1,11 @@
 //! Generators through the real-time split: `Renderer::render` must not
 //! allocate or free memory while synths play, loop, seek, end and play in
 //! a queue, and while a Vic's registers and model and a Monotone's
-//! settings change under their voices (noise, Vic, sfxr, Monotone and
-//! TedSid voices, looping and not), and must render exactly what an offline
-//! [`Mixer`] given the same calls renders. Generator instances are built
-//! when a voice is prepared, on the game thread, so only the reads run on
-//! the audio thread.
+//! settings change under their voices (noise, Vic, sfxr, Monotone, TedSid
+//! and Ay voices, looping and not, an Ay restarting its chips as it loops),
+//! and must render exactly what an offline [`Mixer`] given the same calls
+//! renders. Generator instances are built when a voice is prepared, on the
+//! game thread, so only the reads run on the audio thread.
 //!
 //! The counting allocator is global, so this file holds a single test.
 
@@ -17,7 +17,7 @@ use solouder_core::{
     Controller, Generator, GeneratorContext, GeneratorInstance, Mixer, MixerConfig, Queue,
     Renderer, Synth,
 };
-use solouder_sources::{Monotone, Noise, NoiseType, Sfxr, SfxrPreset, TedSid, Vic, VicModel};
+use solouder_sources::{Ay, Monotone, Noise, NoiseType, Sfxr, SfxrPreset, TedSid, Vic, VicModel};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 #[global_allocator]
@@ -133,6 +133,22 @@ const TEDSID_DUMP: &[u8] = include_bytes!(concat!(
     "/../../tests/fixtures/chipdump/sidted.zx7.dump"
 ));
 
+/// An Ay dump of a tone and noise for 3 ticks at 50 Hz (2646 frames),
+/// looping, so it restarts its chips several times.
+fn looping_ay() -> Synth {
+    let ops: [u16; 6] = [0x0730, 0x0080, 0x080f, 0x0605, 0x8002, 0x8001];
+    let mut dump = b"CHIPTUNE".to_vec();
+    for word in [28, 0x101, 1, 12, 0, 0] {
+        dump.extend_from_slice(&(word as u16).to_le_bytes());
+    }
+    dump.extend_from_slice(&50_u32.to_le_bytes());
+    dump.extend_from_slice(&1_774_400_u32.to_le_bytes());
+    dump.extend(ops.iter().flat_map(|op| op.to_le_bytes()));
+    let mut synth = Synth::new(Arc::new(Ay::from_bytes(&dump).unwrap())).unwrap();
+    synth.set_looping(true);
+    synth
+}
+
 fn ramp(frames: usize, rewinds: bool, looping: bool) -> Synth {
     let mut synth = Synth::new(Arc::new(Ramp { frames, rewinds })).unwrap();
     synth.set_looping(looping);
@@ -184,6 +200,7 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
         Synth::new(Arc::new(song.clone())).unwrap(),
         // SID and TED together, from zx7 chunks.
         Synth::new(Arc::new(TedSid::from_bytes(TEDSID_DUMP).unwrap())).unwrap(),
+        looping_ay(),
     ];
     let mut ids = Vec::new();
     let mut handles = Vec::new();

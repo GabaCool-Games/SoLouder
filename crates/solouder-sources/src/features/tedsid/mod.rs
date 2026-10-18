@@ -17,7 +17,7 @@ use std::sync::Arc;
 use solouder_core::{Generator, GeneratorContext, GeneratorInstance};
 
 use crate::chipdump::ChipDump;
-pub use crate::chipdump::ChipDumpError;
+use crate::chipdump::ChipDumpError;
 use sid::{Sid, TED_SOUND_CLOCK};
 use ted::Ted;
 
@@ -79,6 +79,10 @@ impl TedSid {
     }
 
     fn with_dump(dump: ChipDump) -> Result<Self, ChipDumpError> {
+        // The loop must be inside the data (reference patch 0078).
+        if dump.loop_pos >= dump.length {
+            return Err(ChipDumpError::BadHeader);
+        }
         if !dump.loop_waits() {
             return Err(ChipDumpError::NoWait);
         }

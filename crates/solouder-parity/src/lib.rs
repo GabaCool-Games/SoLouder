@@ -5,6 +5,7 @@
 //! repository root; the C++ side is `reference/tests/parity_runner.cpp`.
 
 mod bus_ops;
+mod chip_ops;
 mod compare;
 mod fade_ops;
 mod fft_ops;
@@ -21,7 +22,6 @@ pub mod scenario;
 mod sfxr_ops;
 mod spatial_ops;
 mod stream_ops;
-mod tedsid_ops;
 mod vic_ops;
 mod voice_ops;
 

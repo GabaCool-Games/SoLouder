@@ -119,6 +119,7 @@ names: a sound, stream, bus or queue of the same name is found first.
 | `monotone_set` | `name` (a monotone), `hardware`, `waveform` | `Monotone::setParams`, as for `monotone`; playing voices use the new values from their next block. | `monotone_set <name> <code>` |
 | `monotone_query` | `name` | Reads `mHardwareChannels`, `mWaveform` and `mSong`. | `monotone_query <name> hardware=<n> waveform=<n> patterns=<n> tracks=<n> title=<hex> comment=<hex> order=<256 bytes in hex>` |
 | `tedsid` | `name`, `file` with `from` (`path`, default, `memory` or `file`; without `file` there is no dump), source settings | A new `TedSid`, then `load` of the path, `loadMem` of the bytes (copied) or `loadFile` of a `DiskFile`. A failed load leaves no dump: voices play the idle chips. Storing again under a name stops the old one's voices. | `tedsid <name> <load code>` |
+| `ay` | `name`, `file` with `from` (`path`, default, `memory` or `file`; without `file` there is no dump), source settings | A new `Ay` (C++ API; the C API has no `Ay_load`), then `load` of the path, `loadMem` of the bytes (copied) or `loadFile` of a `DiskFile`. A failed load leaves no dump: voices end at once. Storing again under a name stops the old one's voices. | `ay <name> <load code>` |
 
 Every operation except `tolerance`, `init`, `samples` and `fft` needs a
 successful `init`. Unknown sound or handle names are scenario errors. `<code>` is the

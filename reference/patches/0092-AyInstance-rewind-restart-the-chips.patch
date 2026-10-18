@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:12:10 +0300
+Subject: [PATCH] AyInstance::rewind: restart the chips
+
+rewind only went back to the first op: the chips kept their registers,
+counters and envelopes, and the player's buffer its samples, so a looped
+voice did not start the dump again, and a seek back (a rewind, then
+samples discarded) was offset by the stale samples. rewind now starts a
+new player, as a new voice has.
+---
+ src/audiosource/ay/soloud_ay.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/audiosource/ay/soloud_ay.cpp b/src/audiosource/ay/soloud_ay.cpp
+index 92a56b6..6bc8ea1 100644
+--- a/src/audiosource/ay/soloud_ay.cpp
++++ b/src/audiosource/ay/soloud_ay.cpp
+@@ -61,6 +61,9 @@ namespace SoLoud
+ 
+ 	result AyInstance::rewind()
+ 	{
++		// Start the chips and their buffer again, as a new voice does.
++		delete mChip;
++		mChip = new ChipPlayer(this);
+ 		mPos = 0;
+ 		return SO_NO_ERROR;
+ 	}

@@ -62,6 +62,15 @@ repository's license and contain no third-party audio.
   `bad_data_offset` have bad headers; `bad_cut` ends in its data;
   `bad_no_wait` and `bad_zero_waits` loop without waiting;
   `bad_zx7_overrun` decompresses past its length and `bad_zx7_cut` ends
-  in a compressed chunk.
+  in a compressed chunk. AY dumps (`ay_*`): one AY chip, a YM chip
+  (flag 64), TurboSound and TurboSound Next (chip types 2 and 3, with
+  writes to a second chip), the slowest tick rate and chip clock the
+  player renders (`ay_slow`), a fast tick rate (`ay_fast`), and several
+  chunks with the loop position at the end, which Ay does not use
+  (`ay_long`); each tune uses every tone, noise, mixer and envelope
+  setting, a pause longer than a frame and a last op that writes.
+  `bad_ay_chip_0` is a TedSid chip type, `bad_ay_cpu_0`, `bad_ay_cpu_10`
+  and `bad_ay_chip_speed` have speeds the player cannot render, and
+  `bad_ay_no_chunks`, `bad_ay_cut` and `bad_ay_zx7_cut` are damaged.
 
 Change a fixture by editing the generator and rerunning it, never by hand.

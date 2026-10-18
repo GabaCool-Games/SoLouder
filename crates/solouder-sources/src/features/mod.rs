@@ -1,5 +1,7 @@
 //! One module per source.
 
+#[cfg(feature = "ay")]
+pub mod ay;
 #[cfg(feature = "monotone")]
 pub mod monotone;
 #[cfg(feature = "noise")]

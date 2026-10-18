@@ -34,9 +34,9 @@ pub enum ChipDumpError {
     NotChipTune,
     /// A chip type this source does not play.
     UnsupportedChip(u8),
-    /// No chunks, a loop position at or past the data's end, or a data
-    /// offset past the file's end (reference patch 0078; SoLoud read
-    /// outside its data).
+    /// No chunks, a data offset past the file's end, or for `TedSid` a
+    /// loop position at or past the data's end (reference patches 0078 and
+    /// 0086; SoLoud read outside its data).
     BadHeader,
     /// A zx7 chunk reads past the data or writes past the ops (reference
     /// patch 0080).
@@ -44,6 +44,10 @@ pub enum ChipDumpError {
     /// The loop never waits, so playing it would never return (reference
     /// patch 0079).
     NoWait,
+    /// For `Ay`, a tick rate below 11 Hz or a chip clock below 352800 Hz,
+    /// which its player cannot render (reference patch 0088; SoLoud divided
+    /// by zero, spun, or overran its buffer).
+    UnsupportedSpeed,
     /// Longer than 80 MiB.
     TooLarge,
     /// Reading failed.
@@ -61,6 +65,9 @@ impl fmt::Display for ChipDumpError {
             }
             Self::BadCompression => f.write_str("a compressed chunk of the chip dump is damaged"),
             Self::NoWait => f.write_str("the chip dump's loop never waits"),
+            Self::UnsupportedSpeed => {
+                f.write_str("the chip dump's tick rate or chip clock is too slow")
+            }
             Self::TooLarge => f.write_str("the chip dump is longer than 80 MiB"),
             Self::Io(error) => write!(f, "reading the chip dump failed: {error}"),
         }
@@ -77,15 +84,13 @@ impl std::error::Error for ChipDumpError {
 }
 
 /// A loaded dump.
-// `chip`, `cpu_speed` and `chip_speed` are for Ay (milestone F unit 5b).
-#[allow(dead_code)]
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct ChipDump {
     pub(crate) chip: u8,
     pub(crate) flags: u8,
     /// The data's length in bytes, at least 1.
     pub(crate) length: usize,
-    /// Where playing continues after the end, below `length`.
+    /// Where `TedSid` continues after the end; `Ay` does not use it.
     pub(crate) loop_pos: usize,
     pub(crate) cpu_speed: u32,
     pub(crate) chip_speed: u32,
@@ -137,7 +142,7 @@ impl ChipDump {
             return Err(ChipDumpError::BadHeader);
         }
         let length = (chunks - 1) * 1024 + last_chunk;
-        if length == 0 || loop_pos >= length {
+        if length == 0 {
             return Err(ChipDumpError::BadHeader);
         }
         let data = &bytes[data_offset..];
@@ -177,6 +182,7 @@ impl ChipDump {
 
     /// Whether the loop holds a wait of more than 0 (bit 15 set): TedSid's
     /// player reads operations until one waits.
+    #[cfg(feature = "tedsid")]
     pub(crate) fn loop_waits(&self) -> bool {
         (self.loop_pos..self.length)
             .step_by(2)

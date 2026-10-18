@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:12:09 +0300
+Subject: [PATCH] AyInstance::hasEnded: end once the buffered samples are
+ played
+
+hasEnded turned true as soon as the ops were read, while up to a frame
+of rendered samples (about 0.1 seconds) was still in the player's buffer,
+so the end of every dump was cut off. A voice now ends once the ops are
+read, any wait is played and the buffer is empty.
+---
+ src/audiosource/ay/chipplayer.cpp | 8 ++++++++
+ src/audiosource/ay/chipplayer.h   | 3 +++
+ src/audiosource/ay/soloud_ay.cpp  | 4 +++-
+ 3 files changed, 14 insertions(+), 1 deletion(-)
+
+diff --git a/src/audiosource/ay/chipplayer.cpp b/src/audiosource/ay/chipplayer.cpp
+index 873b3f3..3d8e867 100644
+--- a/src/audiosource/ay/chipplayer.cpp
++++ b/src/audiosource/ay/chipplayer.cpp
+@@ -56,6 +56,14 @@ void ChipPlayer::set_volumes(SNDCHIP::CHIP_TYPE t, unsigned global_vol, const SN
+ 	chip2.set_volumes(global_vol / VOL_DIV, vt, pt);
+ }
+ 
++unsigned ChipPlayer::buffered()
++{
++	buffer.count_start();
++	buffer.count(chip);
++	buffer.count(chip2);
++	return buffer.count_end();
++}
++
+ inline int _min(int a, int b) { return (a < b) ? a : b; }
+ 
+ unsigned ChipPlayer::play(float *dst, unsigned need_samples, unsigned stride)
+diff --git a/src/audiosource/ay/chipplayer.h b/src/audiosource/ay/chipplayer.h
+index 9957693..96ea7a6 100644
+--- a/src/audiosource/ay/chipplayer.h
++++ b/src/audiosource/ay/chipplayer.h
+@@ -39,6 +39,9 @@ class ChipPlayer
+    unsigned ticks_per_buffer;
+ 
+    unsigned get_time(unsigned tick);
++
++   // samples rendered and not yet played
++   unsigned buffered();
+ };
+ 
+ #endif // _CHIPPLAYER_H_INCLUDED
+diff --git a/src/audiosource/ay/soloud_ay.cpp b/src/audiosource/ay/soloud_ay.cpp
+index c898e67..92a56b6 100644
+--- a/src/audiosource/ay/soloud_ay.cpp
++++ b/src/audiosource/ay/soloud_ay.cpp
+@@ -54,7 +54,9 @@ namespace SoLoud
+ 	
+ 	bool AyInstance::hasEnded()
+ 	{
+-		return mParent->mLength <= mPos;
++		// Once the ops are read, any wait is played, and the buffer is
++		// empty.
++		return mParent->mLength <= mPos && mChip->pendingticks == 0 && mChip->buffered() == 0;
+ 	}
+ 
+ 	result AyInstance::rewind()

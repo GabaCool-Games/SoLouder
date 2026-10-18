@@ -1,0 +1,314 @@
+# Ay (milestone F unit 5b): AY and YM dumps, stored and zx7-compressed,
+# with every tone, noise and mixer setting, fixed and enveloped volumes,
+# every envelope shape, register numbers past 15 and a pause longer than
+# a frame's room (reference patch 0090); TurboSound and TurboSound Next
+# dumps driving a second chip; the slowest speeds (patch 0088) and a fast
+# tick rate; a dump over several chunks; registers of both chips through
+# getInfo; each dump's last write (patch 0089) and tail (patch 0091)
+# played; looping voices restarting their chips (patch 0092), with
+# reads shorter than the buffer (patch 0084) and a loop point; storing a
+# name again stopping its voices; damaged dumps from a path, memory and
+# a DiskFile failing (patches 0085 to 0088) and ending at once; seeks
+# forward and back; play speeds; a filter; and a 48 kHz engine.
+init channels=2
+# ay_ay.dump
+ay name=g0 file=chipdump/ay_ay.dump
+play sound=g0 as=g0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g0 from=0 to=15
+voice_info h=g0 from=16 to=31
+voice_info h=g0 from=32 to=63
+query h=g0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g0 from=0 to=13
+query h=g0
+counts
+stop_all
+
+# ay_ym.zx7.dump
+ay name=g1 file=chipdump/ay_ym.zx7.dump from=memory
+play sound=g1 as=g1
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g1 from=0 to=15
+voice_info h=g1 from=16 to=31
+voice_info h=g1 from=32 to=63
+query h=g1
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g1 from=0 to=13
+query h=g1
+counts
+stop_all
+
+# ay_turbo.dump
+ay name=g2 file=chipdump/ay_turbo.dump from=file
+play sound=g2 as=g2
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g2 from=0 to=15
+voice_info h=g2 from=16 to=31
+voice_info h=g2 from=32 to=63
+query h=g2
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g2 from=0 to=13
+query h=g2
+counts
+stop_all
+
+# ay_next.zx7.dump
+ay name=g3 file=chipdump/ay_next.zx7.dump
+play sound=g3 as=g3
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g3 from=0 to=15
+voice_info h=g3 from=16 to=31
+voice_info h=g3 from=32 to=63
+query h=g3
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g3 from=0 to=13
+query h=g3
+counts
+stop_all
+
+# ay_slow.dump
+ay name=g4 file=chipdump/ay_slow.dump from=memory
+play sound=g4 as=g4
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g4 from=0 to=15
+voice_info h=g4 from=16 to=31
+voice_info h=g4 from=32 to=63
+query h=g4
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g4 from=0 to=13
+query h=g4
+counts
+stop_all
+
+# ay_fast.zx7.dump
+ay name=g5 file=chipdump/ay_fast.zx7.dump from=file
+play sound=g5 as=g5
+mix frames=4096
+voice_info h=g5 from=0 to=15
+voice_info h=g5 from=16 to=31
+voice_info h=g5 from=32 to=63
+query h=g5
+mix frames=4096
+mix frames=4096
+voice_info h=g5 from=0 to=13
+query h=g5
+counts
+stop_all
+
+# ay_long.zx7.dump
+ay name=g6 file=chipdump/ay_long.zx7.dump
+play sound=g6 as=g6
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g6 from=0 to=15
+voice_info h=g6 from=16 to=31
+voice_info h=g6 from=32 to=63
+query h=g6
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g6 from=0 to=13
+query h=g6
+counts
+stop_all
+
+# Looping voices: the dump ends, the chips start again, and the read
+# that wraps is shorter than the buffer; one loops to a loop point.
+ay name=loop file=chipdump/ay_ym.zx7.dump looping=1
+ay name=point file=chipdump/ay_turbo.dump looping=1 loop_point=0.4
+play sound=loop as=a pan=-0.5
+play sound=point as=b pan=0.5 volume=0.7
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=a
+query h=b
+voice_info h=b from=16 to=29
+ay name=loop file=chipdump/ay_ay.dump
+counts
+mix frames=4096
+mix frames=4096
+stop_all
+
+# Seeks forward, then back (a rewind and a discard), play speeds and a
+# low-pass filter.
+ay name=seek file=chipdump/ay_next.zx7.dump
+filter name=low kind=biquad type=lowpass freq=2500 res=2
+sound_filter sound=seek slot=0 filter=low
+play sound=seek as=s
+mix frames=4096
+mix frames=4096
+set h=s seek=0.6
+query h=s
+mix frames=4096
+mix frames=4096
+set h=s seek=0.1
+query h=s
+mix frames=4096
+mix frames=4096
+set h=s speed=1.7
+mix frames=4096
+mix frames=4096
+mix frames=4096
+set h=s speed=0.45
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# Damaged dumps fail and end at once.
+ay name=bad0_0 file=chipdump/bad_ay_chip_0.dump
+ay name=bad0_1 file=chipdump/bad_ay_chip_0.dump from=memory
+ay name=bad0_2 file=chipdump/bad_ay_chip_0.dump from=file
+ay name=bad1_0 file=chipdump/bad_ay_cpu_0.dump
+ay name=bad1_1 file=chipdump/bad_ay_cpu_0.dump from=memory
+ay name=bad1_2 file=chipdump/bad_ay_cpu_0.dump from=file
+ay name=bad2_0 file=chipdump/bad_ay_cpu_10.dump
+ay name=bad2_1 file=chipdump/bad_ay_cpu_10.dump from=memory
+ay name=bad2_2 file=chipdump/bad_ay_cpu_10.dump from=file
+ay name=bad3_0 file=chipdump/bad_ay_chip_speed.dump
+ay name=bad3_1 file=chipdump/bad_ay_chip_speed.dump from=memory
+ay name=bad3_2 file=chipdump/bad_ay_chip_speed.dump from=file
+ay name=bad4_0 file=chipdump/bad_ay_no_chunks.dump
+ay name=bad4_1 file=chipdump/bad_ay_no_chunks.dump from=memory
+ay name=bad4_2 file=chipdump/bad_ay_no_chunks.dump from=file
+ay name=bad5_0 file=chipdump/bad_ay_cut.dump
+ay name=bad5_1 file=chipdump/bad_ay_cut.dump from=memory
+ay name=bad5_2 file=chipdump/bad_ay_cut.dump from=file
+ay name=bad6_0 file=chipdump/bad_ay_zx7_cut.dump
+ay name=bad6_1 file=chipdump/bad_ay_zx7_cut.dump from=memory
+ay name=bad6_2 file=chipdump/bad_ay_zx7_cut.dump from=file
+ay name=bad7_0 file=chipdump/bad_short.dump
+ay name=bad7_1 file=chipdump/bad_short.dump from=memory
+ay name=bad7_2 file=chipdump/bad_short.dump from=file
+ay name=bad8_0 file=chipdump/bad_magic.dump
+ay name=bad8_1 file=chipdump/bad_magic.dump from=memory
+ay name=bad8_2 file=chipdump/bad_magic.dump from=file
+ay name=bad9_0 file=chipdump/bad_zx7_overrun.dump
+ay name=bad9_1 file=chipdump/bad_zx7_overrun.dump from=memory
+ay name=bad9_2 file=chipdump/bad_zx7_overrun.dump from=file
+ay name=none
+play sound=bad1_0 as=x
+play sound=none as=y
+mix frames=4096
+counts
+
+# A 48 kHz engine.
+init channels=2 rate=48000
+ay name=ym file=chipdump/ay_ym.zx7.dump
+ay name=next file=chipdump/ay_next.zx7.dump from=memory volume=0.5
+play sound=ym as=t
+play sound=next as=u
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=u from=16 to=29
