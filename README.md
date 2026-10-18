@@ -7,19 +7,19 @@ while shipping SoLoud in a Unity game.
 **SoLouder is an altered version of SoLoud. It is not the original SoLoud and
 is not affiliated with or endorsed by SoLoud's authors.** SoLoud was created by
 Jari Komppa and developed with many contributors; see
-[CONTRIBUTORS.md](CONTRIBUTORS.md).
+[CONTRIBUTORS.md](https://github.com/GabaCool-Games/SoLouder/blob/main/CONTRIBUTORS.md).
 
 ## Status
 
-All six milestones of [the plan](docs/PORTING.md#milestones-and-acceptance-gates)
+All six milestones of [the plan](https://github.com/GabaCool-Games/SoLouder/blob/main/docs/PORTING.md#milestones-and-acceptance-gates)
 are done: SoLouder plays WAV, FLAC, Ogg Vorbis and MP3 files (decoded or
 streamed) and SoLoud's generated sources (Sfxr, speech, Vizsn, noise,
 Monotone, TedSid, Vic, AY) on an audio device, from plain Rust or from Bevy
 entities, with SoLoud's voice controls, fades, voice groups, filters, buses,
-queues, 3D audio and visualization. Verified on Windows (WASAPI) and in a
-Linux container; macOS is configured in CI but has never run, and no CI
-job has run on a host yet. [docs/port-status.md](docs/port-status.md) has
-the details, and [the milestone F review](docs/PORTING.md#milestone-f-review)
+queues, 3D audio and visualization. Played on Windows (WASAPI) and on Linux
+(PulseAudio); CI tests Windows, Linux and macOS (arm64), but has played no
+macOS device yet. [docs/port-status.md](https://github.com/GabaCool-Games/SoLouder/blob/main/docs/port-status.md) has
+the details, and [the milestone F review](https://github.com/GabaCool-Games/SoLouder/blob/main/docs/PORTING.md#milestone-f-review)
 lists what stays open.
 
 - **A patched C++ reference.** Upstream SoLoud, pinned in
@@ -28,9 +28,9 @@ lists what stays open.
   upstream, including the WavStream seek heap corruption
   ([#405](https://github.com/jarikomppa/soloud/issues/405)). Every behavioral
   fix has a C++ regression test in `reference/tests/`.
-- **A parity ledger.** [docs/parity-ledger.csv](docs/parity-ledger.csv) lists
+- **A parity ledger.** [docs/parity-ledger.csv](https://github.com/GabaCool-Games/SoLouder/blob/main/docs/parity-ledger.csv) lists
   every behavior of SoLoud's C API, 208 of them. That is the 1:1 target.
-- **A parity harness.** 56 scenarios in [tests/scenarios/](tests/scenarios/)
+- **A parity harness.** 56 scenarios in [tests/scenarios/](https://github.com/GabaCool-Games/SoLouder/tree/main/tests/scenarios/)
   run through both the C++ reference and the Rust port, and the outputs are
   compared sample by sample. All match bit for bit except one documented
   8-bit WAV conversion, on Windows and on Linux.
@@ -48,10 +48,27 @@ lists what stays open.
   - `solouder-parity`: the harness.
   - `solouder-bench`: render-time benchmarks against the C++ reference and a
     multi-threaded soak test (not published).
-- **Design and porting guides.** [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
-  and [docs/PORTING.md](docs/PORTING.md).
+- **Design and porting guides.** [docs/ARCHITECTURE.md](https://github.com/GabaCool-Games/SoLouder/blob/main/docs/ARCHITECTURE.md)
+  and [docs/PORTING.md](https://github.com/GabaCool-Games/SoLouder/blob/main/docs/PORTING.md).
 
-## Getting started
+## Using it
+
+The crates are on crates.io:
+
+| Crate | What it is |
+|---|---|
+| `solouder-core` | The mixer: voices, filters, buses, queues, 3D audio. No device, no Bevy. |
+| `solouder-decoders` | WAV, FLAC, Ogg Vorbis and MP3, decoded or streamed. |
+| `solouder-sources` | SoLoud's generated sources (Sfxr, speech, Vizsn, noise, Monotone, TedSid, Vic, AY). |
+| `solouder-cpal` | Device output through CPAL. |
+| `bevy_solouder` | The Bevy plugin. |
+
+```sh
+cargo add solouder-core solouder-decoders solouder-cpal   # plain Rust
+cargo add bevy_solouder                                   # Bevy
+```
+
+## Developing
 
 Requirements: Python 3.10+, Git and Rust (the version in
 `rust-toolchain.toml`; rustup installs it). The C++ reference tests and the
@@ -87,6 +104,6 @@ cargo run -p bevy_solouder --example play_and_despawn
 
 ## License
 
-zlib/libpng, the same as SoLoud ([LICENSE](LICENSE)). Third-party code is
-listed in [THIRD_PARTY.md](THIRD_PARTY.md). Contributions: see
-[CONTRIBUTING.md](CONTRIBUTING.md) and [CONTRIBUTORS.md](CONTRIBUTORS.md).
+zlib/libpng, the same as SoLoud ([LICENSE](https://github.com/GabaCool-Games/SoLouder/blob/main/LICENSE)). Third-party code is
+listed in [THIRD_PARTY.md](https://github.com/GabaCool-Games/SoLouder/blob/main/THIRD_PARTY.md). Contributions: see
+[CONTRIBUTING.md](https://github.com/GabaCool-Games/SoLouder/blob/main/CONTRIBUTING.md) and [CONTRIBUTORS.md](https://github.com/GabaCool-Games/SoLouder/blob/main/CONTRIBUTORS.md).
