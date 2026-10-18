@@ -37,6 +37,7 @@
 #include "soloud_robotizefilter.h"
 #include "soloud_monotone.h"
 #include "soloud_sfxr.h"
+#include "soloud_tedsid.h"
 #include "soloud_vic.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_wav.h"
@@ -1374,6 +1375,27 @@ namespace
 					<< " loop_point=" << hex64(s.getLoopPoint(h))
 					<< " auto_stop=" << (s.getAutoStop(h) ? 1 : 0)
 					<< " info=" << hex32(s.getInfo(h, 0));
+				logLine(line);
+			}
+			else if (step.op == "voice_info")
+			{
+				static const char *const keys[] = { "h", "from", "to" };
+				checkKeys(step, keys, 3);
+				std::string name = textArg(step, "h");
+				SoLoud::handle h = handleArg(step);
+				unsigned int from = uintArg(step, "from", false, 0);
+				unsigned int to = uintArg(step, "to", false, from);
+				if (to < from || to - from > 255)
+					throw ScenarioError(step.line, "`to` must be from `from` to `from` + 255");
+				SoLoud::Soloud &s = engine(step);
+				std::ostringstream line;
+				line << "voice_info " << name;
+				for (unsigned int key = from;; key++)
+				{
+					line << " " << key << "=" << hex32(s.getInfo(h, key));
+					if (key == to)
+						break;
+				}
 				logLine(line);
 			}
 			else if (step.op == "mix16")

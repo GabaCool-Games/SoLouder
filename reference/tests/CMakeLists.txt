@@ -123,6 +123,13 @@ set(REFERENCE_TESTS
   monotone_note_table_is_filled
   monotone_slow_rate_does_not_divide_by_zero
   monotone_first_slide_starts_at_zero
+  tedsid_model_from_dump
+  tedsid_reload_stops_voices
+  tedsid_header_is_checked
+  tedsid_loop_without_wait_fails
+  tedsid_zx7_stays_in_bounds
+  sid_envelope_rate_starts_in_range
+  sid_attack_from_full_level_wraps
 )
 
 enable_testing()

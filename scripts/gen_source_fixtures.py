@@ -1,9 +1,13 @@
 #!/usr/bin/env python3
-"""Generate the generator fixtures in tests/fixtures/ (sfxr/, monotone/, ...).
+"""Generate the generator fixtures in tests/fixtures/ (sfxr/, monotone/,
+chipdump/, ...).
 
-SoLoud ships none: sfxr parameter files and Monotone songs are built here
-field by field, in the layouts `Sfxr::loadParamsFile` and
-`Monotone::loadFile` read, together with damaged variants.
+SoLoud ships none: sfxr parameter files, Monotone songs and CHIPTUNE
+register dumps are built here field by field, in the layouts
+`Sfxr::loadParamsFile`, `Monotone::loadFile` and `TedSid::loadFile` read,
+together with damaged variants. Compressed dumps use the zx7 encoder below,
+written for SoLouder from the format SoLoud's decompressor reads (the zx7
+compressor itself has a different licence).
 Every file is deterministic. With --check, fail if a committed fixture
 differs from what this script generates.
 """
@@ -217,13 +221,291 @@ def monotone_fixtures() -> dict[str, bytes]:
     return files
 
 
+# zx7: a literal first byte, then a flag bit per step: 0 and a literal, or
+# 1, an Elias gamma length - 1 and an offset - 1 (a byte, or for 128 and
+# more a byte with its top bit set and 4 more bits). 16 zeros and a 1 end it.
+class BitWriter:
+    def __init__(self) -> None:
+        self.out = bytearray()
+        self.bit_index = -1
+        self.mask = 0
+
+    def byte(self, value: int) -> None:
+        self.out.append(value)
+
+    def bit(self, value: int) -> None:
+        if self.mask == 0:
+            self.bit_index = len(self.out)
+            self.out.append(0)
+            self.mask = 128
+        if value:
+            self.out[self.bit_index] |= self.mask
+        self.mask >>= 1
+
+    def gamma(self, value: int) -> None:
+        bits = value.bit_length()
+        for _ in range(bits - 1):
+            self.bit(0)
+        self.bit(1)
+        for i in range(bits - 2, -1, -1):
+            self.bit((value >> i) & 1)
+
+
+def zx7_compress(data: bytes) -> bytes:
+    assert data
+    w = BitWriter()
+    w.byte(data[0])
+    i = 1
+    while i < len(data):
+        best_len, best_off = 0, 0
+        for off in range(1, min(i, 2176) + 1):
+            n = 0
+            while i + n < len(data) and n < 65536 and data[i + n] == data[i + n - off]:
+                n += 1
+            if n > best_len:
+                best_len, best_off = n, off
+        if best_len >= 2:
+            w.bit(1)
+            w.gamma(best_len - 1)
+            o = best_off - 1
+            if o < 128:
+                w.byte(o)
+            else:
+                o -= 128
+                w.byte((o & 127) | 128)
+                for b in (8, 4, 2, 1):
+                    w.bit(1 if (o >> 7) & b else 0)
+            i += best_len
+        else:
+            w.bit(0)
+            w.byte(data[i])
+            i += 1
+    w.bit(1)
+    for _ in range(16):
+        w.bit(0)
+    w.bit(1)
+    return bytes(w.out)
+
+
+def zx7_decompress(data: bytes) -> tuple[bytes, int]:
+    pos = 0
+    mask = 0
+    value = 0
+    out = bytearray()
+
+    def byte() -> int:
+        nonlocal pos
+        b = data[pos]
+        pos += 1
+        return b
+
+    def bit() -> int:
+        nonlocal mask, value
+        mask >>= 1
+        if mask == 0:
+            mask = 128
+            value = byte()
+        return 1 if value & mask else 0
+
+    out.append(byte())
+    while True:
+        if not bit():
+            out.append(byte())
+            continue
+        i = 0
+        while not bit():
+            i += 1
+        if i > 15:
+            return bytes(out), pos
+        v = 1
+        for _ in range(i):
+            v = v << 1 | bit()
+        length = v + 1
+        o = byte()
+        if o >= 128:
+            hi = 0
+            for _ in range(4):
+                hi = hi << 1 | bit()
+            o = (o & 127 | hi << 7) + 128
+        off = o + 1
+        for _ in range(length):
+            out.append(out[len(out) - off])
+
+
+def chip_dump(chip: int, flags: int, ops: list[int], loop_pos: int = 0, compress: bool | None = None,
+              length: int | None = None, data_offset: int = 28) -> bytes:
+    """A CHIPTUNE dump: stored (flags bit 0) unless `compress`, in which case
+    each 1024-byte chunk is a zx7 stream. `length` overrides the data length."""
+    data = b"".join(struct.pack("<H", op) for op in ops)
+    size = len(data) if length is None else length
+    chunks = (size + 1023) // 1024
+    last = size - (chunks - 1) * 1024 if chunks else 0
+    if compress is None:
+        compress = not flags & 1
+    header = b"CHIPTUNE" + struct.pack("<HBBHHHHII", data_offset, chip, flags, chunks, last,
+                                       loop_pos // 1024, loop_pos % 1024, 50, 985248)
+    if compress:
+        payload = b"".join(zx7_compress(data[i:i + 1024]) for i in range(0, len(data), 1024))
+    else:
+        payload = data
+    return header + b"\0" * (data_offset - 28) + payload
+
+
+def sid_tune() -> tuple[list[int], int]:
+    """Every waveform, ring modulation, sync, the test bit, every filter
+    type with a cutoff sweep and resonance, voice 3 muted, an attack from
+    full level, a release from 0, and a waveform past 8. Returns the ops and
+    the loop position (after the volume)."""
+    ops: list[int] = []
+
+    def w(reg: int, value: int) -> None:
+        ops.append(reg << 8 | value)
+
+    def wait(samples: int) -> None:
+        while samples > 0:
+            ops.append(0x8000 | min(samples, 0x7FFF))
+            samples -= 0x7FFF
+
+    w(24, 0x0F)
+    loop = len(ops) * 2
+    freqs = [0x1167, 0x1389, 0x15ED, 0x1A13, 0x1D45, 0x22D0, 0x2710, 0x0C8F]
+    waves = [0x11, 0x21, 0x41, 0x81, 0x31, 0x51, 0x61, 0x71, 0x15, 0x23, 0x45, 0x91]
+    for v in range(3):
+        w(7 * v + 5, 0x19 + v * 0x22)
+        w(7 * v + 6, 0xA4 - v * 0x31)
+        w(7 * v + 2, 0x00)
+        w(7 * v + 3, 0x08 - v * 2)
+    for step, wave in enumerate(waves):
+        for v in range(3):
+            f = freqs[(step + 3 * v) % len(freqs)] >> v
+            w(7 * v + 0, f & 0xFF)
+            w(7 * v + 1, f >> 8)
+            w(7 * v + 4, wave if v == step % 3 else (0x11, 0x41, 0x21)[v])
+        wait(5000 + 700 * (step % 4))
+        for v in range(3):
+            w(7 * v + 4, (wave if v == step % 3 else 0x10) & 0xFE)
+        wait(1500)
+    # The test bit, held and released.
+    w(4, 0x49)
+    wait(800)
+    w(4, 0x41)
+    wait(2500)
+    # Filters: every type over a cutoff sweep, all voices filtered.
+    w(23, 0xF7)
+    for kind in range(8):
+        w(24, kind << 4 | 0x0F)
+        for v in range(3):
+            w(7 * v + 4, (0x21, 0x41, 0x81)[v])
+        for cut in range(0, 256, 37):
+            w(22, cut)
+            w(21, cut & 7)
+            wait(600)
+        for v in range(3):
+            w(7 * v + 4, (0x20, 0x40, 0x80)[v])
+        wait(400)
+    w(23, 0x03)
+    w(24, 0x8F)  # voice 3 muted
+    w(18, 0x21)
+    wait(3000)
+    w(24, 0x0F)
+    # An attack from full level: gate off and on with no wait between.
+    w(5, 0x00)
+    w(6, 0xF0)
+    w(4, 0x11)
+    wait(4000)
+    w(4, 0x10)
+    w(4, 0x11)
+    wait(6000)
+    # A release from level 0: decay to 0, then gate off.
+    w(12, 0x00)
+    w(13, 0x00)
+    w(11, 0x21)
+    wait(8000)
+    w(11, 0x20)
+    wait(5000)
+    for v in range(3):
+        w(7 * v + 4, 0x00)
+    wait(2000)
+    return ops, loop
+
+
+def ted_tune() -> tuple[list[int], int]:
+    """Both oscillators, noise, volumes, the DC frequency 0x3FE, high
+    frequency bits, and the digital mode."""
+    ops: list[int] = []
+
+    def w(reg: int, value: int) -> None:
+        ops.append((64 + reg) << 8 | value)
+
+    def wait(samples: int) -> None:
+        ops.append(0x8000 | samples)
+
+    w(3, 0x08)
+    loop = len(ops) * 2
+    for step in range(16):
+        f1 = 0x300 + step * 23
+        f2 = 0x280 + step * 31
+        w(0, f1 & 0xFF)
+        w(4, f1 >> 8)
+        w(1, f2 & 0xFF)
+        w(2, f2 >> 8)
+        w(3, (0x10, 0x20, 0x30, 0x40, 0x50, 0x60)[step % 6] | (step % 9))
+        wait(4000 + 300 * (step % 5))
+    w(0, 0xFE)
+    w(4, 0x03)  # 0x3FE: a constant level
+    w(3, 0x18)
+    wait(2000)
+    w(4, 0xFF)  # bits past 0x300
+    w(3, 0x38)
+    wait(2000)
+    for value in (0x98, 0xB8, 0x88, 0x38):
+        w(3, value)  # digital mode
+        wait(1500)
+    w(3, 0x00)
+    wait(1000)
+    return ops, loop
+
+
+def chipdump_fixtures() -> dict[str, bytes]:
+    sid, sid_loop = sid_tune()
+    ted, ted_loop = ted_tune()
+    both = sid[:1] + ted[:1] + sid[1:] + ted[1:]
+    files = {
+        "sid_6581.dump": chip_dump(0, 0x01, sid, sid_loop),
+        "sid_8580.zx7.dump": chip_dump(0, 0x10, sid, sid_loop),
+        "sid_8580db.dump": chip_dump(0, 0x21, sid, sid_loop),
+        "sid_6581r1.zx7.dump": chip_dump(0, 0x30, sid, sid_loop),
+        "ted.dump": chip_dump(4, 0x01, ted, ted_loop),
+        # Over several chunks, looping into the second, from an odd byte.
+        "sidted.zx7.dump": chip_dump(5, 0x10, both, 1025),
+        "sidted_6.dump": chip_dump(6, 0x01, both, 4, data_offset=40),
+        # An odd length: the last op's high byte is 0.
+        "odd_length.dump": chip_dump(0, 0x01, sid, sid_loop, length=len(sid) * 2 - 1),
+    }
+    good = chip_dump(0, 0x01, sid, sid_loop)
+    files["bad_short.dump"] = good[:33]
+    files["bad_magic.dump"] = b"CHIPTUNA" + good[8:]
+    files["bad_chip_1.dump"] = chip_dump(1, 0x01, sid, sid_loop)
+    files["bad_no_chunks.dump"] = good[:12] + b"\0\0" + good[14:]
+    files["bad_loop_end.dump"] = chip_dump(0, 0x01, sid, len(sid) * 2)
+    files["bad_data_offset.dump"] = good[:8] + struct.pack("<H", len(good) + 1) + good[10:]
+    files["bad_cut.dump"] = good[:-3]
+    files["bad_no_wait.dump"] = chip_dump(0, 0x01, [0x180F, 0x0411, 0x0122] * 4)
+    files["bad_zero_waits.dump"] = chip_dump(0, 0x01, [0x8100, 0x180F, 0x8000, 0x0411], loop_pos=2)
+    files["bad_zx7_overrun.dump"] = chip_dump(0, 0x00, [0] * 20, length=40)[:28] + zx7_compress(bytes(3001))
+    packed = chip_dump(0, 0x10, sid, sid_loop)
+    files["bad_zx7_cut.dump"] = packed[:-5]
+    return files
+
+
 def fixtures() -> dict[str, bytes]:
     out = {f"sfxr/{name}": data for name, data in sfxr_fixtures().items()}
     out.update({f"monotone/{name}": data for name, data in monotone_fixtures().items()})
+    out.update({f"chipdump/{name}": data for name, data in chipdump_fixtures().items()})
     return out
 
 
-GLOBS = ["sfxr/*.sfx", "monotone/*.mon"]
+GLOBS = ["sfxr/*.sfx", "monotone/*.mon", "chipdump/*.dump"]
 
 
 def main(argv: list[str] | None = None) -> int:

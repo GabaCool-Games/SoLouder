@@ -6,6 +6,8 @@
 //! their audio on the audio thread without allocating. Each source has a
 //! Cargo feature of its own.
 
+#[cfg(feature = "chipdump")]
+mod chipdump;
 mod features;
 #[cfg(feature = "prg")]
 mod prg;
@@ -16,6 +18,8 @@ pub use features::monotone::{MONOTONE_CHANNELS, Monotone, MonotoneError, Monoton
 pub use features::noise::{Noise, NoiseType, OCTAVES};
 #[cfg(feature = "sfxr")]
 pub use features::sfxr::{Sfxr, SfxrError, SfxrParams, SfxrPreset};
+#[cfg(feature = "tedsid")]
+pub use features::tedsid::{ChipDumpError, SidModel, TedSid};
 #[cfg(feature = "vic")]
 pub use features::vic::{RegisterOutOfRange, VIC_REGISTERS, Vic, VicModel};
 #[cfg(feature = "prg")]

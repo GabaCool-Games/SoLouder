@@ -50,7 +50,7 @@ available on the offline `Mixer` only (see "Real-time coverage" below).
 | `solouder-core` | `features/realtime` | `split`, `Controller` (plays, voice and global controls, fades and schedules, filters and their parameters, bus settings and `annex_sound`, queued sounds), `Renderer`, `StreamWorker` (decodes streams ahead into per-voice feeds), `VoiceId`, `FilterTarget`, `Event`, `Status`, `RealtimeConfig`; voices and filter instances prepared on the game thread, and ended voices, replaced filters and rejected queue sounds retired to it |
 | `solouder-decoders` | `features/decoded_audio` | `decode` (Ogg Vorbis, WAV, FLAC or MPEG audio by the first bytes), `decode_wav` (a bounds-checked RIFF reader with dr_wav's sample conversions), `decode_flac` (a port of dr_flac's decoding path, in `decoded_audio/flac/`), `decode_ogg` (a port of stb_vorbis's pull-mode decoder, in `decoded_audio/vorbis/`), `decode_mp3` (a port of dr_mp3 and minimp3, layers 1 to 3, in `decoded_audio/mp3/`), `DecodeLimits`, `DecodeError` |
 | `solouder-decoders` | `features/streaming` | `WavStream` for WAV, FLAC, Ogg Vorbis and MPEG audio (a file, bytes or a file read into memory; per-voice readers: WAV seeks by frame, Ogg finds the target's Vorbis frame, FLAC and MPEG decode up to the target) |
-| `solouder-sources` | `prg`, `features/monotone`, `features/noise`, `features/sfxr`, `features/vic` | SoLoud's generators, one Cargo feature each: `Prg` (WELL512), `Noise` (white, pink, brownish, blueish and custom octave weights) `Sfxr` (sfxr sound effects from seeded presets and parameter files), `Monotone` (PC-speaker tracker songs) and `Vic` (the VIC-20 sound chip, registers and model live); played through `solouder_core::Synth` |
+| `solouder-sources` | `prg`, `chipdump`, `features/monotone`, `features/noise`, `features/sfxr`, `features/tedsid`, `features/vic` | SoLoud's generators, one Cargo feature each: `Prg` (WELL512), `Noise` (white, pink, brownish, blueish and custom octave weights) `Sfxr` (sfxr sound effects from seeded presets and parameter files), `Monotone` (PC-speaker tracker songs), `TedSid` (Commodore 64 SID and Plus/4 TED register dumps) and `Vic` (the VIC-20 sound chip, registers and model live); played through `solouder_core::Synth` |
 | `solouder-cpal` | `features/output_lifecycle` | `open`, `Output` (state, info, close), `OutputConfig`, stream negotiation, the panic-guarded callback with sample-format conversion |
 | `bevy_solouder` | `decoded_audio`, `output_lifecycle`, `playback` | `SolouderPlugin`, `AudioClip` (decoded or streamed) and `WavLoader` (`WavSettings::stream`), the stream worker (a thread with a device, `HeadlessStreamWorker` headless), `OutputMode` (device or headless), `AudioOutput`, `SoundPlayer`, `PlaybackSettings`, `SoundStatus`, `SoundFinished`/`SoundFailed` |
 | `solouder-parity` | — | Scenario parser, test patterns, fixture loading, Rust runner, comparison with C++ output |
@@ -69,7 +69,7 @@ source-level 3D defaults; `play3d`, `set3dListenerParameters` and
 Doppler (unit 7). Milestone F unit 1 ports the `Noise` rows, `Wav::loadFile`,
 `WavStream::loadFile` and `loadFileToMem`, and closes the `Wav` and
 `WavStream` lifecycles; unit 2 ports the `Vic` rows, unit 3 the `Sfxr`
-rows and unit 4 the `Monotone` rows.
+rows, unit 4 the `Monotone` rows and unit 5a the `TedSid` rows.
 
 Generators (milestone F): SoLoud's audio sources other than files, buses and
 queues implement `solouder_core::Generator`; a `Synth` plays one, alone, in a
@@ -129,6 +129,7 @@ fails with `CannotSeekBack`.
 | `vic` | Each oscillator and noise, off below 128 and at 255, registers and the model written between mixes reaching playing voices at their next block, register indices past the last (patch 0064), PAL and NTSC, two voices, speed, rate, seeks forward and back, the suggested lowpass, looping, single instance, 3D, a queue, a 48 kHz engine | 37,345 |
 | `sfxr` | All seven presets with four seeds each (two wrapping the seed arithmetic), each played through its decaying tail; an unknown preset; parameter files of versions 100 to 102 from a path, memory and a `DiskFile`, an unknown wave type, a filter byte of 2 (patch 0066), trailing bytes, damaged files that change nothing (patch 0065), version 100 keeping earlier values; settings changing for later plays only; looping inside the source and switched off; speed, rate, seeks forward and back (patch 0067); an echo, a queue and a queue seek; a 48 kHz engine | 1,165,872 |
 | `monotone` | A song using every effect, including a slide from 0 Hz (patch 0075), vibrato on note 1 (patch 0073) and notes past 99 (patch 0072), on one hardware channel then four, changed while playing; every waveform and one past the last; order and row jumps into a missing pattern; twelve tracks on three hardware channels, thirteen refused (patch 0071); an order without an end marker passing its 256th entry; long titles (patch 0070); damaged songs from a path, memory and a `DiskFile` failing and playing silence (patches 0068, 0069); a play speed below 60 Hz (patch 0074); seeks forward and back; a filter; a 48 kHz engine | 1,212,416 |
+| `tedsid` | SID dumps for each model, from the dump's flags (patch 0076), stored and zx7-compressed, with every SID waveform, ring modulation, sync, the test bit, every filter type over a cutoff sweep and an attack from full level (patch 0081); a TED dump with both voices and noise; both chips over two zx7 chunks looping from an odd byte; chip type 6 with a later data offset; an odd length; registers through `getInfo`; storing under a name again stopping its voices; damaged dumps from a path, memory and a `DiskFile` failing (patches 0078 to 0080) and playing the idle chips; seeks forward and back; play speeds; a filter; a 48 kHz engine | 778,240 |
 
 Samples are compared bit for bit, except that zero and subnormal values all
 count as zero, because the C++ build flushes subnormals. Every scenario has
@@ -212,6 +213,7 @@ Rust 1.98.1, no device).
 | Vic registers | `setRegister` and `getRegister` take any `int` (patch 0064 ignores, and reads 0, past the last) | `set_register` returns `Err(RegisterOutOfRange)` and `register` returns `None` | There are no silent failures |
 | Sfxr settings | `SfxrParams` is a public member; `loadPreset` takes an `int` and `loadParamsMem` rejects empty memory with `INVALID_PARAMETER` | `Sfxr` guards its settings with a mutex (`params`, `set_params`, loaders taking `&self`), read when a voice is prepared on the game thread; `SfxrPreset` names the presets; loaders return `SfxrError` (an empty slice is an unknown version 0); `load_params_reader` reads at most 128 bytes | Shared sounds change safely; the audio thread never locks |
 | Monotone songs | `load*` replace the song of an existing `Monotone`, stopping its voices; a failed load leaves it empty | `Monotone::open`, `from_bytes` and `from_reader` build a new one (`Monotone::new` is the empty song); `set_params` takes `&self` and voices read it every block; `MonotoneError` says why a song was refused | Songs are immutable and shared by their voices |
+| TedSid dumps | `load*` replace the dump of an existing `TedSid` (stopping its voices since patch 0077); a failed load leaves no dump | `TedSid::open`, `from_bytes` and `from_reader` build a new one (`TedSid::new` has no dump); `ChipDumpError` says why a dump was refused; dumps are read up to 80 MiB | Dumps are immutable and shared by their voices |
 | Streams in real time | Played like any source; the audio thread reads the file | A `StreamWorker` thread opens and decodes each voice's stream ahead of it into a bounded buffer (`RealtimeConfig::stream_chunks`). A voice waits silently, without advancing, until its audio arrives at the start and after a seek the worker had not anticipated (loop wraps are anticipated); if the worker falls behind, the voice plays silence without advancing, counted in `Status::stream_underflow_frames`. A source that can no longer rewind ends the voice, and so does losing the worker once the audio it decoded has played (new streams then fail with `ControllerError::NoStreamWorker`). Fades, scheduled events and the stream position keep running while a voice waits; a seek counts from the audio actually played | File reads on the audio thread can stall it |
 | Unknown files | `Wav::load` and `WavStream` detect Ogg, WAV and FLAC by their first four bytes and try MP3 for anything else | The same; bytes that hold no MPEG audio report `NotRecognized` | — |
 | FLAC frame with a bad checksum | dr_flac, built with `DR_FLAC_NO_CRC`, checks neither frame nor header checksums and plays the frame; it stops at a frame it cannot decode | Both checksums are checked. A frame that fails either, or fails to decode, is dropped and its frames are silent (resident and streamed), so the frames after it keep their place, even after a run of damaged frames; the search for the next frame resumes just after the damaged frame's sync code, so a frame starting inside a rejected header is still found (dr_flac searches on from the end of what it read) | A damaged frame is more likely noise than audio |
@@ -246,7 +248,7 @@ Rust 1.98.1, no device).
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0024 and 0026
-to 0057, and 0060 to 0075 (pan ramp leftovers, surround fold-down volumes, no-free-voice
+to 0057, and 0060 to 0082 (pan ramp leftovers, surround fold-down volumes, no-free-voice
 handling, raw layout validation, the #343 hang, protection and ticking not
 recomputing the active voices, sound endings dropped when a mix ends
 mid-block, the hang on a negative sample rate, seeks scaled by play speed,
@@ -273,7 +275,11 @@ envelope, Monotone songs uninitialised before a load and left half loaded after 
 failed one, short Monotone files loading, titles past their 40 bytes,
 more than 12 tracks or hardware channels, note, order and pattern
 indices out of range, the note table's unset entry 1, a tick of 0
-samples below 60 Hz, and uninitialised channel frequencies) are
+samples below 60 Hz, uninitialised channel frequencies, the TedSid SID
+model read from the source's 3D flags, chip dumps reloaded under their
+voices, dump sizes and loop positions out of range, loops that never
+wait, unbounded zx7 decompression, SID envelope levels past 8 bits, and
+the SID envelope rate starting as a period instead of an index) are
 listed in
 [PORTING.md](PORTING.md#reference-patch-ledger). Patch 0025 (sounds, buses
 and queues that outlive their engine or play on several engines) has no Rust

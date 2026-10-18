@@ -422,6 +422,13 @@ unpatched reference, and each needs a matching Rust test.
 | 0073 | — (found porting milestone F) | `Monotone`'s constructor filled the note table below note 1 down to entry 2 only; vibrato on note 1 reads entry 1, which was uninitialised. The table now continues to entry 1. | `monotone_note_table_is_filled` |
 | 0074 | — (found porting milestone F) | `MonotoneInstance::getAudio` took `floor(rate / 60)` samples a tick, so below 60 Hz (a slow play speed) it took the sample count modulo 0. A tick is now at least a sample. | `monotone_slow_rate_does_not_divide_by_zero` |
 | 0075 | — (found porting milestone F) | `MonotoneInstance`'s constructor left each channel's frequencies and slide uninitialised, and a slide to a note on a channel's first row started from them. They now start at 0. | `monotone_first_slide_starts_at_zero` |
+| 0076 | — (milestone F plan) | `TedSid::loadFile` picked the SID model from bits 4 and 5 of `mFlags`, the source's own 3D flags, instead of the flags byte just read from the dump, so every dump played as a 6581 unless the source had those 3D settings. | `tedsid_model_from_dump` |
+| 0077 | — (milestone F plan) | `TedSid::loadFile` freed the ops without stopping the voices, which then read freed memory. It now stops them first, as the destructor does. | `tedsid_reload_stops_voices` |
+| 0078 | — (milestone F plan) | `TedSid::loadFile` used the header's sizes as they were: no chunks asked `new[]` for a negative size, a loop position at or past the end read past the ops, a data offset past the file's end read a negative length, and a short file left ops uninitialised; the loop position's halves were read in one expression, in either order. Such dumps now fail with `FILE_LOAD_FAILED`, the halves are read in turn, and the ops are zeroed and set only once loaded. | `tedsid_header_is_checked` |
+| 0079 | — (milestone F plan) | `TedSidInstance::tick` reads ops until one waits, so a dump whose loop held no wait, or only waits of 0, spun forever on the audio thread. Such dumps now fail with `FILE_LOAD_FAILED`. | `tedsid_loop_without_wait_fails` |
+| 0080 | — (milestone F plan) | `zx7_decompress` read and wrote without bounds, so a dump's compressed chunks could write past its ops and read past its data. A new `zx7_decompress_bounded` stops at both ends and a chunk going outside fails the load. | `tedsid_zx7_stays_in_bounds` |
+| 0081 | — (found porting milestone F) | `SIDsound::doEnvelopeGenerator`: an attack from level 0xFF (a gate turned off and on while sustaining at full level) counted on to 0x1FF, reading `envGenDRdivisors` past its end. The level now wraps from 0xFF to 0, as in reSID. | `sid_attack_from_full_level_wraps` |
+| 0082 | — (found porting milestone F) | `SIDsound::reset` set `envCounterCompare`, an index into `RateCountPeriod`, to `RateCountPeriod[0]` (0x7F00), so until a gate or rate write every envelope step read far past the table (a crash in GCC builds). It now starts at 0. | `sid_envelope_rate_starts_in_range` |
 
 The fork is public at [kelo221/soloud](https://github.com/kelo221/soloud)
 (`master`, pushed from the maintainer's working branch). Its README lists every
@@ -1010,7 +1017,7 @@ Rules for units 1 to 8:
    a slide to a note on a channel's first row starts from them (0075).
    The sample counter and slides wrap on overflow (after 13 hours, or
    days of sliding), as MSVC does. Bit-exact.
-5. **TedSid, then Ay**, as 5a and 5b. TedSid: `soloud_tedsid` 222, sid 623+180,
+5. **TedSid, then Ay**, as 5a (done; patches 0076 to 0082) and 5b. TedSid: `soloud_tedsid` 222, sid 623+180,
    ted 236+43, tedplay (Unlicense). AY: `soloud_ay` 179, chipplayer, sndbuffer,
    sndchip and sndrender together 991 lines (SMT, public domain). Both use zx7
    (114). Integer emulation; the SID's filter tables use `tanh`/`exp` in
@@ -1027,6 +1034,28 @@ Rules for units 1 to 8:
      a CPU speed of 0 divides by zero.
    - `mLooppos` is read but never used; `rewind` keeps the chip state.
    Scenarios `tedsid`, `ay`, including `getInfo`.
+   Done (5a): `solouder_sources::TedSid` (feature `tedsid`) with
+   `SidModel` and `ChipDumpError`, over a `chipdump` module (the header,
+   stored data and a bounded zx7 decompressor) that Ay will share. As
+   for Monotone, a dump is parsed into an immutable value shared by its
+   voices, so Rust has constructors instead of reloading. `getInfo`
+   (`GeneratorInstance::info`) reports register `key & 127`; scenarios
+   read it with the new `voice_info` operation. Patches: the SID model
+   from the dump's flags (0076), voices stopped before a reload frees
+   their ops (0077), header sizes, the data offset and the loop position
+   checked, the loop position's halves read in turn and the ops zeroed
+   (0078), loops without a wait refused (0079), and zx7 chunks
+   decompressed within their bounds by a new `zx7_decompress_bounded`
+   (0080; Ay keeps the old one until 5b). Found while porting: an attack
+   from level 0xFF counted on to 0x1FF and read past the decay table, so
+   the level now wraps at 8 bits, as in reSID (0081); and `reset` set
+   each envelope's rate to the first period (0x7F00) instead of its
+   index, which read far past the table (a GCC crash; 0082). Kept as in
+   SoLoud: the filter's cutoff stays 0 until a cutoff register is
+   written, a release from level 0 wraps to 255, and only the TED's
+   square and noise are ported (SoLoud never selects its other
+   waveforms). The filter tables use `tanh` and `exp` from the platform
+   libm, like MSVC. Bit-exact.
 6. **Speech** (`soloud_speech` 148, klatt 1074+152, tts 1425, darray 92,
    resonator 117, `Elements.def` 1659; rsynth public domain, `soloud_speech.*`
    zlib). The noise generator is klatt's own LCG (seed 5); `PI` is a `float`

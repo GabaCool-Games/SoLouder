@@ -94,6 +94,7 @@ impl State {
             "set" => self.set(step),
             "global" => self.global(step),
             "query" => self.query(step),
+            "voice_info" => self.voice_info(step),
             "counts" => self.counts(step),
             "fade" => self.fade(step),
             "oscillate" => self.oscillate(step),

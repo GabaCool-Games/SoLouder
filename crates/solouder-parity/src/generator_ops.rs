@@ -40,6 +40,7 @@ pub(crate) fn is_generator_op(op: &str) -> bool {
             | "monotone"
             | "monotone_set"
             | "monotone_query"
+            | "tedsid"
     )
 }
 
@@ -99,6 +100,7 @@ impl State {
             op if op.starts_with("vic") => self.vic_op(step),
             op if op.starts_with("sfxr") => self.sfxr_op(step),
             op if op.starts_with("monotone") => self.monotone_op(step),
+            op if op.starts_with("tedsid") => self.tedsid_op(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }

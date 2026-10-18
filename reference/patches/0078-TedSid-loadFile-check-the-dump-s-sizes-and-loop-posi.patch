@@ -1,0 +1,84 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:41:02 +0300
+Subject: [PATCH] TedSid::loadFile: check the dump's sizes and loop position
+
+The header's sizes were used as they were: a dump of no chunks asked
+new[] for a negative size, a loop position at or past the end made the
+voices read past the ops, a data offset past the file's end read a
+negative length, and a short file left the missing ops uninitialised.
+The two halves of the loop position were also read in one expression,
+in either order. Such dumps now fail with FILE_LOAD_FAILED; the halves
+are read in turn; the ops are zeroed, and set only once loaded.
+---
+ src/audiosource/tedsid/soloud_tedsid.cpp | 27 +++++++++++++++++++-----
+ 1 file changed, 22 insertions(+), 5 deletions(-)
+
+diff --git a/src/audiosource/tedsid/soloud_tedsid.cpp b/src/audiosource/tedsid/soloud_tedsid.cpp
+index 8e58d21..734bc79 100644
+--- a/src/audiosource/tedsid/soloud_tedsid.cpp
++++ b/src/audiosource/tedsid/soloud_tedsid.cpp
+@@ -171,6 +171,8 @@ namespace SoLoud
+ 		stop();
+ 		delete[] mOps;
+ 		mOps = 0;
++		mLength = 0;
++		mLooppos = 0;
+ 		// Expect a file wih header and at least one reg write
+ 		if (aFile->length() < 34) return FILE_LOAD_FAILED;
+ 
+@@ -184,22 +186,34 @@ namespace SoLoud
+ 		int flags = aFile->read8();
+ 		int kchunks = aFile->read16();
+ 		int lastchunk = aFile->read16();
+-		mLength = (kchunks - 1) * 1024 + lastchunk;
+-		mLooppos = aFile->read16() * 1024 + aFile->read16();
++		// Read in turn: the operands of one expression may be read in
++		// either order.
++		int loopchunk = aFile->read16();
++		int loopofs = aFile->read16();
++		int length = (kchunks - 1) * 1024 + lastchunk;
++		int looppos = loopchunk * 1024 + loopofs;
+ 		aFile->read32(); // cpuspeed
+ 		aFile->read32(); // chipspeed
++		// The ops must be in the file, and the loop inside them.
++		if (kchunks == 0 || length <= 0 || looppos >= length || dataofs > (int)aFile->length())
++			return FILE_LOAD_FAILED;
+ 		// The dump's flags, not the source's (mFlags, whose bits 4 and 5 are
+ 		// 3D settings), give the SID model.
+ 		if ((flags & (16 | 32)) ==  0) mModel = SID6581;
+ 		if ((flags & (16 | 32)) == 16) mModel = SID8580;
+ 		if ((flags & (16 | 32)) == 32) mModel = SID8580DB;
+ 		if ((flags & (16 | 32)) == 48) mModel = SID6581R1;
+-		mOps = new unsigned short[mLength];
++		// Zeroed: an odd last byte makes an op with a high byte of 0.
++		unsigned short *ops = new unsigned short[(length + 1) / 2]();
+ 		aFile->seek(dataofs);
+ 		if (flags & 1)
+ 		{
+ 			// uncompressed
+-			aFile->read((unsigned char*)mOps, mLength);
++			if (aFile->read((unsigned char*)ops, length) != (unsigned int)length)
++			{
++				delete[] ops;
++				return FILE_LOAD_FAILED;
++			}
+ 		}
+ 		else
+ 		{
+@@ -210,11 +224,14 @@ namespace SoLoud
+ 			int bufofs = 0;
+ 			for (int i = 0; i < kchunks; i++)
+ 			{
+-				bufofs += zx7_decompress(buf + bufofs, ((unsigned char*)mOps) + i * 1024);
++				bufofs += zx7_decompress(buf + bufofs, ((unsigned char*)ops) + i * 1024);
+ 			}
+ 			delete[] buf;
+ 		}
+ 
++		mOps = ops;
++		mLength = length;
++		mLooppos = looppos;
+ 		return SO_NO_ERROR;
+ 	}
+ 

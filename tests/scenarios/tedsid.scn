@@ -1,0 +1,246 @@
+# TedSid (milestone F unit 5a): SID dumps for each model, taken from the
+# dump's flags (reference patch 0076), stored and zx7-compressed; every
+# SID waveform, ring modulation, sync, the test bit, every filter type
+# over a cutoff sweep, an attack from full level (patch 0081) and a
+# release from 0; a TED dump with both voices and noise; SID and TED
+# together over two zx7 chunks looping into the second from an odd
+# byte, and chip type 6 with a later data offset; an odd length; the
+# registers through getInfo; a reload stopping the voices (patch
+# 0077); damaged dumps from a path, memory and a DiskFile failing
+# (patches 0078 to 0080) and playing the idle chips; seeks forward and
+# back (NOT_IMPLEMENTED), play speeds, a filter, and a 48 kHz engine.
+init channels=2
+# sid_6581.dump
+tedsid name=g0 file=chipdump/sid_6581.dump volume=0.8
+play sound=g0 as=g0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g0 from=0 to=31
+voice_info h=g0 from=64 to=68
+voice_info h=g0 from=152 to=156
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# sid_8580.zx7.dump
+tedsid name=g1 file=chipdump/sid_8580.zx7.dump from=memory volume=0.8
+play sound=g1 as=g1
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g1 from=0 to=31
+voice_info h=g1 from=64 to=68
+voice_info h=g1 from=152 to=156
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# sid_8580db.dump
+tedsid name=g2 file=chipdump/sid_8580db.dump from=file volume=0.8
+play sound=g2 as=g2
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g2 from=0 to=31
+voice_info h=g2 from=64 to=68
+voice_info h=g2 from=152 to=156
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# sid_6581r1.zx7.dump
+tedsid name=g3 file=chipdump/sid_6581r1.zx7.dump volume=0.8
+play sound=g3 as=g3
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g3 from=0 to=31
+voice_info h=g3 from=64 to=68
+voice_info h=g3 from=152 to=156
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# ted.dump
+tedsid name=g4 file=chipdump/ted.dump from=memory volume=0.8
+play sound=g4 as=g4
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g4 from=0 to=31
+voice_info h=g4 from=64 to=68
+voice_info h=g4 from=152 to=156
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# sidted.zx7.dump
+tedsid name=g5 file=chipdump/sidted.zx7.dump from=file volume=0.8
+play sound=g5 as=g5
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g5 from=0 to=31
+voice_info h=g5 from=64 to=68
+voice_info h=g5 from=152 to=156
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# sidted_6.dump
+tedsid name=g6 file=chipdump/sidted_6.dump volume=0.8
+play sound=g6 as=g6
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g6 from=0 to=31
+voice_info h=g6 from=64 to=68
+voice_info h=g6 from=152 to=156
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# odd_length.dump
+tedsid name=g7 file=chipdump/odd_length.dump from=memory volume=0.8
+play sound=g7 as=g7
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=g7 from=0 to=31
+voice_info h=g7 from=64 to=68
+voice_info h=g7 from=152 to=156
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# Two voices of one dump, one at twice the speed and panned; then the
+# dump stored again under its name, which stops both.
+tedsid name=both file=chipdump/sidted.zx7.dump looping=1
+play sound=both as=a pan=-0.4
+play sound=both as=b pan=0.5 volume=0.6
+set h=b speed=2
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=a
+query h=b
+counts
+tedsid name=both file=chipdump/sid_8580db.dump
+counts
+mix frames=4096
+play sound=both as=c
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# Seeks forward, then back (NOT_IMPLEMENTED, the voice plays on), and
+# a slow play speed through a low-pass filter.
+tedsid name=seek file=chipdump/sid_6581.dump
+filter name=low kind=biquad type=lowpass freq=3000 res=2
+sound_filter sound=seek slot=0 filter=low
+play sound=seek as=s
+mix frames=4096
+mix frames=4096
+set h=s seek=1.5
+query h=s
+mix frames=4096
+mix frames=4096
+mix frames=4096
+set h=s seek=0.25
+query h=s
+mix frames=4096
+mix frames=4096
+set h=s speed=0.37
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# Damaged dumps fail and play the idle chips.
+tedsid name=bad0_0 file=chipdump/bad_short.dump
+tedsid name=bad0_1 file=chipdump/bad_short.dump from=memory
+tedsid name=bad0_2 file=chipdump/bad_short.dump from=file
+tedsid name=bad1_0 file=chipdump/bad_magic.dump
+tedsid name=bad1_1 file=chipdump/bad_magic.dump from=memory
+tedsid name=bad1_2 file=chipdump/bad_magic.dump from=file
+tedsid name=bad2_0 file=chipdump/bad_chip_1.dump
+tedsid name=bad2_1 file=chipdump/bad_chip_1.dump from=memory
+tedsid name=bad2_2 file=chipdump/bad_chip_1.dump from=file
+tedsid name=bad3_0 file=chipdump/bad_no_chunks.dump
+tedsid name=bad3_1 file=chipdump/bad_no_chunks.dump from=memory
+tedsid name=bad3_2 file=chipdump/bad_no_chunks.dump from=file
+tedsid name=bad4_0 file=chipdump/bad_loop_end.dump
+tedsid name=bad4_1 file=chipdump/bad_loop_end.dump from=memory
+tedsid name=bad4_2 file=chipdump/bad_loop_end.dump from=file
+tedsid name=bad5_0 file=chipdump/bad_data_offset.dump
+tedsid name=bad5_1 file=chipdump/bad_data_offset.dump from=memory
+tedsid name=bad5_2 file=chipdump/bad_data_offset.dump from=file
+tedsid name=bad6_0 file=chipdump/bad_cut.dump
+tedsid name=bad6_1 file=chipdump/bad_cut.dump from=memory
+tedsid name=bad6_2 file=chipdump/bad_cut.dump from=file
+tedsid name=bad7_0 file=chipdump/bad_no_wait.dump
+tedsid name=bad7_1 file=chipdump/bad_no_wait.dump from=memory
+tedsid name=bad7_2 file=chipdump/bad_no_wait.dump from=file
+tedsid name=bad8_0 file=chipdump/bad_zero_waits.dump
+tedsid name=bad8_1 file=chipdump/bad_zero_waits.dump from=memory
+tedsid name=bad8_2 file=chipdump/bad_zero_waits.dump from=file
+tedsid name=bad9_0 file=chipdump/bad_zx7_overrun.dump
+tedsid name=bad9_1 file=chipdump/bad_zx7_overrun.dump from=memory
+tedsid name=bad9_2 file=chipdump/bad_zx7_overrun.dump from=file
+tedsid name=bad10_0 file=chipdump/bad_zx7_cut.dump
+tedsid name=bad10_1 file=chipdump/bad_zx7_cut.dump from=memory
+tedsid name=bad10_2 file=chipdump/bad_zx7_cut.dump from=file
+tedsid name=none
+play sound=bad0_0 as=x
+play sound=none as=y
+mix frames=4096
+mix frames=4096
+voice_info h=x from=0 to=127
+stop_all
+
+# A 48 kHz engine.
+init channels=2 rate=48000
+tedsid name=ted file=chipdump/ted.dump
+tedsid name=sid file=chipdump/sid_8580.zx7.dump from=memory volume=0.5
+play sound=ted as=t
+play sound=sid as=u
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+voice_info h=t from=64 to=68
+voice_info h=u from=0 to=24

@@ -51,6 +51,17 @@ repository's license and contain no third-party audio.
   has title and comment lengths past their 40 bytes and a NUL;
   `trailing` has bytes after its last cell. `bad_magic`, `bad_version_2`,
   `bad_cell_size_1` and `bad_13_tracks` are refused; `bad_cut_*` end in
-  the title, the order and the cells; `bad_empty` is empty.
+  the title, the order and the cells; `bad_empty` is empty. Chip dumps
+  (`chipdump/`, the `CHIPTUNE` layout of SoLoud's `tedsid2dump`; `.zx7`
+  ones are compressed with the script's own zx7 encoder): a SID tune for
+  each model (`sid_6581`, `sid_8580`, `sid_8580db`, `sid_6581r1`), a TED
+  tune (`ted`), both chips over two chunks looping into the second from
+  an odd byte (`sidted`), chip type 6 with a later data offset
+  (`sidted_6`), and an odd length (`odd_length`). `bad_short`,
+  `bad_magic`, `bad_chip_1`, `bad_no_chunks`, `bad_loop_end` and
+  `bad_data_offset` have bad headers; `bad_cut` ends in its data;
+  `bad_no_wait` and `bad_zero_waits` loop without waiting;
+  `bad_zx7_overrun` decompresses past its length and `bad_zx7_cut` ends
+  in a compressed chunk.
 
 Change a fixture by editing the generator and rerunning it, never by hand.

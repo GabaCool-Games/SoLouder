@@ -22,7 +22,7 @@ Soloud::getBackendString,engine,Soloud_getBackendString,output_lifecycle,C,porte
 Soloud::getErrorString,engine,Soloud_getErrorString,playback,B,excluded,,"Errors are Rust enums (ControlError, PcmError, ConfigError, DecodeError) that implement Display; there are no result codes to name."
 Soloud::getFilterParameter,engine,Soloud_getFilterParameter,filters,D,ported,filter_params filters_global,"Mixer::filter_parameter(FilterTarget, slot, param) -> Option<f32>; FilterTarget::Global is handle 0. None where SoLoud returns INVALID_PARAMETER (no filter) or 0 (past the last parameter)."
 Soloud::getGlobalVolume,engine,Soloud_getGlobalVolume,playback,B,ported,fades,
-Soloud::getInfo,engine,Soloud_getInfo,playback,B,ported,voice_controls noise,"Mixer::info answers what the voice's generator defines (GeneratorInstance::info); 0 for Wav, WavStream, buses, queues and Noise, as in the reference. Ay and TedSid answer when they are ported."
+Soloud::getInfo,engine,Soloud_getInfo,playback,B,ported,voice_controls noise tedsid,"Mixer::info answers what the voice's generator defines (GeneratorInstance::info); 0 for Wav, WavStream, buses, queues and Noise, as in the reference. TedSid reports its registers; Ay answers when it is ported."
 Soloud::getLoopCount,engine,Soloud_getLoopCount,playback,B,ported,pause_stop active_voices looping speed_and_resamplers queues,A queue counts each queued sound it finishes.
 Soloud::getLooping,engine,Soloud_getLooping,playback,B,ported,pause_stop active_voices looping speed_and_resamplers,
 Soloud::getLoopPoint,engine,Soloud_getLoopPoint,playback,B,ported,voice_controls,
@@ -157,10 +157,10 @@ Sfxr::resetParams,source,Sfxr_resetParams,sources,F,ported,sfxr,Sfxr::reset_para
 Speech::lifecycle,source,Speech_create Speech_destroy,sources,F,todo,,
 Speech::setParams,source,Speech_setParams Speech_setParamsEx,sources,F,todo,,
 Speech::setText,source,Speech_setText,sources,F,todo,,
-TedSid::lifecycle,source,TedSid_create TedSid_destroy,sources,F,todo,,
-TedSid::load,source,TedSid_load,sources,F,todo,,
-TedSid::loadFile,source,TedSid_loadFile,sources,F,todo,,
-TedSid::loadMem,source,TedSid_loadMem TedSid_loadMemEx,sources,F,todo,,
+TedSid::lifecycle,source,TedSid_create TedSid_destroy,sources,F,ported,tedsid,"solouder_sources::TedSid (TedSid::new has no dump and plays the idle chips), played through Synth; mono at 221680 Hz, never ends, cannot rewind. The SID model comes from the dump's flags (patch 0076; TedSid::model). Mixer::info reports register key & 127. SID envelope levels wrap at 8 bits (patch 0081) and rates start as an index (patch 0082)."
+TedSid::load,source,TedSid_load,sources,F,ported,tedsid,"TedSid::open builds a new TedSid instead of reloading one (patch 0077 stops the voices on a reload in C++). Header sizes, the data offset and the loop position are checked (patch 0078), loops without a wait are refused (patch 0079) and zx7 chunks stay within bounds (patch 0080); errors are ChipDumpError."
+TedSid::loadFile,source,TedSid_loadFile,sources,F,ported,tedsid,"TedSid::from_reader(impl Read), reading to the end, at most 80 MiB (TooLarge)."
+TedSid::loadMem,source,TedSid_loadMem TedSid_loadMemEx,sources,F,ported,tedsid,"TedSid::from_bytes (no aCopy/aTakeOwnership). The reference rejects empty memory with INVALID_PARAMETER; Rust reports Truncated, and the parity runner maps empty memory to INVALID_PARAMETER."
 Vic::getModel,source,Vic_getModel,sources,F,ported,vic,Vic::model.
 Vic::getRegister,source,Vic_getRegister,sources,F,ported,vic,Vic::register returns None past the last (patch 0064: reads 0; it read past the registers).
 Vic::lifecycle,source,Vic_create Vic_destroy,sources,F,ported,vic,"solouder_sources::Vic (Clone shares its registers), played through Synth; mono at 44100 Hz, never ends, cannot rewind. Dropping a Synth does not stop its voices; the parity runner stops them when a name is replaced."

@@ -8,13 +8,16 @@ license.workspace = true
 publish.workspace = true
 
 [features]
-default = ["monotone", "noise", "sfxr", "vic"]
+default = ["monotone", "noise", "sfxr", "tedsid", "vic"]
 # WELL512, shared by noise and sfxr.
 prg = []
 monotone = []
 noise = ["prg"]
 sfxr = ["prg"]
+tedsid = ["chipdump"]
 vic = []
+# Chip register dumps and zx7, shared by tedsid and ay.
+chipdump = []
 
 [dependencies]
 solouder-core.workspace = true

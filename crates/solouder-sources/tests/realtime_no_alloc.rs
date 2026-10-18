@@ -1,8 +1,8 @@
 //! Generators through the real-time split: `Renderer::render` must not
 //! allocate or free memory while synths play, loop, seek, end and play in
 //! a queue, and while a Vic's registers and model and a Monotone's
-//! settings change under their voices (noise, Vic, sfxr and Monotone
-//! voices, looping and not), and must render exactly what an offline
+//! settings change under their voices (noise, Vic, sfxr, Monotone and
+//! TedSid voices, looping and not), and must render exactly what an offline
 //! [`Mixer`] given the same calls renders. Generator instances are built
 //! when a voice is prepared, on the game thread, so only the reads run on
 //! the audio thread.
@@ -17,7 +17,7 @@ use solouder_core::{
     Controller, Generator, GeneratorContext, GeneratorInstance, Mixer, MixerConfig, Queue,
     Renderer, Synth,
 };
-use solouder_sources::{Monotone, Noise, NoiseType, Sfxr, SfxrPreset, Vic, VicModel};
+use solouder_sources::{Monotone, Noise, NoiseType, Sfxr, SfxrPreset, TedSid, Vic, VicModel};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 #[global_allocator]
@@ -128,6 +128,11 @@ fn monotone_song() -> Vec<u8> {
     out
 }
 
+const TEDSID_DUMP: &[u8] = include_bytes!(concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../tests/fixtures/chipdump/sidted.zx7.dump"
+));
+
 fn ramp(frames: usize, rewinds: bool, looping: bool) -> Synth {
     let mut synth = Synth::new(Arc::new(Ramp { frames, rewinds })).unwrap();
     synth.set_looping(looping);
@@ -177,6 +182,8 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
         Synth::new(Arc::new(Sfxr::from_preset(SfxrPreset::Explosion, 5))).unwrap(),
         looping_sfxr(),
         Synth::new(Arc::new(song.clone())).unwrap(),
+        // SID and TED together, from zx7 chunks.
+        Synth::new(Arc::new(TedSid::from_bytes(TEDSID_DUMP).unwrap())).unwrap(),
     ];
     let mut ids = Vec::new();
     let mut handles = Vec::new();
@@ -216,6 +223,8 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
             offline.seek(handles[0], 0.3).unwrap();
             controller.seek(ids[8], 0.9).unwrap();
             offline.seek(handles[8], 0.9).unwrap();
+            controller.seek(ids[9], 0.2).unwrap();
+            offline.seek(handles[9], 0.2).unwrap();
         }
         let frames = [1500, 700, 333][round % 3];
         measured_render(&mut renderer, &mut output[..2 * frames], "playing synths");

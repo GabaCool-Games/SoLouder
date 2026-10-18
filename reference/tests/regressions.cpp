@@ -31,9 +31,14 @@
 #include "soloud_sfxr.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_queue.h"
+#include "soloud_tedsid.h"
 #include "soloud_vic.h"
 #include "soloud_wav.h"
 #include "soloud_wavstream.h"
+// The SID emulator TedSid plays; its envelope level is private.
+#define private public
+#include "../src/audiosource/tedsid/sid.h"
+#undef private
 
 using namespace SoLoud;
 
@@ -1287,6 +1292,224 @@ namespace
 		std::free(memory);
 	}
 
+	// A register write and a wait of a chip dump.
+	unsigned short dumpWrite(unsigned int aReg, unsigned int aValue)
+	{
+		return (unsigned short)(aReg << 8 | aValue);
+	}
+
+	unsigned short dumpWait(unsigned int aClocks)
+	{
+		return (unsigned short)(0x8000 | aClocks);
+	}
+
+	// A CHIPTUNE dump's 28-byte header: data at aDataOffset, aLength bytes
+	// of ops in 1024-byte chunks, looping to aLoopPos.
+	std::vector<unsigned char> chipHeader(unsigned char aChip, unsigned char aFlags, unsigned int aLength,
+		unsigned int aLoopPos = 0, unsigned int aDataOffset = 28)
+	{
+		std::vector<unsigned char> out;
+		const char magic[] = "CHIPTUNE";
+		out.insert(out.end(), magic, magic + 8);
+		unsigned int kchunks = (aLength + 1023) / 1024;
+		unsigned int lastchunk = aLength - (kchunks ? kchunks - 1 : 0) * 1024;
+		const unsigned short words[] = { (unsigned short)aDataOffset, (unsigned short)(aChip | aFlags << 8),
+			(unsigned short)kchunks, (unsigned short)lastchunk, (unsigned short)(aLoopPos / 1024),
+			(unsigned short)(aLoopPos % 1024) };
+		for (unsigned short word : words)
+		{
+			out.push_back((unsigned char)(word & 0xff));
+			out.push_back((unsigned char)(word >> 8));
+		}
+		const unsigned int speeds[] = { 50, 985248 };
+		for (unsigned int speed : speeds)
+			for (int i = 0; i < 4; i++)
+				out.push_back((unsigned char)(speed >> (8 * i)));
+		return out;
+	}
+
+	// An uncompressed dump (flags bit 0) of aOps.
+	std::vector<unsigned char> chipDump(unsigned char aChip, unsigned char aFlags, const std::vector<unsigned short> &aOps,
+		unsigned int aLoopPos = 0)
+	{
+		std::vector<unsigned char> out = chipHeader(aChip, aFlags | 1, (unsigned int)aOps.size() * 2, aLoopPos);
+		for (unsigned short op : aOps)
+		{
+			out.push_back((unsigned char)(op & 0xff));
+			out.push_back((unsigned char)(op >> 8));
+		}
+		return out;
+	}
+
+	// A SID tune: a triangle with an envelope, then a pulse.
+	std::vector<unsigned short> sidTune()
+	{
+		return { dumpWrite(24, 0x0f), dumpWrite(5, 0x22), dumpWrite(6, 0xa8), dumpWrite(0, 0x00), dumpWrite(1, 0x1c),
+			dumpWrite(4, 0x11), dumpWait(2000), dumpWrite(4, 0x10), dumpWait(2000), dumpWrite(1, 0x25),
+			dumpWrite(4, 0x41), dumpWrite(2, 0x00), dumpWrite(3, 0x08), dumpWait(3000) };
+	}
+
+	result loadTedSid(TedSid &aTune, const std::vector<unsigned char> &aBytes)
+	{
+		return aTune.loadMem(aBytes.data(), (unsigned int)aBytes.size(), true, false);
+	}
+
+	// aFrames of a new voice of aSource, read straight from its instance at
+	// its own rate.
+	std::vector<float> sourceAudio(AudioSource &aSource, unsigned int aFrames)
+	{
+		AudioSourceInstance *instance = aSource.createInstance();
+		instance->init(aSource, 0);
+		std::vector<float> out(aFrames, 0.0f);
+		for (unsigned int f = 0; f < aFrames; f += 512)
+			instance->getAudio(&out[f], aFrames - f < 512 ? aFrames - f : 512, 512);
+		delete instance;
+		return out;
+	}
+
+	// TedSid::loadFile picked the SID model from the source's own flags
+	// (mFlags, whose bits 4 and 5 are 3D settings) instead of the dump's.
+	void tedsid_model_from_dump()
+	{
+		TedSid r6581, r8580, relative;
+		check(loadTedSid(r6581, chipDump(0, 0, sidTune())) == SO_NO_ERROR, "a 6581 dump loads");
+		check(loadTedSid(r8580, chipDump(0, 16, sidTune())) == SO_NO_ERROR, "an 8580 dump loads");
+		relative.set3dListenerRelative(true);
+		check(loadTedSid(relative, chipDump(0, 0, sidTune())) == SO_NO_ERROR, "the dump loads");
+		std::vector<float> a = sourceAudio(r6581, 20000);
+		check(a != sourceAudio(r8580, 20000), "the dump's flags choose the model");
+		check(a == sourceAudio(relative, 20000), "the source's 3D flags do not");
+	}
+
+	// TedSid::loadFile freed the ops its voices were reading.
+	void tedsid_reload_stops_voices()
+	{
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		TedSid tune;
+		check(loadTedSid(tune, chipDump(0, 0, sidTune())) == SO_NO_ERROR, "the dump loads");
+		handle h = soloud.play(tune);
+		render(soloud, 1024);
+		check(loadTedSid(tune, chipDump(0, 16, sidTune())) == SO_NO_ERROR, "the dump reloads");
+		check(!soloud.isValidVoiceHandle(h), "reloading stops the voices");
+	}
+
+	// TedSid::loadFile took the header's sizes as they were: no chunks
+	// asked new[] for a negative size, a loop position at or past the end
+	// read past the ops, a data offset past the file's end read a negative
+	// length, a short file kept uninitialised ops, and the two halves of
+	// the loop position were read in either order.
+	void tedsid_header_is_checked()
+	{
+		TedSid tune;
+		std::vector<unsigned short> ops = sidTune();
+		std::vector<unsigned char> bytes = chipDump(0, 0, ops);
+		bytes[12] = bytes[13] = 0; // no chunks
+		check(loadTedSid(tune, bytes) == FILE_LOAD_FAILED, "a dump of no chunks fails");
+		check(loadTedSid(tune, chipDump(0, 0, ops, (unsigned int)ops.size() * 2)) == FILE_LOAD_FAILED,
+			"a loop at the end fails");
+		bytes = chipDump(0, 0, ops);
+		bytes[8] = 0xff; // data offset 255
+		check(loadTedSid(tune, bytes) == FILE_LOAD_FAILED, "data past the end fails");
+		bytes = chipDump(0, 0, ops);
+		bytes.resize(bytes.size() - 2);
+		check(loadTedSid(tune, bytes) == FILE_LOAD_FAILED, "a short dump fails");
+		check(loadTedSid(tune, chipDump(0, 0, ops, 1026)) == FILE_LOAD_FAILED, "a loop past the end fails");
+		check(tune.mOps == NULL && tune.mLength == 0, "a failed load leaves no ops");
+		// 1030 bytes of ops: the loop's chunk and offset are read in order.
+		std::vector<unsigned short> long_ops(515, dumpWait(10));
+		check(loadTedSid(tune, chipDump(0, 0, long_ops, 1026)) == SO_NO_ERROR, "a loop in the second chunk loads");
+		check(tune.mLooppos == 1026, "the loop position is the chunk then the offset");
+	}
+
+	// TedSidInstance::tick reads ops until a wait, so a dump whose loop has
+	// no wait (or only waits of 0) spun forever on the audio thread.
+	void tedsid_loop_without_wait_fails()
+	{
+		TedSid tune;
+		check(loadTedSid(tune, chipDump(0, 0, { dumpWrite(24, 15), dumpWrite(4, 0x11), dumpWrite(0, 3) })) == FILE_LOAD_FAILED,
+			"a dump without waits fails");
+		check(loadTedSid(tune, chipDump(0, 0, { dumpWait(100), dumpWrite(4, 0x11), dumpWait(0) }, 2)) == FILE_LOAD_FAILED,
+			"a loop with only a wait of 0 fails");
+		check(loadTedSid(tune, chipDump(0, 0, { dumpWrite(4, 0x11), dumpWait(1), dumpWrite(0, 3) }, 4)) == FILE_LOAD_FAILED,
+			"a loop after the last wait fails");
+		check(loadTedSid(tune, chipDump(0, 0, { dumpWrite(4, 0x11), dumpWait(1), dumpWrite(0, 3) }, 2)) == SO_NO_ERROR,
+			"a loop through a wait loads");
+	}
+
+	// zx7_decompress read and wrote without bounds: a dump's compressed
+	// chunks wrote past its ops and read past its data.
+	void tedsid_zx7_stays_in_bounds()
+	{
+		// sidTune()'s 28 bytes, compressed.
+		const unsigned char packed[] = { 0x0f, 0x00, 0x18, 0x22, 0x05, 0xa8, 0x06, 0x00, 0x00, 0x1c, 0x02, 0x01, 0x11,
+			0x04, 0xd0, 0x87, 0x10, 0x80, 0x03, 0x25, 0x01, 0x41, 0x04, 0x00, 0x02, 0x08, 0x08, 0x03, 0xb8, 0x8b, 0x00, 0x04 };
+		std::vector<unsigned char> bytes = chipHeader(0, 0, 28);
+		bytes.insert(bytes.end(), packed, packed + sizeof(packed));
+		TedSid packedTune, plainTune;
+		check(loadTedSid(packedTune, bytes) == SO_NO_ERROR, "a compressed dump loads");
+		check(loadTedSid(plainTune, chipDump(0, 0, sidTune())) == SO_NO_ERROR, "the dump loads");
+		check(sourceAudio(packedTune, 8000) == sourceAudio(plainTune, 8000), "compressed and plain play the same");
+
+		// 3001 zero bytes, compressed, for 28 bytes of ops.
+		const unsigned char zeros[] = { 0x00, 0x80, 0x0b, 0xb7, 0x00, 0x80, 0x00, 0x40 };
+		bytes = chipHeader(0, 0, 28);
+		bytes.insert(bytes.end(), zeros, zeros + sizeof(zeros));
+		bytes.resize(bytes.size() + 6, 0);
+		check(loadTedSid(packedTune, bytes) == FILE_LOAD_FAILED, "a chunk longer than the ops fails");
+		bytes = chipHeader(0, 0, 28);
+		bytes.insert(bytes.end(), packed, packed + 20);
+		check(loadTedSid(packedTune, bytes) == FILE_LOAD_FAILED, "a cut chunk fails");
+	}
+
+	// SIDsound::reset set each voice's envelope rate, an index into
+	// RateCountPeriod, to RateCountPeriod[0] (0x7f00) itself: until a gate
+	// set it, every envelope step read 0x7f00 entries past the table.
+	void sid_envelope_rate_starts_in_range()
+	{
+		SIDsound sid(SID8580, 0);
+		bool inRange = true;
+		for (int i = 0; i < 3; i++)
+			inRange = inRange && sid.voice[i].envCounterCompare < 16;
+		check(inRange, "envelope rates start as indices");
+		sid.setSampleRate(TED_SOUND_CLOCK);
+		sid.setFrequency(1);
+		short buffer[256];
+		sid.calcSamples(buffer, 256);
+		check(sid.read(0x1c) == 0, "a voice never gated stays silent");
+	}
+
+	// SIDsound's attack counted its envelope level past 0xff when a gate
+	// came back at full level: the level went to 0x1ff, decay then read
+	// envGenDRdivisors[0x1ff], past the table, and fell through the
+	// sustain level. The level is now 8 bits, wrapping to 0 as in reSID.
+	void sid_attack_from_full_level_wraps()
+	{
+		SIDsound sid(SID6581, 0);
+		sid.setSampleRate(TED_SOUND_CLOCK);
+		sid.setFrequency(1);
+		short buffer[256];
+		sid.write(24, 0x0f);
+		sid.write(14, 0x00);
+		sid.write(15, 0x10);
+		sid.write(19, 0x00); // fastest attack and decay
+		sid.write(20, 0xf0); // sustain at 0xff, fastest release
+		sid.write(18, 0x11);
+		for (int i = 0; i < 20; i++)
+			sid.calcSamples(buffer, 256);
+		check(sid.read(0x1c) == 0xff, "the envelope sustains at 0xff");
+		sid.write(18, 0x10);
+		sid.write(18, 0x11);
+		bool eightBits = true;
+		for (int i = 0; i < 40; i++)
+		{
+			sid.calcSamples(buffer, 256);
+			eightBits = eightBits && sid.voice[2].envCurrLevel <= 0xff;
+		}
+		check(eightBits, "the level stays below 0x100");
+		check(sid.read(0x1c) == 0xff, "a new attack from 0xff comes back to sustain at 0xff");
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -2023,6 +2246,13 @@ namespace
 		{ "monotone_note_table_is_filled", monotone_note_table_is_filled },
 		{ "monotone_slow_rate_does_not_divide_by_zero", monotone_slow_rate_does_not_divide_by_zero },
 		{ "monotone_first_slide_starts_at_zero", monotone_first_slide_starts_at_zero },
+		{ "tedsid_model_from_dump", tedsid_model_from_dump },
+		{ "tedsid_reload_stops_voices", tedsid_reload_stops_voices },
+		{ "tedsid_header_is_checked", tedsid_header_is_checked },
+		{ "tedsid_loop_without_wait_fails", tedsid_loop_without_wait_fails },
+		{ "tedsid_zx7_stays_in_bounds", tedsid_zx7_stays_in_bounds },
+		{ "sid_envelope_rate_starts_in_range", sid_envelope_rate_starts_in_range },
+		{ "sid_attack_from_full_level_wraps", sid_attack_from_full_level_wraps },
 	};
 }
 
