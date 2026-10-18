@@ -8,7 +8,7 @@ keeps SoLoud's mixing behavior without requiring the C++ library in the normal
 Rust build, and adds the fixes and extensions developed while shipping SoLoud
 in a Unity game.
 
-**Current status:** milestone D is done. This repository contains the
+**Current status:** milestone E is done. This repository contains the
 patched C++ reference tooling (pinned upstream commit, patch series, fetch
 script, C++ regression tests), the parity ledger, and a Cargo workspace with
 the scenario harness: `tests/scenarios/*.scn` run through a C++ null-driver
@@ -22,10 +22,10 @@ The mixer runs on the audio thread behind bounded, wait-free queues
 and `bevy_solouder` plays `.wav` assets from entities that stop when
 despawned. Milestone D added fades, scheduling, the remaining voice
 controls, voice groups, filters, buses and queues, offline and through the
-real-time controller. Milestone E is under way: streamed and decoded WAV,
-FLAC, Ogg Vorbis and MP3, and 3D audio offline, through the real-time
-controller and in Bevy (units 1 to 8; the milestone's review is pending);
-see [port-status.md](port-status.md).
+real-time controller. Milestone E added streamed and decoded WAV, FLAC,
+Ogg Vorbis and MP3, and 3D audio offline, through the real-time controller
+and in Bevy (see the [review](#milestone-e-review) and
+[port-status.md](port-status.md)).
 
 [ARCHITECTURE.md](ARCHITECTURE.md) owns the target workspace, Vertical Slice
 Architecture (VSA), ownership, real-time boundaries, and Bevy contracts. This
@@ -563,7 +563,7 @@ The ledger's `milestone` column assigns every C API behavior to one of these.
 | B — Offline playback (done) | Prepared PCM and decoded WAV files (done; `solouder-decoders`), planar mixer for 1 to 8 channels (done), handles (done), play/stop/pause/loop (done; loop points in D), volume/pan (done), point/linear/Catmull-Rom resampling (done), clipping and global volume (done); 12 parity scenarios for playback and WAV decoding, bit-identical on Windows except the 8-bit WAV conversion |
 | C — Windows and Bevy playable slice (done) | Bounded wait-free control, events and audio retirement between game and audio thread, allocation-free renders (done; `solouder_core::realtime`, `realtime_no_alloc`); CPAL negotiation of rate, channels and sample format, panic-to-silence callback, device error states, safe shutdown order (done; `solouder-cpal`, `play_wav` example, checked on a Windows WASAPI device); Bevy plugin with `.wav` asset loader, playback entities, settings, status and messages, stop on despawn, headless mode (done; `bevy_solouder`, `play_and_despawn` example) |
 | D — Routing and DSP parity (done) | Nested buses, queues/groups, virtualization/protection, scheduling, remaining resamplers, voice/bus/global filters (done; see the [review](#milestone-d-review)) |
-| E — Spatial and streaming parity | Listener/emitter systems, attenuation/Doppler/delay, workers, seek/loop regressions, WAV/FLAC/Ogg Vorbis/MP3 |
+| E — Spatial and streaming parity (done) | Listener/emitter systems, attenuation/Doppler/delay, workers, seek/loop regressions, WAV/FLAC/Ogg Vorbis/MP3 (done; see the [review](#milestone-e-review)) |
 | F — Sources and portability | Generators/speech/music, FFT/visualization, Linux/macOS checks, stress/benchmarks, support matrix |
 
 ### Milestone D units
@@ -940,7 +940,69 @@ last); each ends with passing scenarios, ledger rows and a commit:
 
 ### Milestone E review
 
-Pending: the independent review of milestone E records its findings here.
+Checked against the gates below on 2026-10-18, after an independent review
+of units 6 to 8 (`237e77f..8053127`) and the fixes for its findings:
+
+- **Parity:** 31 of the 34 milestone E ledger rows are `ported`. Three
+  carry over, as milestone B carried `Soloud::init`: the `WavStream`
+  lifecycle stays `in-progress` (dropping a `Stream` does not stop its
+  voices, each of which owns its reader), and `WavStream::loadFile` and
+  `loadFileToMem`, which read through SoLoud's custom `File` interface,
+  are `todo`. The 44 scenarios render the same samples as the Windows
+  reference build, bit for bit (subnormals counted as zero;
+  `wav_decode_u8` keeps its documented tolerance), and every `spatial_*`
+  scenario also replays through the `Controller` bit for bit, in full or
+  up to the first step it cannot express (pinned by line). The Linux
+  reference build was not rechecked for milestone E.
+- **Reference defects:** patches 0052 to 0066 fix the defects milestone E
+  reached in the C++ reference, each with a C++ regression test, and the
+  E regression list above is covered. Still open, for the maintainer:
+  `update3dAudio` applying results to whatever voice holds a slot (the
+  port cannot hit it), `LEFT_HANDED_3D` (#94, #105; ported as it is), and
+  the O(seek distance) fallback seek of #396.
+- **Real time:** streams play through the `StreamWorker` and every 3D call
+  through the `Controller`; renders neither allocate nor free with
+  streams, 3D plays and updates, including filters whose Doppler factor
+  rises after the play. Limits are listed in
+  [port-status.md](port-status.md#real-time-coverage): voice groups and
+  most queries are offline-only; as in milestone D, a voice sped up by a
+  setter before its first block, or a flanger whose delay grows past
+  0.1 s, allocates in the render (on a 3D voice, until the next update
+  grows its filters); a stream sought while playing continues one block
+  of silence later than offline, by design; and the update after
+  `spatial_batches` in flight is refused, so what is heard can lag by
+  that many updates.
+- **Review:** no critical findings. Five warnings, each fixed with a
+  test: a zero-scale or NaN listener panicked Bevy debug builds through
+  `GlobalTransform::forward` (directions now come from the transform's
+  axes; `a_degenerate_listener_keeps_its_last_pose`); a Doppler factor
+  rising after a 3D voice started made flanger, echo and DC removal
+  filters allocate in the render, measured at 24,620 and 73,636 bytes
+  (the controller now sends memory for them with the update and the
+  renderer swaps it in with `FilterInstance::grow`; the Doppler sections
+  of `realtime_no_alloc`, bit-exact in `spatial_tests`); derived
+  velocities fluttered between 0 and 2.25 times the speed when entities
+  moved in a fixed physics step (now measured over the time since the
+  position last changed and held for `velocity_hold`, with physics users
+  told to feed `AudioVelocity`; the `snapshot` unit tests and
+  `motion_on_a_fixed_step_keeps_a_steady_pitch`); seeks of paused streams
+  (#396, #156) were untested (`stream_wav`, `stream_ogg`,
+  `seeks_while_paused_resume_from_the_requested_frame`); and
+  `updates_reach_only_their_own_voice` would have passed with the ID
+  mapping broken (the reusing voice is now 3D and nearby, with stopped and
+  ended variants, checked by breaking the mapping). Seven notes, also
+  addressed: an emitter with a non-finite transform started in 2D for good
+  (it now waits); the update lag and the controller's collider order are
+  documented; Bevy sent an update every frame while a 3D sound played
+  (now only when something changed, `still_frames_send_no_update`); the
+  parity replay's expected stops are pinned by line and refused requests
+  stop it; new Bevy tests cover the first frame of a placed sound,
+  distance delay, switching listeners and 300 emitters; and the crate docs
+  name both sync systems. `AudioListener` and `SpatialEmitter` keep their
+  names, for the maintainer to confirm.
+- **Structure:** `cargo clippy -D warnings`, `cargo fmt --check`, the
+  400-line limit, the ledger check and the C++ regression tests pass
+  (`check_all.py --reference --parity`).
 
 Each milestone requires a compiling enabled feature set, passing tests, VSA
 review, Rust files at or below 400 lines, an updated ledger, and documented

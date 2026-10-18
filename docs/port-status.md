@@ -7,7 +7,12 @@ reference, and how it is verified. Per-behavior status lives in
 
 ## Summary
 
-Milestone D (routing and DSP) is done: fades, oscillations,
+Milestone E (spatial and streaming) is done: WAV, FLAC, Ogg Vorbis and MP3
+files decode into PCM or stream, offline and through the real-time
+`Controller`, whose `StreamWorker` decodes them ahead of the audio thread;
+3D audio places voices offline, through the `Controller` and from Bevy
+entities (see [PORTING.md](PORTING.md#milestone-e-review)). Milestone D
+(routing and DSP) before it: fades, oscillations,
 scheduled pauses and stops, clocked play, the remaining voice controls (loop
 points, seeking, autostop, inaudible ticking, absolute pan and channel gains,
 sample rates, pause all, background play, single-instance sounds, stopping
@@ -30,17 +35,16 @@ For real-time use the mixer is split into a `Controller` for the game thread
 and a `Renderer` for the audio thread, joined by bounded wait-free queues
 (see [ARCHITECTURE.md](ARCHITECTURE.md#ownership-and-the-real-time-boundary)).
 `solouder-cpal` runs the renderer on the default output device and
-`bevy_solouder` plays `.wav` assets from entities. WAV files can also be
-streamed, offline or through the `Controller`, whose `StreamWorker` decodes
-them ahead of the audio thread; `bevy_solouder` streams `.wav` assets
-loaded with `WavSettings::stream`. 3D audio (milestone E units 6 to 8)
+`bevy_solouder` plays `.wav`, `.flac`, `.ogg` and `.mp3` assets from
+entities. Those files can also be streamed, offline or through the
+`Controller`, whose `StreamWorker` decodes them ahead of the audio thread;
+`bevy_solouder` streams assets loaded with `WavSettings::stream`. 3D audio (milestone E units 6 to 8)
 places voices with a listener, attenuation models, listener-relative sources
 and speaker positions for 1 to 8 channels, with Doppler, the speed of sound,
 distance delay, colliders, attenuators and `LEFT_HANDED_3D`, offline and
 through the `Controller`, which runs the 3D math on the game thread;
 `bevy_solouder` places sounds from `AudioListener` and `SpatialEmitter`
-components. Other codecs do not
-exist yet. Voice groups and the voice, bus and queue queries are
+components. Voice groups and the voice, bus and queue queries are
 available on the offline `Mixer` only (see "Real-time coverage" below).
 
 | Crate | Slices / modules | Contents |
@@ -64,7 +68,8 @@ Ledger: the Milestone B playback behaviors are `ported`; `Soloud::init`,
 Milestone C ports `Soloud::deinit` and the `getBackend*` queries; `init`
 stays `in-progress` until its remaining flags are done. Milestone E ports `WavStream::getLength`,
 `load`, `loadMem` and `loadToMem`; the `WavStream` lifecycle is
-`in-progress`. Unit 6 ports `update3dAudio`, the listener and source
+`in-progress`, and `loadFile` and `loadFileToMem` (SoLoud's custom `File`
+interface) are `todo`, carried past the milestone. Unit 6 ports `update3dAudio`, the listener and source
 position, distance and attenuation setters, the speaker positions and the
 source-level 3D defaults. Unit 7 ports the velocities, the speed of sound,
 the Doppler factors, distance delay, colliders, attenuators, `play3dClocked`
@@ -312,4 +317,6 @@ Limits:
 - Voice groups, voice getters, bus wave, FFT and voice counts, queue counts,
   and filter parameter reads through the `Controller` (see "Real-time
   coverage").
+- Streams from a custom file interface (`WavStream::loadFile` and
+  `loadFileToMem`); a core `Stream` already reads any `StreamSource`.
 - WAV ADPCM; chained Ogg files (several logical streams one after another) are untested.

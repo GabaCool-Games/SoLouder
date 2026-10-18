@@ -12,8 +12,7 @@ behavioral compatibility, patch preservation, migration milestones, and parity
 validation. Keep design decisions here rather than maintaining a second copy
 in the porting guide.
 
-**Status:** milestone E, units 1 to 8 done, its review pending (see
-[port-status.md](port-status.md)). All five crates exist: `solouder-core`
+**Status:** milestone E done (see [port-status.md](port-status.md)). All five crates exist: `solouder-core`
 (the offline mixer with routing, filters, streaming and 3D audio, and the
 real-time controller/renderer split, which reaches all of them except voice
 groups and some queries), `solouder-decoders` (WAV, FLAC, Ogg Vorbis and
