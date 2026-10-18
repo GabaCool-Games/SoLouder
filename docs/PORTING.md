@@ -491,7 +491,11 @@ fixes are welcome as new patches.
 
 Also reported upstream and worth a test once the feature is ported: #274
 (intelligibility with many voices), #351 (many plays into a bus starting late),
-and #163 (valid, non-zero-volume voices that are silent).
+and #163 (valid, non-zero-volume voices that are silent). Done (milestone F
+unit 11): the soak test's probe covers #351 and #163 (a burst into a bus up to
+the active limit starts within a few renders, fully active and audible; past
+the limit exactly the limit is active) and #274 as far as a test can (output
+finite, bounded and fully mixed).
 
 ### Behavior decisions to record
 
@@ -1335,7 +1339,7 @@ Rules for units 1 to 8:
    `ChipDumpLoader`, which plays a dump through `TedSid` unless its chip
    type is an AY one. `realtime_no_alloc` in `solouder-sources` now
    requires every source feature, so single-feature builds pass.
-9. **Visualization** (`soloud.cpp` lines 760–805 and 2314–2360, setters lines
+9. **Visualization** (done; patches 0067 and 0068) (`soloud.cpp` lines 760–805 and 2314–2360, setters lines
    235–245). Data is taken from the clipped scratch buffer once per mix call
    (#244); mixes under 256 frames take the `i % aSamples` path. Rows:
    `Soloud::calcFFT`, `getWave`, `getApproximateVolume`,
@@ -1348,6 +1352,19 @@ Rules for units 1 to 8:
    does. Buses get the same treatment, which lifts their offline-only limit.
    Bevy gets a snapshot component on the master and bus entities. Scenario
    `visualization`; tests in `realtime_no_alloc`.
+   Done: `Mixer::wave`, `fft`, `approximate_volume` and `visualization_data`
+   record each mix call's first 256 frames from the clipped mix (#244),
+   repeating shorter mixes, and keep the last data when recording is off;
+   `MixerConfig::visualization` is `ENABLE_VISUALIZATION`, which makes
+   `Soloud::init` `ported` (`NO_FPU_REGISTER_CHANGE` excluded). The
+   `Renderer` publishes the mix's data, and up to
+   `RealtimeConfig::visualized_buses` watched buses', through a triple buffer
+   of atomics; the `Controller` reads it and computes the FFT on its own
+   thread, which lifts the offline-only limit on bus wave and FFT data. Bevy
+   gets the `AudioVisualization` resource. Patches: `getApproximateVolume`
+   checks the channel with `>=` (0067, as 0047 did for buses), and a mix of
+   no frames with visualization on keeps the last data instead of computing
+   `i % 0` (0068).
 10. **Portability and support matrix:** Windows CI job uploads the C++ runner's
     output as an artifact; `run_parity.py --cpp-dir` compares Rust on Linux and
     macOS against it (max/RMS, ≤ 1e-6), Linux also against its own GCC
@@ -1357,6 +1374,25 @@ Rules for units 1 to 8:
     features builds and per-source-feature builds. Support-matrix table in
     port-status.md: OS × arch × host × level; CoreAudio "builds, device
     unverified".
+    Done: the Windows (MSVC) runner output stays the golden.
+    `run_parity.py --cpp-dir` compares the Rust renders with another
+    machine's runner output, and `--profile` applies a platform's tolerances
+    from `tests/scenarios/tolerances.txt` (never looser than a scenario's
+    own). On Linux (Docker, GCC 14.2, glibc 2.41) Rust matches the Windows
+    output bit for bit in every scenario (profile `cross` is empty); the GCC
+    reference differs from the Windows one in four scenarios with identical
+    logs, `filters_spectral`, `spatial_sources`, `stream_ogg` and
+    `ogg_decode` (max 3.9e-7, 6.0e-8, 1.4e-6 and 1.2e-4), declared in profile
+    `gcc`. On a PulseAudio null sink 5 of 6 `device_lifecycle` tests pass:
+    cpal reports `snd_pcm_avail_delay: I/O error (5)` about once per stream
+    and the cpal output treats it as fatal, so repeated open and close fails;
+    recorded, not changed. Miri is clean on its set (`dsp::`,
+    `realtime::visual`, and since unit 11 `contracts::`,
+    `playback::visualization`, `realtime::tests` and
+    `realtime::routing_tests`). CI (`.github/workflows/ci.yml`, never run:
+    not pushed) covers Windows, Linux with the `gcc` profile, macOS, a
+    non-blocking Linux device job, per-crate builds without default
+    features and nightly Miri; port-status.md has the support matrix.
 11. **Stress and benchmarks:** unpublished `solouder-bench` crate rendering
     through `Renderer` (16/64/256/1023 voices, every resampler, 44.1→48 kHz,
     nested buses, every filter, streams of each codec, generators; buffers
@@ -1365,6 +1401,22 @@ Rules for units 1 to 8:
     Controller/Renderer/StreamWorker on three threads: no panic, no allocation,
     one final event per play, every ID released, no retirement overflow;
     covers #274, #351, #163. Machine and buffer config in port-status.md.
+    Done: `solouder-bench` (unpublished, no new dependencies) times
+    `Renderer::render` per buffer for its cases, with
+    `reference/tests/reference_bench.cpp` building the same cases on the
+    reference (null driver, `Soloud::mix`); `scripts/run_bench.py` runs
+    both in release. The slowest Rust render is 15.6% of its budget (1023
+    Catmull-Rom voices at 512 frames); the mixing path is 1.3 to 2.7 times
+    the C++ mean (the C++ build uses SSE for clipping and panning, Rust is
+    scalar and untuned), and compressed streams render 2 to 3 times faster
+    than C++, which decodes inside the mix. The soak test (`tests/soak`) runs
+    the `Controller`, `Renderer` and `StreamWorker` on three threads with
+    seeded random requests; it fails on a panic, any allocation in render, a
+    non-finite or out-of-range sample, a play without exactly one final
+    event, an ID handed out twice or left in use, or retirement overflow.
+    3 s in check_all, 600 s nightly; 600 s in release passed (2,874,430
+    plays). Generators were added after the merge with milestone F units
+    1 to 8 (see the benchmark table in port-status.md).
 12. **Review:** an independent review against the gates. Every F patch has a
     C++ test that fails without it.
 
