@@ -19,7 +19,9 @@ pub use chipdump::ChipDumpError;
 #[cfg(feature = "ay")]
 pub use features::ay::{Ay, AyChipType};
 #[cfg(feature = "monotone")]
-pub use features::monotone::{MONOTONE_CHANNELS, Monotone, MonotoneError, MonotoneSong};
+pub use features::monotone::{
+    MONOTONE_CHANNELS, Monotone, MonotoneError, MonotoneSong, MonotoneWaveform,
+};
 #[cfg(feature = "noise")]
 pub use features::noise::{Noise, NoiseType, OCTAVES};
 #[cfg(feature = "sfxr")]

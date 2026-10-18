@@ -8,9 +8,10 @@ use bevy::asset::io::Reader;
 use bevy::asset::{AssetApp, AssetLoader, LoadContext};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use solouder_core::dsp::waveform;
 use solouder_core::{Generator, Synth, SynthError};
-use solouder_sources::{Ay, ChipDumpError, Monotone, MonotoneError, Sfxr, SfxrError, TedSid};
+use solouder_sources::{
+    Ay, ChipDumpError, Monotone, MonotoneError, MonotoneWaveform, Sfxr, SfxrError, TedSid,
+};
 
 use crate::features::decoded_audio::{AudioClip, read_up_to};
 
@@ -88,7 +89,8 @@ impl AssetLoader for SfxrLoader {
 pub struct MonotoneSettings {
     /// The hardware channels the tracks share, 1 to 12.
     pub hardware_channels: u32,
-    /// The waveform, one of `solouder_core::dsp::waveform`'s.
+    /// The waveform as SoLoud's `int` (`i32::from` a [`MonotoneWaveform`]),
+    /// 0 or more; values past 8 play square waves.
     pub waveform: i32,
 }
 
@@ -97,7 +99,7 @@ impl Default for MonotoneSettings {
     fn default() -> Self {
         Self {
             hardware_channels: 1,
-            waveform: waveform::SQUARE,
+            waveform: MonotoneWaveform::Square.into(),
         }
     }
 }
@@ -119,7 +121,7 @@ impl AssetLoader for MonotoneLoader {
     ) -> Result<AudioClip, GeneratorLoadError> {
         let bytes = read_prefix(reader, Monotone::MAX_FILE_BYTES).await?;
         let song = Monotone::from_bytes(&bytes).map_err(GeneratorLoadError::Monotone)?;
-        song.set_params(settings.hardware_channels, settings.waveform)
+        song.set_params_raw(settings.hardware_channels, settings.waveform)
             .map_err(GeneratorLoadError::Monotone)?;
         clip(Arc::new(song))
     }

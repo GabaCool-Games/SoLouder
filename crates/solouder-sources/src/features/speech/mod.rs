@@ -211,6 +211,10 @@ impl Speech {
     /// Sets the voice (`Speech::setParams`). A speed whose frames would
     /// hold no samples or more than 11025 is an error and changes nothing
     /// (SoLoud took any; reference patch 0100).
+    ///
+    /// The fields are stored one at a time, as SoLoud's are: a block that
+    /// starts while this runs on another thread can see a mix of the old
+    /// and new frequency, declination and waveform.
     pub fn set_params(&self, params: SpeechParams) -> Result<(), InvalidSpeechSpeed> {
         frame_samples(params.speed).ok_or(InvalidSpeechSpeed(params.speed))?;
         self.params.store(params);

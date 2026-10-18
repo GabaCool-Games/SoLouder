@@ -5,10 +5,9 @@
 
 use std::sync::Arc;
 
-use solouder_core::dsp::waveform;
 use solouder_core::{Generator, Synth};
 use solouder_sources::{
-    Ay, Monotone, Noise, NoiseType, Sfxr, SfxrPreset, Speech, TedSid, Vic, Vizsn,
+    Ay, Monotone, MonotoneWaveform, Noise, NoiseType, Sfxr, SfxrPreset, Speech, TedSid, Vic, Vizsn,
 };
 
 use crate::cases::{Case, Reference, case, setup};
@@ -55,7 +54,8 @@ pub fn synths(kind: &str) -> Vec<Synth> {
             .collect(),
         "monotone" => {
             let song = Monotone::from_bytes(&dump("monotone/demo.mon")).expect("a song");
-            song.set_params(4, waveform::SQUARE).expect("params");
+            song.set_params(4, MonotoneWaveform::Square)
+                .expect("params");
             vec![looping(song)]
         }
         "tedsid" => vec![looping(

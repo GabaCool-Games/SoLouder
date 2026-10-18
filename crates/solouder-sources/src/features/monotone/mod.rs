@@ -17,6 +17,59 @@ use solouder_core::{Generator, GeneratorInstance};
 use instance::MonotoneInstance;
 pub use song::{MONOTONE_CHANNELS, MonotoneError, MonotoneSong};
 
+/// The waveform a Monotone song plays (SoLoud's `Soloud::WAVEFORM`, the
+/// values of `solouder_core::dsp::waveform`). [`Monotone::set_params_raw`]
+/// takes SoLoud's `int`; `i32::from` gives it.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
+pub enum MonotoneWaveform {
+    /// Square wave.
+    #[default]
+    Square,
+    /// Rising saw.
+    Saw,
+    /// Sine.
+    Sin,
+    /// Triangle.
+    Triangle,
+    /// Rectified sine.
+    Bounce,
+    /// The first quarter of a sine.
+    Jaws,
+    /// The first half of a sine.
+    Humps,
+    /// Square from the first 11 odd harmonics.
+    FSquare,
+    /// Saw from the first 14 harmonics.
+    FSaw,
+}
+
+impl MonotoneWaveform {
+    const ALL: [Self; 9] = [
+        Self::Square,
+        Self::Saw,
+        Self::Sin,
+        Self::Triangle,
+        Self::Bounce,
+        Self::Jaws,
+        Self::Humps,
+        Self::FSquare,
+        Self::FSaw,
+    ];
+
+    /// The waveform of SoLoud's value, 0 to 8.
+    pub fn from_i32(value: i32) -> Option<Self> {
+        usize::try_from(value)
+            .ok()
+            .and_then(|i| Self::ALL.get(i).copied())
+    }
+}
+
+impl From<MonotoneWaveform> for i32 {
+    fn from(wave: MonotoneWaveform) -> Self {
+        wave as i32
+    }
+}
+
 /// Settings voices read at the start of every block.
 #[derive(Debug)]
 struct Live {
@@ -33,7 +86,7 @@ struct Live {
 /// Tracks share the hardware channels, 1 at first: with more active tracks
 /// than channels they take turns a tick each, as on a PC speaker. The
 /// channels and the waveform may change while voices play; voices read
-/// them at the start of every block, as in SoLoud. Clones share them.
+/// each at the start of every block, as in SoLoud. Clones share them.
 #[derive(Clone, Debug)]
 pub struct Monotone {
     song: Arc<MonotoneSong>,
@@ -94,17 +147,40 @@ impl Monotone {
         self.live.hardware_channels.load(Ordering::Relaxed)
     }
 
-    /// The waveform, one of `solouder_core::dsp::waveform`'s (other values
-    /// play square waves).
-    pub fn waveform(&self) -> i32 {
+    /// The waveform voices play: a value past 8, set with
+    /// [`Monotone::set_params_raw`], plays square waves.
+    pub fn waveform(&self) -> MonotoneWaveform {
+        MonotoneWaveform::from_i32(self.waveform_raw()).unwrap_or_default()
+    }
+
+    /// The waveform as SoLoud's `int`, as set.
+    pub fn waveform_raw(&self) -> i32 {
         self.live.waveform.load(Ordering::Relaxed)
     }
 
-    /// Sets the hardware channels, 1 to [`MONOTONE_CHANNELS`], and the waveform,
-    /// 0 or more (`Monotone::setParams`). Out of range, nothing changes
+    /// Sets the hardware channels, 1 to [`MONOTONE_CHANNELS`], and the
+    /// waveform (`Monotone::setParams`). Out of range, nothing changes
     /// (above 12 channels is reference patch 0078; SoLoud overran its
     /// channels).
-    pub fn set_params(&self, hardware_channels: u32, waveform: i32) -> Result<(), MonotoneError> {
+    ///
+    /// The two settings are stored one after the other, as SoLoud's two
+    /// fields are: a block that starts while this runs on another thread
+    /// can see the new channels with the old waveform.
+    pub fn set_params(
+        &self,
+        hardware_channels: u32,
+        waveform: MonotoneWaveform,
+    ) -> Result<(), MonotoneError> {
+        self.set_params_raw(hardware_channels, waveform.into())
+    }
+
+    /// [`Monotone::set_params`] with SoLoud's `int` waveform, 0 or more;
+    /// values past 8 play square waves.
+    pub fn set_params_raw(
+        &self,
+        hardware_channels: u32,
+        waveform: i32,
+    ) -> Result<(), MonotoneError> {
         if !(1..=MONOTONE_CHANNELS).contains(&hardware_channels) || waveform < 0 {
             return Err(MonotoneError::InvalidParams {
                 hardware_channels,

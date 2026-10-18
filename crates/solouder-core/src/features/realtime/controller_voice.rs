@@ -107,7 +107,10 @@ impl Controller {
     }
 
     /// Moves the voice to `seconds` into its sound. A bus or queue cannot
-    /// seek back; such a seek does nothing.
+    /// seek back; such a seek does nothing. A generator (`Synth`) voice
+    /// renders and discards the whole distance on the audio thread, in the
+    /// render that applies the seek, as SoLoud does; streams seek on the
+    /// `StreamWorker`.
     pub fn seek(&mut self, id: VoiceId, seconds: f64) -> Result<(), ControllerError> {
         self.voice(id, VoiceCommand::Seek(seconds))
     }

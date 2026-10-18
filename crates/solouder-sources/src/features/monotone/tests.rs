@@ -145,7 +145,7 @@ fn any_cells_render_at_any_rate() {
     }
     let song = Monotone::from_bytes(&song_bytes(12, &cells, &[0, 7, 0])).unwrap();
     for hardware in [1, 5, 12] {
-        song.set_params(hardware, waveform::FSAW).unwrap();
+        song.set_params(hardware, MonotoneWaveform::FSaw).unwrap();
         for rate in [1.0, 30.0, 59.9, 44100.0, 1e9, f32::INFINITY, f32::NAN, 0.0] {
             for sample in render(&song, 3000, rate) {
                 assert!(sample.is_nan() || sample.abs() <= 12.0, "{sample}");
@@ -166,23 +166,46 @@ fn params_are_checked() {
     let song = Monotone::new();
     assert_eq!(
         (song.hardware_channels(), song.waveform()),
-        (1, waveform::SQUARE)
+        (1, MonotoneWaveform::Square)
     );
-    song.set_params(12, waveform::SIN).unwrap();
+    song.set_params(12, MonotoneWaveform::Sin).unwrap();
     for (hardware, wave) in [(0, 0), (13, 0), (2, -1)] {
         assert!(matches!(
-            song.set_params(hardware, wave),
+            song.set_params_raw(hardware, wave),
             Err(MonotoneError::InvalidParams { .. })
         ));
     }
     assert_eq!(
-        (song.hardware_channels(), song.waveform()),
+        (song.hardware_channels(), song.waveform_raw()),
         (12, waveform::SIN)
     );
-    // Clones share the settings.
+    // Clones share the settings; values past 8 play square waves.
     let clone = song.clone();
-    clone.set_params(3, 99).unwrap();
-    assert_eq!((song.hardware_channels(), song.waveform()), (3, 99));
+    clone.set_params_raw(3, 99).unwrap();
+    assert_eq!((song.hardware_channels(), song.waveform_raw()), (3, 99));
+    assert_eq!(song.waveform(), MonotoneWaveform::Square);
+}
+
+#[test]
+fn waveforms_are_soloud_values() {
+    let core = [
+        waveform::SQUARE,
+        waveform::SAW,
+        waveform::SIN,
+        waveform::TRIANGLE,
+        waveform::BOUNCE,
+        waveform::JAWS,
+        waveform::HUMPS,
+        waveform::FSQUARE,
+        waveform::FSAW,
+    ];
+    for (value, wave) in core.into_iter().zip(MonotoneWaveform::ALL) {
+        assert_eq!(i32::from(wave), value);
+        assert_eq!(MonotoneWaveform::from_i32(value), Some(wave));
+    }
+    for value in [-1, 9, i32::MAX] {
+        assert_eq!(MonotoneWaveform::from_i32(value), None);
+    }
 }
 
 #[test]

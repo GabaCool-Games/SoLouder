@@ -20,8 +20,8 @@ use solouder_core::{
     Renderer, Synth,
 };
 use solouder_sources::{
-    Ay, KlattWaveform, Monotone, Noise, NoiseType, Sfxr, SfxrPreset, Speech, SpeechParams, TedSid,
-    Vic, VicModel, Vizsn,
+    Ay, KlattWaveform, Monotone, MonotoneWaveform, Noise, NoiseType, Sfxr, SfxrPreset, Speech,
+    SpeechParams, TedSid, Vic, VicModel, Vizsn,
 };
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
@@ -283,8 +283,8 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
             vic.set_model(VicModel::Ntsc);
         }
         // Hardware channels and the waveform too.
-        song.set_params(1 + round as u32 % 4, round as i32 % 9)
-            .unwrap();
+        let wave = MonotoneWaveform::from_i32(round as i32 % 9).unwrap();
+        song.set_params(1 + round as u32 % 4, wave).unwrap();
         // And the speech's frequency and waveform.
         speech.set_params(speech_params(round)).unwrap();
         if round == 3 {

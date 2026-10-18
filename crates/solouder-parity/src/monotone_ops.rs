@@ -62,9 +62,9 @@ fn monotone_params(step: &Step, song: &Monotone) -> Result<i32, ScenarioError> {
         return Ok(SO_NO_ERROR);
     }
     let hardware: u32 = step.value_or("hardware", song.hardware_channels())?;
-    let waveform: u32 = step.value_or("waveform", song.waveform() as u32)?;
+    let waveform: u32 = step.value_or("waveform", song.waveform_raw() as u32)?;
     // An `int` of 0 or below is refused in SoLoud, as above 12 is here.
-    Ok(match song.set_params(hardware, waveform as i32) {
+    Ok(match song.set_params_raw(hardware, waveform as i32) {
         Ok(()) => SO_NO_ERROR,
         Err(_) => INVALID_PARAMETER,
     })
@@ -104,7 +104,7 @@ impl State {
                     "monotone_query {} hardware={} waveform={} patterns={} tracks={} title={} comment={} order={}",
                     step.text("name")?,
                     song.hardware_channels(),
-                    song.waveform(),
+                    song.waveform_raw(),
                     data.patterns(),
                     data.tracks(),
                     hex(data.title()),

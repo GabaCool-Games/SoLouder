@@ -85,7 +85,9 @@ impl Noise {
     }
 
     /// Sets the weight of each octave for voices started after this call
-    /// (`Noise::setOctaveScale`).
+    /// (`Noise::setOctaveScale`). The weights are stored one at a time, as
+    /// SoLoud's array is: a voice prepared on another thread during the
+    /// call can start with some old and some new.
     pub fn set_octave_scale(&self, scale: [f32; OCTAVES]) {
         for (slot, value) in self.octave_scale.iter().zip(scale) {
             slot.store(value.to_bits(), Ordering::Relaxed);
