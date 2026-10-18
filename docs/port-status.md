@@ -7,6 +7,17 @@ reference, and how it is verified. Per-behavior status lives in
 
 ## Summary
 
+Milestone F (sources and portability), the last of the plan, is done
+(2026-10-19, after two independent reviews; see
+[PORTING.md](PORTING.md#milestone-f-review), which also lists what stays
+open): the generated sources in `solouder-sources` (Sfxr, Speech, Vizsn,
+Noise, Monotone, TedSid, Vic, AY and chip dumps, played like sounds and
+queued), file readers, visualization, CI jobs for Linux and macOS with the
+support matrix below ("Platforms"), and benchmarks and a soak test in
+`solouder-bench`. All 56 scenarios render the same samples as the C++
+reference on Windows, bit for bit except the 8-bit WAV conversion, and the
+same on Linux.
+
 Milestone E (spatial and streaming) is done: WAV, FLAC, Ogg Vorbis and MP3
 files decode into PCM or stream, offline and through the real-time
 `Controller`, whose `StreamWorker` decodes them ahead of the audio thread;
@@ -211,17 +222,17 @@ Device tests skip on machines without audio output (as in CI) unless
 
 ## Platforms
 
-Verified 2026-10-18. Windows ran on the development machine; Linux in Docker
+Verified 2026-10-19 (Linux parity and device re-run on the merged tree). Windows ran on the development machine; Linux in Docker
 (`scripts/docker/linux.Dockerfile`: `rust:1.98`, Debian 13, GCC 14.2,
 glibc 2.41, Rust 1.98.1). CI (`.github/workflows/ci.yml`) is configured for
 every row but has not run: SoLouder is not pushed anywhere.
 
 | OS | Arch | Host | Builds | Tests | Parity | Device |
 |---|---|---|---|---|---|---|
-| Windows 10 (MSVC, Rust 1.98) | x86-64 | WASAPI | Verified | Verified: workspace, clippy, 71 C++ regression tests | Verified: the golden; every scenario exact | Verified: `device_lifecycle` and `plugin_lifecycle` with `SOLOUDER_REQUIRE_DEVICE=1` |
-| Linux (Debian 13, container) | x86-64 | ALSA, through its PulseAudio plugin | Verified | Verified: workspace, clippy, 71 C++ regression tests with GCC 14.2 | Verified: Rust exact against the Windows golden; the GCC reference within the `gcc` profile (below) | Partly: on a PulseAudio null sink 5 of 6 `device_lifecycle` tests pass; see below |
+| Windows 10 (MSVC, Rust 1.98) | x86-64 | WASAPI | Verified | Verified: workspace, clippy, 117 C++ regression tests | Verified: the golden; every scenario exact | Verified: `device_lifecycle` and `plugin_lifecycle` with `SOLOUDER_REQUIRE_DEVICE=1` |
+| Linux (Debian 13, container) | x86-64 | ALSA, through its PulseAudio plugin | Verified | Verified: workspace, clippy, 117 C++ regression tests with GCC 14.2 | Verified: Rust exact against the Windows golden; the GCC reference within the `gcc` profile (below) | Partly: on a PulseAudio null sink, `device_lifecycle` passes; `plugin_lifecycle` fails in some runs on a stream that never starts (see below); no real hardware |
 | Linux | arm64 | ALSA | Not run | Not run | Not run | Not run |
-| macOS (CI `macos-latest`) | arm64 | CoreAudio | CI configured | CI configured: Rust tests and C++ regression tests | CI configured against the Windows golden, non-blocking until it has run | Unverified |
+| macOS (CI `macos-latest`) | arm64 | CoreAudio | CI configured | CI configured: Rust tests; C++ regression tests non-blocking until they have passed once | CI configured against the Windows golden, non-blocking until it has run | Unverified |
 | macOS | x86-64 | CoreAudio | Not run | Not run | Not run | Unverified |
 | Miri (nightly 2026-10-12, Linux container) | x86-64 | none | Verified | Verified, no undefined behavior: `dsp::` (16 tests), `contracts::` (3), `playback::visualization` (3), `realtime::visual` (3), `realtime::tests` (14, 13 minutes) and `realtime::routing_tests` (3); in `solouder-sources` (fixtures read without isolation), 41 of 59 unit tests (chip dumps, zx7, the WELL512 generator, AY, Monotone, noise, Sfxr, TedSid, Vic, Vizsn), not Speech or the tests that render or fuzz whole files | n/a | n/a |
 
@@ -229,40 +240,78 @@ Cross-platform parity, measured with `run_parity.py --cpp-dir` (compare
 against another machine's runner output) and `--profile` (per-scenario
 tolerances from `tests/scenarios/tolerances.txt`):
 
-- **Rust on Linux against the Windows C++ output:** all 46 scenarios match bit
+- **Rust on Linux against the Windows C++ output:** all 56 scenarios match bit
   for bit (the `cross` profile declares nothing). Rust's math follows the MSVC
   build on both platforms, and nothing it calls through libm differed on
   glibc in these scenarios.
-- **The GCC reference against the Windows one** (and so against Rust): four
-  scenarios differ, logs identical, because GCC resolves `sin`, `cos` and
-  `atan2` of a `float` to the `float` functions (see "Math functions"):
+- **The GCC reference against the Windows one** (and so against Rust): seven
+  scenarios differ, logs identical, from three lines of the reference. Each
+  cause was confirmed by changing that line in a GCC build: the scenarios it
+  explains then match the Windows output exactly.
 
-  | Scenario | Samples differing | Max abs | RMS | Declared (`gcc`) |
-  |---|---|---|---|---|
-  | `filters_spectral` | 2,321 of 32,577 | 3.9e-7 | 1.6e-8 | 1e-6 |
-  | `spatial_sources` | 25,624 of 49,814 | 6.0e-8 | 7.8e-10 | 1e-6 |
-  | `stream_ogg` | 65,639 of 78,752 | 1.4e-6 | 3.4e-8 | 1e-5 |
-  | `ogg_decode` | 623,804 of 743,882 | 1.2e-4 | 7.3e-7 | 5e-4 |
+  | Scenario | Samples differing | Max abs | RMS | Declared (`gcc`) | Cause |
+  |---|---|---|---|---|---|
+  | `filters_spectral` | 2,321 of 32,577 | 3.9e-7 | 1.6e-8 | 1e-6 | FFT filter |
+  | `spatial_sources` | 25,624 of 49,814 | 6.0e-8 | 7.8e-10 | 1e-6 | Ogg |
+  | `file_loading` | 67,530 of 159,084 | 3.3e-7 | 3.8e-8 | 1e-6 | Ogg |
+  | `stream_ogg` | 65,639 of 78,752 | 1.4e-6 | 3.4e-8 | 1e-5 | Ogg |
+  | `ogg_decode` | 623,804 of 743,882 | 1.2e-4 | 7.3e-7 | 5e-4 | Ogg |
+  | `speech` | 10 of 784,866 | 1.8e-5 | 6.3e-8 | 3.1e-5 | Speech |
+  | `generator_queues` | 2 of 208,896 | 1.8e-5 | 5.5e-8 | 3.1e-5 | Speech |
 
-  `spatial_sources` plays an Ogg stream, so three of the four come from the
-  GCC build's Ogg decoding. Rust's port of stb_vorbis builds its tables with
-  `f64` `sin` and `cos` from the platform's libm and still matched Windows
-  exactly on glibc, so the GCC difference is in what the C++ compiler or its
-  `float` overloads do, not in glibc's double-precision functions; the exact
-  line was not isolated. `ogg_decode` exceeds 1e-6 because its fixtures are
-  long and loud and the decoder's error accumulates through the IMDCT.
+  - **Ogg:** stb_vorbis defines its own `M_PI`, a `float` literal, only
+    `#ifndef M_PI`. MSVC's `math.h` defines none without `_USE_MATH_DEFINES`;
+    glibc's defines it as a `double`. So the GCC build computes the IMDCT
+    twiddle factors and the window from a different pi, and every Ogg decode
+    differs in the last bits (Rust uses stb's `float` pi, as MSVC does).
+    `ogg_decode` exceeds 1e-6 because its fixtures are long and loud.
+  - **Speech:** `resonator.cpp` computes the Klatt resonators' coefficients
+    with `exp(arg)` and `cos(arg)` of a `float`, which resolve to libstdc++'s
+    `float` overloads (`expf`, `cosf`) where MSVC widens to `double`. The
+    coefficients differ in the last bit; Klatt then truncates each sample to
+    16 bits, so now and then a sample lands one 16-bit step away (1/32768
+    times the voice's gain, here 1.8e-5) while its neighbours match. The
+    declared 3.1e-5 is one step at full gain. `generator_queues` queues the
+    same speech.
+  - **FFT filter:** `cos(pha)` and `sin(pha)` of a `float` resolve to the
+    `float` overloads (GCC fuses them into `sincosf`). Its `atan2` of floats
+    also becomes `atan2f`, but changes no sample here.
+
+  These differences belong to the GCC build of the reference; they are not
+  defects, and Rust follows the Windows build that a shipping game uses. A
+  reference patch could make the GCC build match MSVC (stb's pi
+  unconditionally, `double` arguments in the resonator and the FFT filter),
+  at the cost of changing the Linux library's output; not done.
 - The WAV fixture generator now rounds its float sine to `f32` before writing
   64-bit files: glibc's `sin` differs from the Windows CRT's in the last bit
   of one sample, which made `gen_wav_fixtures.py --check` fail on Linux.
 
-Device output on Linux: with PulseAudio's null sink and ALSA's `pulse`
-plugin, cpal reports `snd_pcm_avail_delay failed: I/O error (5)` about once
-per stream while the stream keeps rendering (the final events arrive). The
-cpal output treats any error other than an underrun, a device change or a
-denied real-time priority as fatal, so `Output::state` reports `Failed` and
-`repeated_open_play_close` (and Bevy's `device_apps_start_play_and_tear_down_repeatedly`)
-fail. Whether this happens on real ALSA hardware is unknown; the CI device
-job is non-blocking until it is.
+Device output on Linux (2026-10-19, Docker, PulseAudio's null sink through
+ALSA's `pulse` plugin, as the CI `linux-device` job sets it up): cpal reports
+`snd_pcm_avail_delay failed: I/O error (5)` about once per stream, as an
+unclassified backend error (cpal turns only `EPIPE` into an underrun), while
+the stream keeps rendering. The output now sorts the error callback's
+kinds (`features/output_lifecycle/health.rs`): underruns, device changes and
+a denied real-time priority are ignored; unclassified backend errors and a
+busy device are counted (`Output::watched_error_count`, and
+`AudioOutput::watched_errors` in Bevy) and only watched; a vanished device
+or invalidated stream is `Disconnected`; anything else is `Failed`. A
+watched stream turns `Failed` only when its callbacks stop: none for 500 ms,
+or four callbacks' length if longer, since the last one seen. Before this
+the first such error failed the output and Bevy shut playback down although
+the device kept playing.
+
+Results: `device_lifecycle` passes (6 of 6, in 8 runs of 8).
+`plugin_lifecycle`, its tests run one at a time, passed in 3 of 8 runs in
+the final measurement (12 of 13 in an earlier session the same day); in
+the other runs, and in every run with its tests in parallel, one of the
+device apps opens a stream that reports the error repeatedly (19 times in
+one captured failure) and never calls back, which the output reports as
+`Failed` after 500 ms, as it should, so that app's sounds fail with
+`OutputUnavailable`. That stream is the pulse plugin's (cpal recovers only from
+`EPIPE`); whether real ALSA hardware does either is unknown. The CI device
+job therefore blocks on `device_lifecycle` and runs `plugin_lifecycle` one
+test at a time without failing the workflow.
 
 ## Performance
 
@@ -280,7 +329,9 @@ tones are 2-second looping 44.1 kHz sines, so every voice is resampled;
 voices have volume 0.05 and spread pans, and all are active. `buses` is three
 levels (1, 4 and 16 buses) with 4 tones on each leaf; `filters` is 30 tones,
 three through each of the ten filters at their default settings, plus a
-global biquad; `streams_*` are 16 looping voices of one stereo 44.1 kHz file
+global biquad; `filter_tails` (added 2026-10-19, measured that day) is 8 buses,
+each through a biquad and a freeverb, each fed one 0.1 s tone, timed after
+30 s of decay, when every filter's state is subnormal; `streams_*` are 16 looping voices of one stereo 44.1 kHz file
 in memory; `spatial` is 256 3D tones that all move, with a turning listener
 and `update_3d_audio` before every render (untimed in both). The `sources_*`
 rows (`--features sources`, which `run_bench.py` builds; measured the same
@@ -308,6 +359,7 @@ times are microseconds.
 | `voices1023_catmullrom` | 303 / 326 | 225 / 277 | 1,140 / 1,661 | 812 / 836 | 1.40 |
 | `buses` | 24.6 / 134 | 9.8 / 45.5 | 72.5 / 113 | 38.2 / 44.2 | 1.90 |
 | `filters` | 25.9 / 230 | 23.2 / 102 | 97.8 / 139 | 91.5 / 102 | 1.07 |
+| `filter_tails` | 20.7 / 86.4 | 21.8 / 94.1 | 79.7 / 89.0 | 87.5 / 100 | 0.91 |
 | `streams_wav` | 8.9 / 46.6 | 5.0 / 19.4 | 29.4 / 81.2 | 19.4 / 27.0 | 1.52 |
 | `streams_flac` | 9.0 / 34.0 | 17.5 / 171 | 29.4 / 70.4 | 69.1 / 182 | 0.43 |
 | `streams_ogg` | 9.1 / 24.3 | 23.5 / 321 | 31.5 / 116 | 91.9 / 312 | 0.34 |
@@ -320,7 +372,7 @@ times are microseconds.
 | `sources_tedsid` | 238 / 445 | 246 / 577 | 1,005 / 1,151 | 1,013 / 1,233 | 0.99 |
 | `sources_ay` | 57.0 / 3,263 | 61.0 / 3,554 | 225 / 3,333 | 243 / 3,562 | 0.93 |
 | `sources_speech` | 15.9 / 788 | 8.7 / 411 | 61.6 / 797 | 34.1 / 416 | 1.81 |
-| `sources_vizsn` | 17.2 / 554 | 5.0 / 129 | 66.3 / 560 | 18.8 / 132 | 3.53 |
+| `sources_vizsn` | 17.0 / 548 | 4.9 / 125 | 65.6 / 555 | 18.7 / 130 | 3.51 |
 
 `run_bench.py` also writes 256, 480 and 1024 frames (`build/bench/bench.md`,
 with the 99th percentiles). What they show:
@@ -346,7 +398,10 @@ with the 99th percentiles). What they show:
 - **Generators:** noise is faster in Rust (0.6), the chip emulations
   (TedSid, AY) take the same time, Vic and Sfxr are 1.3 to 1.5 times slower,
   Speech 1.8, Vizsn 3.5 and Monotone 4.5 times. None has been profiled;
-  Speech and Vizsn, like AY, synthesize in blocks, hence their maxima.
+  Speech and Vizsn, like AY, synthesize in blocks, hence their maxima. (The
+  Vizsn row was re-measured on 2026-10-19 after the milestone F review: the
+  C++ case had passed its text as UTF-8, `C2 84` for each ä, where Rust
+  passes CP437 `0x84`; with the same bytes the numbers barely moved.)
 - **Streams:** Rust renders FLAC, Ogg and MP3 streams 2 to 3 times faster
   (WAV, cheap to decode, 1.4 to 1.8 times slower, like other voices), with far smaller
   worst cases (FLAC, Ogg and MP3 maxima of 170 to 320 µs in C++ against 24
@@ -355,6 +410,16 @@ with the 99th percentiles). What they show:
   The Rust stream rows render at the output's pace (as behind a device) and
   had no underflow; they do not compare the same work, and are cold-cache
   numbers where the others run back to back.
+- **Subnormals:** the C++ build flushes subnormals to zero (FTZ and DAZ)
+  and Rust cannot, so a filter's decaying tail (feedback state shrinking
+  towards zero after its input stops) goes through subnormal arithmetic
+  in Rust only. `filter_tails` times exactly that (its unit test checks
+  that the timed output is mostly subnormal): on this AMD Zen 5 CPU it
+  costs nothing (0.91 of the C++ mean). Some CPUs, older Intel ones in
+  particular, take a microcode assist of about a hundred cycles per
+  subnormal operation; there this row would show the cost, and the remedy
+  would be flushing tiny filter state to zero in Rust. Not measured on
+  such a CPU.
 - **Block spikes:** with buffers under 512 frames, buses and the FFT filter
   produce their output in 512-frame blocks, so every few renders costs much
   more than the mean (`buses` at 128 frames: mean 24.6, max 134). C++ shows
@@ -417,7 +482,7 @@ expected when the audio thread renders at four times real time.
 | Filter objects | `setFilter` keeps a pointer: changed settings reach later plays, and deleting the filter first leaves the sound with a dangling pointer | Sounds hold an `Arc<dyn Filter>` whose settings are fixed; set a new filter to change them | No dangling filters, and no locking between the game and audio threads |
 | Biquad type | `setParams` takes an `int` and accepts 0 to 3 (3 acts as lowpass) | `BiquadType` has the three real types; the live `TYPE` parameter still takes any value | A type that does not exist is not a setting |
 | Filters in real time | Filter instances are created, and their delay lines and FFT buffers allocated, on the audio thread, under the engine mutex | `Controller` creates a voice's filter instances, and the global and bus instances it sets, on the game thread, and reserves their buffers' memory for the channels and rate they will run at (`FilterInstance::prepare`); the buffers are still sized at their first use, inside that memory, so the output matches the reference. Replaced instances are retired to the game thread | The audio thread neither allocates nor frees in normal use (see "Real-time coverage" for what needs more than was reserved) |
-| Math functions | SoLoud's sources include `math.h`, not `cmath`, so on MSVC `sin`, `cos`, `atan2` and `sqrt` of a `float` run in double precision; with GCC's libstdc++ they resolve to the `float` versions | Follows the MSVC build: the value is widened to `f64`, the function runs, and the result is rounded to `f32` | The Windows reference is the one the scenarios compare against. A Linux GCC build of the reference differs in four scenarios, by at most 1.2e-4 (see "Platforms"); Rust renders the Windows output on Linux too |
+| Math functions | SoLoud's sources include `math.h`, not `cmath`, so on MSVC `sin`, `cos`, `atan2` and `sqrt` of a `float` run in double precision; with GCC's libstdc++ they resolve to the `float` versions | Follows the MSVC build: the value is widened to `f64`, the function runs, and the result is rounded to `f32` | The Windows reference is the one the scenarios compare against. A Linux GCC build of the reference differs in seven scenarios, by at most 1.2e-4, from stb_vorbis's `M_PI`, the speech resonator's `expf`/`cosf` and the FFT filter's `sincosf` (see "Platforms"); Rust renders the Windows output on Linux too |
 | Robotize waveform | `setParams` takes the waveform as an `int` | Also an `i32`, with the waveforms as `dsp::waveform` constants; indices without a waveform act as square, as in C++ | Keeps the live `WAVE` parameter and the setting in step |
 | FFT filter buffers | Sized for the channel count of the first call; a later call with more channels writes past them | Grow to the larger count | Memory safety; unreachable from the mixer, which keeps a voice's channel count |
 | Flanger line allocation | A failed `new` leaves the audio unfiltered; a line of 2^32 samples or more wraps its size | `try_reserve_exact`; on failure the audio is left unfiltered | Same outcome without the wrap |
@@ -606,7 +671,7 @@ Limits:
 | Area | Behavior |
 |---|---|
 | Mixer only | Voice groups, voice getters other than those in `Status`, bus voice counts, queue counts and `is_current`, and filter parameter reads |
-| Visualization | The renderer publishes the mix's data, and each watched bus's (about a kilobyte each), after every render while the mix records or any bus is watched; reads see the last render's data. A bus is watched once `set_bus_visualization(bus, true)` or a play of a bus that records goes through the controller, and keeps its slot for the controller's lifetime; past `RealtimeConfig::visualized_buses` (default 8) those calls fail with `TooManyVisualizedBuses`. A bus that was not playing at the last render reads `None` (0 for volumes), as on the `Mixer`. A render longer than the scratch buffer records its last pass |
+| Visualization | The renderer publishes the mix's data, and each watched bus's (about a kilobyte each), after every render while the mix records or any bus is watched; reads see the last render's data. A bus is watched once `set_bus_visualization(bus, true)` or a play of a bus that records goes through the controller, and holds its slot until `set_bus_visualization(bus, false)` releases it (its last data stays readable until another bus takes the slot over; `a_released_slot_goes_to_the_next_bus`); with every one of `RealtimeConfig::visualized_buses` (default 8) held, those calls fail with `TooManyVisualizedBuses`. A bus that was not playing at the last render reads `None` (0 for volumes), as on the `Mixer`. A render longer than the scratch buffer records its last pass |
 | Seek errors | A seek backwards on a bus or queue voice, which they cannot do, is ignored; `CannotSeekBack` is not reported |
 | Seek cost | A seek on a generator (`Synth`) voice renders and discards the whole distance (from the start, after a rewind, when seeking back) in passes of the scratch size, inside the render that applies it, as SoLoud's generic seek does (`features/playback/generator.rs`). That render's work grows with the distance: seeking minutes into a chip dump or speech costs minutes of synthesis on the audio thread, enough to miss the device's deadline. Streams seek on the `StreamWorker` instead (WAV by frame, Ogg to the target's frame, FLAC and MPEG decoding up to the target), off the audio thread |
 | Queued sounds | A sound the renderer cannot queue (queue not playing, or full) is retired and counted in `Status::rejected_queue_sounds`, not reported on its own. Each queued sound holds a retirement credit until it has played and been collected. A controller plays at most `RealtimeConfig::queues` distinct queues (default 64) besides those the mixer already had at `split`; each new queue's list is allocated on its first play |
@@ -617,11 +682,10 @@ Limits:
 ## Not yet covered
 
 - Device reconnection; device output outside Windows WASAPI (a PulseAudio
-  null sink in a container only, ending in the `Failed` state described in
-  "Platforms"); CoreAudio and arm64 (CI configured, never run).
+  null sink in a container only, see "Platforms"; underruns on real
+  hardware are not measured); CoreAudio and arm64 (CI configured, never
+  run).
 - Voice groups, voice getters, bus voice counts, queue counts, and filter
   parameter reads through the `Controller` (see "Real-time
   coverage").
-- Streams from a custom file interface (`WavStream::loadFile` and
-  `loadFileToMem`); a core `Stream` already reads any `StreamSource`.
 - WAV ADPCM; chained Ogg files (several logical streams one after another) are untested.

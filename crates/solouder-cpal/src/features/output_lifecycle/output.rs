@@ -1,17 +1,18 @@
 //! Opening the default output device and running a renderer on it.
 
 use std::fmt;
-use std::sync::Arc;
 use std::sync::atomic::Ordering;
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
-use cpal::{BufferSize, ErrorKind, SampleFormat, SizedSample, StreamConfig};
+use cpal::{BufferSize, SampleFormat, SizedSample, StreamConfig};
 use rtrb::Consumer;
 use solouder_core::realtime::{RealtimeConfig, split};
 use solouder_core::{Clipper, ConfigError, Controller, Mixer, MixerConfig, Renderer, VOICE_COUNT};
 
 use super::callback::{Callback, OutputShared, PanicPayload, ReturnOnDrop};
+use super::health::{self, DISCONNECTED, FAILED, PLAYING, Watch};
 use super::negotiate::{StreamPreferences, choose};
 
 /// How to open the output.
@@ -111,18 +112,18 @@ pub enum OutputState {
     /// The device went away or the stream must be rebuilt; nothing plays.
     /// Final: open a new output to continue.
     Disconnected,
-    /// The backend reported an error other than an underrun, a device
-    /// change it followed, or a refused real-time priority. The stream may
-    /// still be running, but nothing guarantees it; treat it as final.
+    /// The backend reported an error that ends the stream, or an error it
+    /// could not classify (or a busy device) after which no callback came
+    /// for half a second (or four callbacks, if longer). Underruns, device
+    /// changes the stream followed and refused real-time priority never fail
+    /// it, and an unclassified error is only counted
+    /// ([`Output::watched_error_count`]) while callbacks keep arriving.
+    /// Final: open a new output to continue.
     Failed,
     /// The renderer panicked; the output plays silence from then on. Final.
     /// See [`Output::panic_message`].
     Panicked,
 }
-
-const PLAYING: u8 = 0;
-const DISCONNECTED: u8 = 1;
-const FAILED: u8 = 2;
 
 /// Facts about the opened stream.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -158,6 +159,7 @@ pub struct Output {
     panics: Consumer<PanicPayload>,
     panic: Option<PanicPayload>,
     shared: Arc<OutputShared>,
+    watch: Mutex<Watch>,
     info: OutputInfo,
 }
 
@@ -261,6 +263,7 @@ fn start(
         panics,
         panic: None,
         shared,
+        watch: Mutex::new(Watch::new(Instant::now())),
         info,
     })
 }
@@ -279,13 +282,7 @@ where
         config,
         move |data: &mut [T], _: &cpal::OutputCallbackInfo| callback.fill(data),
         move |error: cpal::Error| {
-            errors.errors.fetch_add(1, Ordering::Relaxed);
-            let state = match error.kind() {
-                ErrorKind::DeviceChanged | ErrorKind::Xrun | ErrorKind::RealtimeDenied => return,
-                ErrorKind::DeviceNotAvailable | ErrorKind::StreamInvalidated => DISCONNECTED,
-                _ => FAILED,
-            };
-            errors.state.store(state, Ordering::Relaxed);
+            health::report(&errors, error.kind());
         },
         None,
     )
@@ -303,10 +300,25 @@ impl Output {
             return OutputState::Panicked;
         }
         match self.shared.state.load(Ordering::Relaxed) {
-            PLAYING => OutputState::Playing,
+            PLAYING if !health::stalled(&self.shared, &self.watch, self.info.sample_rate) => {
+                OutputState::Playing
+            }
+            PLAYING => {
+                let shared = &self.shared.state;
+                let _ =
+                    shared.compare_exchange(PLAYING, FAILED, Ordering::Relaxed, Ordering::Relaxed);
+                self.state()
+            }
             DISCONNECTED => OutputState::Disconnected,
             _ => OutputState::Failed,
         }
+    }
+
+    /// Backend errors that may or may not have stopped the stream (errors
+    /// cpal could not classify, a busy device), reported so far. While
+    /// callbacks keep arriving the output stays [`OutputState::Playing`].
+    pub fn watched_error_count(&self) -> u64 {
+        self.shared.watched_errors.load(Ordering::Relaxed)
     }
 
     /// Backend errors reported so far, including recoverable ones such as

@@ -1,0 +1,18 @@
+[package]
+name = "solouder-count-alloc"
+description = "A global allocator counting the audio thread's allocations, for solouder-bench's soak test (not published)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+# The workspace's lints, except that unsafe code is denied instead of
+# forbidden, so that the `GlobalAlloc` impl (an unsafe trait) can allow it;
+# Cargo cannot combine `workspace = true` with an override.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

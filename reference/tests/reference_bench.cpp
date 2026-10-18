@@ -54,9 +54,11 @@ namespace
 	const unsigned int SPATIAL_VOICES = 256;
 	const unsigned int STREAM_VOICES = 16;
 	const unsigned int SOURCE_VOICES = 16;
+	const unsigned int TAIL_TONE_FRAMES = 4410; // filter_tails: 0.1 s tones
+	const double TAIL_SECONDS = 30.0;
 	// crates/solouder-bench/src/cases_sources.rs: the texts.
 	const char *SPEECH_TEXT = "The quick brown fox jumps over the lazy dog.";
-	const char *VIZSN_TEXT = "hyv piv, mit kuuluu";
+	const char *VIZSN_TEXT = "hyv\x84\x84 p\x84iv\x84\x84, mit\x84 kuuluu"; // in CP437, as Vizsn reads it (0x84 is a-umlaut)
 	typedef std::chrono::steady_clock Clock;
 
 	// crates/solouder-bench/src/signal.rs: tone_samples and voice_options.
@@ -100,6 +102,12 @@ namespace
 			return *bus;
 		}
 	};
+
+	unsigned int rendersFor(double seconds, unsigned int frames)
+	{
+		double count = std::ceil(seconds * OUTPUT_RATE / frames);
+		return count < 1 ? 1 : (unsigned int)count;
+	}
 
 	bool init(Bench &b, unsigned int buffer, unsigned int maxActive, unsigned int resampler)
 	{
@@ -247,6 +255,32 @@ namespace
 				leaves[i / 4]->play(*tones[i % TONES], 0.05f, voicePan(i));
 			return true;
 		}
+		if (name == "filter_tails")
+		{
+			// 8 buses through a biquad and a freeverb, each fed a 0.1 s tone,
+			// then TAIL_SECONDS of decay, untimed (see filter_tails in
+			// crates/solouder-bench/src/cases.rs).
+			if (!init(b, buffer, 64, SoLoud::Soloud::RESAMPLER_LINEAR))
+				return false;
+			for (unsigned int k = 0; k < 8; k++)
+			{
+				SoLoud::Bus &bus = b.bus();
+				b.filters.emplace_back(new SoLoud::BiquadResonantFilter);
+				bus.setFilter(0, b.filters.back().get());
+				b.filters.emplace_back(new SoLoud::FreeverbFilter);
+				bus.setFilter(1, b.filters.back().get());
+				b.soloud.play(bus);
+				SoLoud::Wav *wav = new SoLoud::Wav;
+				std::vector<float> samples = toneSamples(k % TONES);
+				wav->loadRawWave(samples.data(), TAIL_TONE_FRAMES, 44100.0f, 1, true);
+				b.sources.emplace_back(wav);
+				bus.play(*wav, 0.05f, voicePan(k));
+			}
+			std::vector<float> output(buffer * 2);
+			for (unsigned int r = 0; r < rendersFor(TAIL_SECONDS, buffer); r++)
+				b.soloud.mix(output.data(), buffer);
+			return true;
+		}
 		if (name == "filters")
 		{
 			if (!init(b, buffer, 64, SoLoud::Soloud::RESAMPLER_LINEAR))
@@ -332,12 +366,6 @@ namespace
 		b.soloud.update3dAudio();
 	}
 
-	unsigned int rendersFor(double seconds, unsigned int frames)
-	{
-		double count = std::ceil(seconds * OUTPUT_RATE / frames);
-		return count < 1 ? 1 : (unsigned int)count;
-	}
-
 	double micros(Clock::duration d)
 	{
 		return std::chrono::duration<double, std::micro>(d).count();
@@ -372,7 +400,7 @@ int main(int argc, char **argv)
 		"voices64_point", "voices64_linear", "voices64_catmullrom",
 		"voices256_point", "voices256_linear", "voices256_catmullrom",
 		"voices1023_point", "voices1023_linear", "voices1023_catmullrom",
-		"buses", "filters", "streams_wav", "streams_flac", "streams_ogg", "streams_mp3", "spatial",
+		"buses", "filters", "filter_tails", "streams_wav", "streams_flac", "streams_ogg", "streams_mp3", "spatial",
 		"sources_noise", "sources_vic", "sources_sfxr", "sources_monotone", "sources_tedsid", "sources_ay",
 		"sources_speech", "sources_vizsn"};
 	std::printf("case\tbuffer\trenders\tmean_us\tp99_us\tmax_us\tbudget_us\tactive\tnote\n");

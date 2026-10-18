@@ -2096,6 +2096,7 @@ name = "solouder-bench"
 version = "0.1.0"
 dependencies = [
  "solouder-core",
+ "solouder-count-alloc",
  "solouder-decoders",
  "solouder-sources",
 ]
@@ -2107,6 +2108,10 @@ dependencies = [
  "rtrb",
  "stats_alloc",
 ]
+
+[[package]]
+name = "solouder-count-alloc"
+version = "0.1.0"
 
 [[package]]
 name = "solouder-cpal"

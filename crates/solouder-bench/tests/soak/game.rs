@@ -36,7 +36,8 @@ pub struct Report {
     pub probes: u64,
     pub bursts: u64,
     pub refused: u64,
-    /// Most renders between a probe's burst and its last `Started`.
+    /// Most renders a probe saw complete after its burst with some of the
+    /// burst not yet started.
     pub max_start_renders: u64,
 }
 
@@ -275,12 +276,26 @@ impl Game {
         self.tracker.played(bus, PLAIN);
         let under = ACTIVE_LIMIT - 1;
         self.burst(under, 1.0 / under as f32);
-        self.wait("the burst to start", |game| game.tracker.waiting() == 0);
-        let took = self.renders() - issued;
-        self.report.max_start_renders = self.report.max_start_renders.max(took);
+        // The last render count seen with part of the burst unstarted. The
+        // count is read before the events, and the renderer sends a render's
+        // events before counting it, so this is a lower bound on when the
+        // burst started however late this thread looks: a stalled game
+        // thread only sees the start later, it never fails the bound.
+        let mut unstarted = issued;
+        self.wait("the burst to start", |game| {
+            let seen = game.renders();
+            game.drain();
+            let started = game.tracker.waiting() == 0;
+            if !started {
+                unstarted = seen;
+            }
+            started
+        });
+        let late = unstarted - issued;
+        self.report.max_start_renders = self.report.max_start_renders.max(late);
         assert!(
-            took <= 8,
-            "a burst of {under} plays took {took} renders to start"
+            late < 8,
+            "a burst of {under} plays was not started after {late} renders"
         );
         self.wait_renders(3);
         self.audio.peak.store(0, Ordering::Relaxed);

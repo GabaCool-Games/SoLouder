@@ -16,12 +16,10 @@ solouder-sources = { workspace = true, optional = true }
 # The generated sources' cases and soak plays (solouder-sources).
 sources = ["dep:solouder-sources"]
 
-# The workspace forbids unsafe code. This crate only denies it, so the soak
-# test can install a counting global allocator (an unsafe trait) in one
-# module that allows it; nothing in the library or the binary uses unsafe.
-[lints.rust]
-unsafe_code = "deny"
-missing_docs = "warn"
+[dev-dependencies]
+# The soak test's counting allocator, kept out of this crate so that it
+# forbids unsafe code like the rest of the workspace.
+solouder-count-alloc = { path = "count-alloc" }
 
-[lints.clippy]
-all = { level = "warn", priority = -1 }
+[lints]
+workspace = true

@@ -12,9 +12,12 @@ use crate::contracts::MAX_CHANNELS;
 use crate::features::playback::{Mixer, SoundId, WAVE_LEN};
 
 const MAX: usize = MAX_CHANNELS as usize;
-/// One record: the wave, the channel volumes, and whether it is current
-/// (1) or its bus was not playing (0).
-const RECORD: usize = WAVE_LEN + MAX + 1;
+/// One record: the wave, the channel volumes, and the [`SoundId`] of the
+/// bus it holds (low and high words), 0 when that bus was not playing. A
+/// slot taken over by another bus shows the old bus's data until the
+/// renderer has the new one; the ID tells them apart.
+const RECORD: usize = WAVE_LEN + MAX + 2;
+const ID: usize = WAVE_LEN + MAX;
 /// Set in the exchange word when the middle buffer holds a copy the reader
 /// has not taken.
 const FRESH: u8 = 4;
@@ -77,27 +80,39 @@ impl VisualWriter {
         let copy = &self.buffers.copies[self.back];
         let (master, buses) = copy.split_at(RECORD);
         let (wave, volumes) = mixer.visualization_parts();
-        store(master, Some((wave, volumes)));
+        store(master, Some((wave, volumes)), 0);
         for (record, bus) in buses.as_chunks::<RECORD>().0.iter().zip(&self.buses) {
             let Some(bus) = bus else { break };
             let data = mixer.bus_voice_of(*bus);
-            store(record, data.map(|v| (&v.wave, &v.channel_volume)));
+            store(
+                record,
+                data.map(|v| (&v.wave, &v.channel_volume)),
+                bus.get(),
+            );
         }
         let back = self.back as u8 | FRESH;
         self.back = usize::from(self.buffers.exchange.swap(back, Ordering::AcqRel) & !FRESH);
     }
 }
 
-fn store(record: &[AtomicU32], data: Option<(&[f32; WAVE_LEN], &[f32; MAX])>) {
+fn store(record: &[AtomicU32], data: Option<(&[f32; WAVE_LEN], &[f32; MAX])>, id: u64) {
     let relaxed = Ordering::Relaxed;
-    let Some((wave, volumes)) = data else {
-        record[RECORD - 1].store(0, relaxed);
-        return;
+    let id = match data {
+        Some((wave, volumes)) => {
+            for (cell, value) in record.iter().zip(wave.iter().chain(volumes)) {
+                cell.store(value.to_bits(), relaxed);
+            }
+            id
+        }
+        None => 0,
     };
-    for (cell, value) in record.iter().zip(wave.iter().chain(volumes)) {
-        cell.store(value.to_bits(), relaxed);
-    }
-    record[RECORD - 1].store(1, relaxed);
+    record[ID].store(id as u32, relaxed);
+    record[ID + 1].store((id >> 32) as u32, relaxed);
+}
+
+fn stored_id(record: &[AtomicU32]) -> u64 {
+    let word = |i: usize| u64::from(record[i].load(Ordering::Relaxed));
+    word(ID) | word(ID + 1) << 32
 }
 
 /// The controller's side.
@@ -105,28 +120,53 @@ fn store(record: &[AtomicU32], data: Option<(&[f32; WAVE_LEN], &[f32; MAX])>) {
 pub(super) struct VisualReader {
     buffers: Arc<Buffers>,
     front: usize,
-    /// The bus of each slot handed out.
-    buses: Vec<SoundId>,
+    /// The bus of each slot handed out, and whether the slot is released:
+    /// its bus stopped recording, so another bus may take the slot over.
+    buses: Vec<(SoundId, bool)>,
     capacity: usize,
 }
 
 impl VisualReader {
-    /// A command giving `bus` a slot, if it needs one; fails when every
-    /// slot is taken. Call [`VisualReader::watched`] once it is sent.
+    /// A command giving `bus` a slot, if it needs one: a free slot, else
+    /// a released one; fails when every slot is held. Call
+    /// [`VisualReader::watched`] once it is sent.
     pub fn watch(&self, bus: SoundId) -> Result<Option<Command>, ControllerError> {
-        if self.buses.contains(&bus) {
+        if self.slot_of(bus).is_some() {
             return Ok(None);
         }
-        if self.buses.len() >= self.capacity {
-            return Err(ControllerError::TooManyVisualizedBuses);
-        }
-        let slot = self.buses.len();
+        let slot = if self.buses.len() < self.capacity {
+            self.buses.len()
+        } else {
+            let released = self.buses.iter().position(|&(_, released)| released);
+            released.ok_or(ControllerError::TooManyVisualizedBuses)?
+        };
         Ok(Some(Command::WatchBus { slot, bus }))
     }
 
-    /// Records the slot [`VisualReader::watch`] gave `bus`.
-    pub fn watched(&mut self, bus: SoundId) {
-        self.buses.push(bus);
+    /// Records the slot a command from [`VisualReader::watch`] gave its
+    /// bus. Commands reach the renderer in order, so taking a released
+    /// slot over needs no acknowledgement: the record's ID tells the old
+    /// bus's data from the new one's.
+    pub fn watched(&mut self, command: &Command) {
+        let &Command::WatchBus { slot, bus } = command else {
+            return;
+        };
+        match self.buses.get_mut(slot) {
+            Some(entry) => *entry = (bus, false),
+            None => self.buses.push((bus, false)),
+        }
+    }
+
+    /// Holds `bus`'s slot, or releases it. A released slot keeps its bus's
+    /// last data until another bus takes it over.
+    pub fn hold(&mut self, bus: SoundId, held: bool) {
+        if let Some(slot) = self.slot_of(bus) {
+            self.buses[slot].1 = !held;
+        }
+    }
+
+    fn slot_of(&self, bus: SoundId) -> Option<usize> {
+        self.buses.iter().position(|&(b, _)| b == bus)
     }
 
     /// The mix's record in the latest copy.
@@ -137,9 +177,9 @@ impl VisualReader {
     /// The watched bus's record in the latest copy; `None` for a bus with
     /// no slot or not playing at the last render that published.
     pub fn bus(&mut self, bus: SoundId) -> Option<([f32; WAVE_LEN], [f32; MAX])> {
-        let index = 1 + self.buses.iter().position(|&b| b == bus)?;
+        let index = 1 + self.slot_of(bus)?;
         let record = self.latest(index);
-        (record[RECORD - 1].load(Ordering::Relaxed) != 0).then(|| load(record))
+        (stored_id(record) == bus.get()).then(|| load(record))
     }
 
     /// Record `index` of the latest copy, taking a fresh one if the
@@ -181,7 +221,10 @@ mod tests {
         let Ok(Some(Command::WatchBus { slot, .. })) = reader.watch(bus.id()) else {
             panic!("a free slot");
         };
-        reader.watched(bus.id());
+        reader.watched(&Command::WatchBus {
+            slot,
+            bus: bus.id(),
+        });
         writer.watch(slot, bus.id());
         assert_eq!(
             reader.watch(Bus::new().id()).err(),

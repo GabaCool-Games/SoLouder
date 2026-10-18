@@ -72,23 +72,36 @@ impl Controller {
         self.bus_wave(bus).map(|wave| spectrum(&wave))
     }
 
-    /// The command that has the renderer publish `bus`'s data, if it is
-    /// not yet watched. Fails when every slot
+    /// For a bus about to record, the command that has the renderer
+    /// publish its data, if it is not yet watched. Fails when every slot
     /// ([`RealtimeConfig::visualized_buses`](super::RealtimeConfig::visualized_buses))
-    /// is taken.
-    pub(super) fn bus_watch(
-        &self,
-        bus: Option<SoundId>,
-    ) -> Result<Option<(SoundId, Command)>, ControllerError> {
+    /// is held.
+    pub(super) fn bus_watch(&self, bus: Option<SoundId>) -> Result<BusWatch, ControllerError> {
         let Some(bus) = bus else { return Ok(None) };
-        Ok(self.visual.watch(bus)?.map(|command| (bus, command)))
+        Ok(Some((bus, self.visual.watch(bus)?)))
     }
 
-    /// Sends a command from [`Controller::bus_watch`]; there must be room.
-    pub(super) fn send_watch(&mut self, watch: Option<(SoundId, Command)>) {
-        if let Some((bus, command)) = watch {
+    /// Sends a command from [`Controller::bus_watch`] (there must be room)
+    /// and holds the bus's slot.
+    pub(super) fn send_watch(&mut self, watch: BusWatch) {
+        let Some((bus, command)) = watch else { return };
+        if let Some(command) = command {
+            self.visual.watched(&command);
             let _ = self.send(command);
-            self.visual.watched(bus);
         }
+        self.visual.hold(bus, true);
     }
+
+    /// Releases `bus`'s slot, if it has one, once it stops recording.
+    pub(super) fn release_watch(&mut self, bus: SoundId) {
+        self.visual.hold(bus, false);
+    }
+}
+
+/// A bus about to record, and the command giving it a slot if it needs one.
+pub(super) type BusWatch = Option<(SoundId, Option<Command>)>;
+
+/// How many commands a [`BusWatch`] sends.
+pub(super) fn watch_commands(watch: &BusWatch) -> usize {
+    usize::from(matches!(watch, Some((_, Some(_)))))
 }

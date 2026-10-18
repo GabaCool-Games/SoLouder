@@ -7,6 +7,7 @@ use std::sync::Arc;
 use super::VoiceId;
 use super::command::{Command, ParamChange};
 use super::controller::{Controller, ControllerError};
+use super::controller_visual::watch_commands;
 use crate::dsp::Resampler;
 use crate::features::filters::{FILTERS_PER_STREAM, Filter};
 use crate::features::playback::{BUS_RATE, Bus, Queue, Queueable};
@@ -140,21 +141,26 @@ impl Controller {
 
     /// Sets whether `bus` records visualization data, including a playing
     /// bus. Enabling it also has the renderer publish the bus's data for
-    /// [`Controller::bus_wave`] from then on, using one of the
+    /// [`Controller::bus_wave`] from then on, in one of the
     /// [`RealtimeConfig::visualized_buses`](super::RealtimeConfig::visualized_buses)
-    /// slots for the controller's lifetime; so does playing a bus whose
-    /// visualization is enabled.
+    /// slots; so does playing a bus whose visualization is enabled.
+    /// Disabling it releases the slot: the bus's last data stays readable
+    /// until another bus takes the slot over.
     pub fn set_bus_visualization(
         &mut self,
         bus: &mut Bus,
         enable: bool,
     ) -> Result<(), ControllerError> {
         let watch = self.bus_watch(enable.then(|| bus.id()))?;
-        if self.commands.slots() < 1 + usize::from(watch.is_some()) {
+        if self.commands.slots() < 1 + watch_commands(&watch) {
             return Err(ControllerError::QueueFull);
         }
         self.send(Command::BusVisualization(bus.id(), enable))?;
-        self.send_watch(watch);
+        if enable {
+            self.send_watch(watch);
+        } else {
+            self.release_watch(bus.id());
+        }
         bus.set_visualization(enable);
         Ok(())
     }

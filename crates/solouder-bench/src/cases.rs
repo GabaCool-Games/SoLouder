@@ -10,7 +10,7 @@ use solouder_core::filters::{
 use solouder_core::{Bus, Pcm, PlayOptions, Resampler, Sound};
 
 use crate::cases_io;
-use crate::session::{Session, Setup};
+use crate::session::{Session, Setup, renders_for};
 use crate::signal::{TONE_RATE, TONES, tone_samples, tones, voice_options};
 
 /// Builds a case's session for a buffer size.
@@ -53,6 +53,7 @@ pub fn all() -> Vec<Case> {
     let mut cases = voices();
     cases.push(buses());
     cases.push(filters());
+    cases.push(filter_tails());
     cases.extend(cases_io::streams());
     cases.push(cases_io::spatial());
     #[cfg(feature = "sources")]
@@ -180,4 +181,60 @@ fn filters() -> Case {
         }
         session
     })
+}
+
+/// Output rendered before `filter_tails` is timed, in seconds: by then every
+/// tail is subnormal (the freeverb's after about 20 s on its own).
+pub const TAIL_SECONDS: f64 = 30.0;
+
+/// Frames of each `filter_tails` tone: 0.1 s.
+pub const TAIL_TONE_FRAMES: usize = 4410;
+
+/// `filter_tails`: 8 buses, each through a biquad lowpass and a freeverb,
+/// each fed one 0.1 s tone, then [`TAIL_SECONDS`] of decay before timing.
+/// The filters' state is then subnormal: the C++ build flushes it to zero
+/// (FTZ and DAZ), Rust cannot, and on CPUs that take a slow path for
+/// subnormals this case shows what that costs.
+fn filter_tails() -> Case {
+    case("filter_tails", Reference::Same, |buffer| {
+        let mut session = Session::new(setup(buffer, 64));
+        let c = &mut session.controller;
+        for k in 0..8 {
+            let mut bus = Bus::new();
+            bus.set_filter(0, Some(Arc::new(BiquadResonantFilter::default())));
+            bus.set_filter(1, Some(Arc::new(FreeverbFilter::default())));
+            c.play(&bus).expect("play");
+            let mut samples = tone_samples(k % TONES);
+            samples.truncate(TAIL_TONE_FRAMES);
+            let pcm = Pcm::from_planar(samples, 1, TONE_RATE).expect("valid tone");
+            c.bus_play(&bus, &Sound::new(pcm), voice_options(k))
+                .expect("play");
+        }
+        let mut output = vec![0.0; buffer as usize * 2];
+        for _ in 0..renders_for(TAIL_SECONDS, buffer) {
+            session.collect();
+            session.renderer.render(&mut output);
+        }
+        session
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// What `filter_tails` times is subnormal output, not silence.
+    #[test]
+    fn filter_tails_are_subnormal_when_timed() {
+        let case = filter_tails();
+        let mut session = (case.build)(512);
+        let mut output = vec![0.0; 1024];
+        session.renderer.render(&mut output);
+        let subnormal = output.iter().filter(|s| s.is_subnormal()).count();
+        assert!(
+            subnormal > output.len() / 2,
+            "{subnormal} subnormal samples"
+        );
+        session.finish();
+    }
 }

@@ -1,6 +1,8 @@
 [workspace]
 resolver = "3"
-members = ["crates/*"]
+# The soak test's counting allocator is a package of its own: the only code
+# here that implements an unsafe trait (see its Cargo.toml).
+members = ["crates/*", "crates/solouder-bench/count-alloc"]
 
 [workspace.package]
 version = "0.1.0"

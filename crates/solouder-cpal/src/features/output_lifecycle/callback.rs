@@ -17,6 +17,8 @@ pub(crate) struct OutputShared {
     /// An [`OutputState`](super::OutputState) code.
     pub state: AtomicU8,
     pub errors: AtomicU64,
+    /// Errors that may not have stopped the stream (`health::Effect::Watch`).
+    pub watched_errors: AtomicU64,
     pub callbacks: AtomicU64,
     /// Frames the most recent callback asked for.
     pub callback_frames: AtomicU64,

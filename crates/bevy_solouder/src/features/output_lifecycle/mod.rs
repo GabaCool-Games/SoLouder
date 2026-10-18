@@ -47,7 +47,8 @@ pub enum AudioOutputState {
     Playing,
     /// The device went away; nothing plays.
     Disconnected,
-    /// The backend failed.
+    /// The backend failed, or its stream stopped calling back after an
+    /// error (see `solouder_cpal::OutputState::Failed`).
     Failed,
     /// The renderer panicked; the device plays silence.
     Panicked,
@@ -64,6 +65,11 @@ pub struct AudioOutput {
     pub state: AudioOutputState,
     /// The device stream, when one is open.
     pub info: Option<OutputInfo>,
+    /// Backend errors the device reported that did not stop it
+    /// (`Output::watched_error_count`), such as ALSA's PulseAudio plugin's
+    /// occasional `snd_pcm_avail_delay` I/O error. Playback continues while
+    /// the device keeps calling back.
+    pub watched_errors: u64,
 }
 
 /// Sends commands to the mixer. Present whenever an output exists.
@@ -162,8 +168,12 @@ pub(crate) fn build(app: &mut App, mode: &OutputMode) {
         }
         app.insert_resource(SolouderController(Mutex::new(controller)));
     }
-    app.insert_resource(AudioOutput { state, info })
-        .add_systems(First, refresh_output_state);
+    app.insert_resource(AudioOutput {
+        state,
+        info,
+        watched_errors: 0,
+    })
+    .add_systems(First, refresh_output_state);
 }
 
 fn refresh_output_state(device: Option<NonSend<DeviceOutput>>, mut output: ResMut<AudioOutput>) {
@@ -176,5 +186,9 @@ fn refresh_output_state(device: Option<NonSend<DeviceOutput>>, mut output: ResMu
     };
     if output.state != state {
         output.state = state;
+    }
+    let watched = device.0.watched_error_count();
+    if output.watched_errors != watched {
+        output.watched_errors = watched;
     }
 }

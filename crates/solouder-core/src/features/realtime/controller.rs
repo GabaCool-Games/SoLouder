@@ -9,6 +9,7 @@ use rtrb::{Consumer, Producer};
 use super::VoiceId;
 use super::bus_layouts::BusLayouts;
 use super::command::{Command, PlayRequest};
+use super::controller_visual::watch_commands;
 use super::ids::IdPool;
 use super::spatial_mirror::{FilterLayout, SpatialMirror};
 use super::status::{Event, Shared, Status};
@@ -49,7 +50,7 @@ pub enum ControllerError {
     InvalidSoundSpeed,
     /// The output has no such channel, so no speaker for it.
     NoSuchSpeaker,
-    /// More buses recorded visualization data than
+    /// More buses record visualization data at once than
     /// [`RealtimeConfig::visualized_buses`](super::RealtimeConfig::visualized_buses) allows.
     TooManyVisualizedBuses,
 }
@@ -240,7 +241,7 @@ impl Controller {
         }
         let queue = source.queue_id().filter(|id| !self.queues.contains(id));
         let watch = self.bus_watch(source.bus_id().filter(|_| source.bus_visualization()))?;
-        let needed = 1 + usize::from(queue.is_some()) + usize::from(watch.is_some());
+        let needed = 1 + usize::from(queue.is_some()) + watch_commands(&watch);
         if self.commands.slots() < needed || self.retire_credits == 0 {
             return Err(ControllerError::QueueFull);
         }

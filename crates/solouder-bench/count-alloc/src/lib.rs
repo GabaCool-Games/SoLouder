@@ -1,12 +1,11 @@
 //! A global allocator that counts the allocations, frees and reallocations
 //! made on the audio thread while it renders, and nowhere else: the game and
-//! stream threads allocate freely at the same time.
+//! stream threads allocate freely at the same time. Used by
+//! `solouder-bench`'s soak test; not published.
 //!
-//! `GlobalAlloc` is an unsafe trait, so this module is the one place in the
-//! crate that allows unsafe code. Every method forwards to `System` with the
-//! caller's arguments unchanged.
-
-#![allow(unsafe_code)]
+//! `GlobalAlloc` is an unsafe trait, so this package is the one place in the
+//! workspace that allows unsafe code, in its one `impl`. Every method
+//! forwards to `System` with the caller's arguments unchanged.
 
 use std::alloc::{GlobalAlloc, Layout, System};
 use std::cell::Cell;
@@ -32,6 +31,7 @@ fn note() {
 // SAFETY: every method forwards its arguments unchanged to `System`, which
 // upholds the `GlobalAlloc` contract; `note` only reads a thread-local flag
 // and bumps an atomic, and never allocates.
+#[allow(unsafe_code)]
 unsafe impl GlobalAlloc for Counting {
     unsafe fn alloc(&self, layout: Layout) -> *mut u8 {
         note();

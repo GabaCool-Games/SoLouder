@@ -2,6 +2,7 @@
 //! and shutdown.
 
 mod callback;
+mod health;
 mod negotiate;
 mod output;
 

@@ -107,3 +107,37 @@ fn buses_beyond_the_slots_are_refused() {
     c.play(&second).unwrap();
     assert_eq!(c.bus_wave(&second), None);
 }
+
+/// Turning a bus's visualization off releases its slot: its last data stays
+/// readable until another bus takes the slot over, and the new bus never
+/// reads the old one's data.
+#[test]
+fn a_released_slot_goes_to_the_next_bus() {
+    let config = RealtimeConfig {
+        visualized_buses: 1,
+        ..RealtimeConfig::default()
+    };
+    let (mut c, mut renderer) = split(mixer(), config);
+    let mut out = vec![0.0; 2 * 512];
+    let (mut first, mut second) = (Bus::new(), Bus::new());
+    let options = PlayOptions::default();
+    for (bus, sound) in [(&first, sound(3000, 41)), (&second, sound(2000, 7))] {
+        c.play(bus).unwrap();
+        c.bus_play(bus, &sound, options).unwrap();
+    }
+    c.set_bus_visualization(&mut first, true).unwrap();
+    renderer.render(&mut out);
+    let first_wave = c.bus_wave(&first).expect("first is watched");
+    c.set_bus_visualization(&mut first, false).unwrap();
+    renderer.render(&mut out);
+    assert_eq!(c.bus_wave(&first), Some(first_wave));
+    c.set_bus_visualization(&mut second, true).unwrap();
+    // Before the renderer has the change, the slot still holds first's data.
+    assert_eq!((c.bus_wave(&first), c.bus_wave(&second)), (None, None));
+    renderer.render(&mut out);
+    let second_wave = c.bus_wave(&second).expect("second took the slot");
+    assert_ne!(second_wave, first_wave);
+    assert_eq!(c.bus_wave(&first), None);
+    let refused = Err(ControllerError::TooManyVisualizedBuses);
+    assert_eq!(c.set_bus_visualization(&mut first, true), refused);
+}

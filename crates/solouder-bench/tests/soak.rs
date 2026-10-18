@@ -25,8 +25,6 @@ use solouder_bench::timing::budget;
 use solouder_core::realtime::{RealtimeConfig, split};
 use solouder_core::{Mixer, MixerConfig, Renderer};
 
-#[path = "soak/alloc.rs"]
-mod alloc;
 #[path = "soak/game.rs"]
 mod game;
 #[path = "soak/sources.rs"]
@@ -35,7 +33,7 @@ mod sources;
 mod tracker;
 
 #[global_allocator]
-static GLOBAL: alloc::Counting = alloc::Counting;
+static GLOBAL: solouder_count_alloc::Counting = solouder_count_alloc::Counting;
 
 /// What the audio thread publishes.
 #[derive(Debug, Default)]
@@ -57,7 +55,7 @@ fn audio_thread(mut renderer: Renderer, audio: Arc<Audio>, seed: u64) -> Rendere
     while !audio.stop.load(Ordering::Acquire) {
         let frames = BUFFERS[rng.below(BUFFERS.len() as u64) as usize];
         let output = &mut output[..frames * 2];
-        alloc::rendering(|| renderer.render(output));
+        solouder_count_alloc::rendering(|| renderer.render(output));
         let mut peak = 0.0_f32;
         let mut bad = 0;
         for &sample in output.iter() {
@@ -122,7 +120,7 @@ fn controller_renderer_and_stream_worker_soak() {
 
     audio.stop.store(true, Ordering::Release);
     let renderer = audio_handle.join().expect("the audio thread panicked");
-    let audio_allocations = alloc::audio_allocations();
+    let audio_allocations = solouder_count_alloc::audio_allocations();
     drop(renderer);
     let game::Game {
         controller,
@@ -136,7 +134,7 @@ fn controller_renderer_and_stream_worker_soak() {
     eprintln!(
         "soak: {} renders, {:.1} s of audio in {:.1} s; {} frames, {} probes, {} bus bursts, \
          {} refused requests; plays {}, started {}, failed {}, finished (ended, stopped, stolen) \
-         {:?}; slowest probe start {} renders; stream underflow {} frames",
+         {:?}; probe bursts seen unstarted for at most {} renders; stream underflow {} frames",
         status.renders,
         status.stream_time,
         started.elapsed().as_secs_f64(),

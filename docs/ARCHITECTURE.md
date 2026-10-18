@@ -12,15 +12,24 @@ behavioral compatibility, patch preservation, migration milestones, and parity
 validation. Keep design decisions here rather than maintaining a second copy
 in the porting guide.
 
-**Status:** milestone E done (see [port-status.md](port-status.md)). All five crates exist: `solouder-core`
-(the offline mixer with routing, filters, streaming and 3D audio, and the
-real-time controller/renderer split, which reaches all of them except voice
-groups and some queries), `solouder-decoders` (WAV, FLAC, Ogg Vorbis and
-MP3, decoded or streamed), `solouder-cpal` (device output), `bevy_solouder`
-(assets, playback entities, output lifecycle, and spatial listener and
-emitter components, and the mix's visualization data as a resource) and
-`solouder-parity`. Buses, filters and the other ECS mappings in the Bevy
-sections below are still proposed.
+**Status:** milestone F done, the last of the plan (see
+[port-status.md](port-status.md) and
+[PORTING.md](PORTING.md#milestone-f-review) for what stays open). All seven
+crates exist: `solouder-core`
+(the offline mixer with routing, filters, streaming, 3D audio and
+visualization, and the real-time controller/renderer split, which reaches
+all of them except voice groups and some queries), `solouder-decoders`
+(WAV, FLAC, Ogg Vorbis and MP3, decoded or streamed), `solouder-sources`
+(the generated sources: Sfxr, Speech, Vizsn, Noise, Monotone, TedSid, Vic,
+AY and chip dumps, one Cargo feature each), `solouder-cpal` (device
+output), `bevy_solouder` (assets, generated clips, playback entities,
+output lifecycle, spatial listener and emitter components, and the mix's
+visualization data as a resource), `solouder-parity` (the scenario
+harness) and `solouder-bench` (benchmarks and the soak test, not
+published; its counting allocator, `solouder-count-alloc`, is a package of
+its own so that every other crate forbids unsafe code). Buses, filters and the other ECS mappings in the Bevy sections
+below are still proposed: Bevy reaches them only through the
+`SolouderController` resource.
 
 The target is a native Rust mixer, not a binding that requires the C++ SoLoud
 library at runtime. Core audio must remain usable without Bevy or a device.
@@ -114,8 +123,8 @@ violations with file paths and physical line counts:
 python scripts/check_rust_file_lines.py
 ```
 
-Run it before completing each porting slice. Add it to CI alongside Cargo checks
-when a Rust CI pipeline is introduced. It currently enforces size only; review
+Run it before completing each porting slice; `scripts/check_all.py` runs it,
+and so does CI. It currently enforces size only; review
 must still judge whether module boundaries are cohesive and follow VSA.
 
 ## Proposed workspace and dependency direction
@@ -163,6 +172,7 @@ crates/
       visualization/
   solouder-parity/              # scenario parser, Rust runner, comparison (not published)
   solouder-bench/               # render-time benchmarks and the soak test (not published)
+    count-alloc/                # the soak test's counting allocator: the one unsafe impl
 tests/
   scenarios/                    # .scn parity scenarios shared with the C++ runner
   fixtures/                     # small, redistributable audio fixtures
