@@ -1,12 +1,12 @@
 #!/usr/bin/env python3
 """Generate the generator fixtures in tests/fixtures/ (sfxr/, monotone/,
-chipdump/, ...).
+chipdump/, speech/).
 
 SoLoud ships none: sfxr parameter files, Monotone songs and CHIPTUNE
 register dumps are built here field by field, in the layouts
 `Sfxr::loadParamsFile`, `Monotone::loadFile`, `TedSid::loadFile` and
 `Ay::loadFile` read,
-together with damaged variants. Compressed dumps use the zx7 encoder below,
+together with damaged variants, and texts for `Speech::setText`. Compressed dumps use the zx7 encoder below,
 written for SoLouder from the format SoLoud's decompressor reads (the zx7
 compressor itself has a different licence).
 Every file is deterministic. With --check, fail if a committed fixture
@@ -580,14 +580,37 @@ def chipdump_fixtures() -> dict[str, bytes]:
     return files
 
 
+def speech_fixtures() -> dict[str, bytes]:
+    """Texts for `Speech::setText`, which reads bytes up to the first 0."""
+    fox = b"The quick brown fox jumps over the lazy dog. "
+    return {
+        "sentence.txt": b"Hello, world! This is SoLouder's speech test: 42 cats, 3.14 pies, "
+                        b"-7 degrees (and 1999 years); \"quoted\" words?\n",
+        # Phonemes as they are, with stress marks and bytes that are no
+        # phonemes, and an unclosed bracket.
+        "phonemes.txt": b"[h@'l@U] ['wVn] [,tu:] [+Tri:] [S0p?] the [end",
+        # Bytes from 0x80 (UTF-8), control bytes, spelled words, numbers
+        # past the int range, and suffix rules.
+        "odd.txt": "Caf\u00e9 na\u00efve \u2014 \u00dcber \u4e16\u754c".encode("utf-8")
+                   + b"\tNASA McDonald x86_64 it's re-enter e.g. a.b\x0bc\x01d\x7f "
+                   + b"12345678901234 -0 1000000 1000000000 2000000005 1100 1099 "
+                   + b"jumping lovely closer runs used madness [unclosed\n",
+        # Text after a 0 is not read.
+        "stops_at_zero.txt": b"spoken\0 never spoken",
+        # More than 128 elements.
+        "long.txt": fox * 6,
+    }
+
+
 def fixtures() -> dict[str, bytes]:
     out = {f"sfxr/{name}": data for name, data in sfxr_fixtures().items()}
     out.update({f"monotone/{name}": data for name, data in monotone_fixtures().items()})
     out.update({f"chipdump/{name}": data for name, data in chipdump_fixtures().items()})
+    out.update({f"speech/{name}": data for name, data in speech_fixtures().items()})
     return out
 
 
-GLOBS = ["sfxr/*.sfx", "monotone/*.mon", "chipdump/*.dump"]
+GLOBS = ["sfxr/*.sfx", "monotone/*.mon", "chipdump/*.dump", "speech/*.txt"]
 
 
 def main(argv: list[str] | None = None) -> int:

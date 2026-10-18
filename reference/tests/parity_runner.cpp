@@ -38,6 +38,7 @@
 #include "soloud_robotizefilter.h"
 #include "soloud_monotone.h"
 #include "soloud_sfxr.h"
+#include "soloud_speech.h"
 #include "soloud_tedsid.h"
 #include "soloud_vic.h"
 #include "soloud_waveshaperfilter.h"

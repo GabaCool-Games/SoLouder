@@ -1,0 +1,41 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:33:19 +0300
+Subject: [PATCH] klatt::phone_to_elm: look up the last phoneme without the
+ byte after it
+
+phoneme_to_element_lookup tried each phoneme as a two-byte one with the byte after it, also after the last phoneme. darray's spare usually held a 0, but phonemes that filled their allocation read past the heap block, and a byte there could make the last phoneme a two-byte one. The byte past the end now reads as 0.
+---
+ src/audiosource/speech/klatt.cpp | 10 ++++++----
+ 1 file changed, 6 insertions(+), 4 deletions(-)
+
+diff --git a/src/audiosource/speech/klatt.cpp b/src/audiosource/speech/klatt.cpp
+index 0ab2bfa..4ada118 100644
+--- a/src/audiosource/speech/klatt.cpp
++++ b/src/audiosource/speech/klatt.cpp
+@@ -705,11 +705,13 @@ void klatt::parwave(short int *jwave)
+ 
+ 
+ 
+-static char * phoneme_to_element_lookup(char *s, void ** data)
++static char * phoneme_to_element_lookup(char *s, char *limit, void ** data)
+ {
+ 	int key8 = *s;
+-	int key16 = key8 + (s[1] << 8);
+-	if (s[1] == 0) key16 = -1; // avoid key8==key16
++	// The byte after the last phoneme is past them: read it as 0.
++	int next = (s + 1 < limit) ? s[1] : 0;
++	int key16 = key8 + (next << 8);
++	if (next == 0) key16 = -1; // avoid key8==key16
+ 	int i;
+ 	for (i = 0; i < PHONEME_COUNT; i++)
+ 	{
+@@ -741,7 +743,7 @@ int klatt::phone_to_elm(char *aPhoneme, int aCount, darray *aElement)
+ 	while (s < limit && *s)
+ 	{
+ 		char *e = NULL;
+-		s = phoneme_to_element_lookup(s, (void**)&e);
++		s = phoneme_to_element_lookup(s, limit, (void**)&e);
+ 
+ 		if (e)
+ 		{

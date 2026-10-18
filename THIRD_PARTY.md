@@ -17,7 +17,7 @@ Rows saying "ported" name the SoLouder code translated from them; the rest has n
 | Freeverb | `src/filter/soloud_freeverbfilter.cpp` | Jezar at Dreampoint, public domain (original release, not GPL Freeverb3) | Port with attribution |
 | FFT | `src/core/soloud_fft.cpp` | Based on fftreal by Laurent de Soras, WTFPL | Port with attribution |
 | Sfxr | `src/audiosource/sfxr/` | Tomas Pettersson, relicensed to zlib by permission | Ported to `solouder-sources` (`features/sfxr/`); each file names him and the permission |
-| Speech synthesizer | `src/audiosource/speech/` | rsynth by Nick Ing-Simmons et al., public domain; SoLoud changes public domain/CC0; `soloud_speech.*` zlib | Port with attribution |
+| Speech synthesizer | `src/audiosource/speech/` | rsynth by Nick Ing-Simmons et al., public domain; SoLoud changes public domain/CC0; `soloud_speech.*` zlib | Ported to `solouder-sources` (`features/speech/`); `Elements.def` and the rule tables copied into `features/speech/data/`; each file credits rsynth |
 | Vizsn | `src/audiosource/vizsn/` | Ville-Matias Heikkilä, WTFPL | Port with attribution |
 | VIC 6560/6561 emulator | `src/audiosource/vic/` | Petri Häkkinen, zlib/libpng | Ported to `solouder-sources` (`features/vic/`), with his zlib notice in the file |
 | TED/SID | `src/audiosource/tedsid/` | Based on tedplay by Attila Grósz, Unlicense | Ported to `solouder-sources` (`features/tedsid/`); each file names him and the Unlicense |

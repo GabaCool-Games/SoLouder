@@ -15,6 +15,15 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
 #include "soloud.h"
 #include "soloud_ay.h"
 #include "soloud_bassboostfilter.h"
@@ -40,6 +49,7 @@
 #define private public
 #include "../src/audiosource/tedsid/sid.h"
 #include "../src/audiosource/ay/sndchip.h"
+#include "soloud_speech.h"
 #undef private
 
 using namespace SoLoud;
@@ -1771,6 +1781,179 @@ namespace
 		check(again == ayAudio(ay, 2048), "a rewound voice plays as a new one");
 	}
 
+	// aBytes copied to the end of a page followed by one that cannot be
+	// read, so reading a byte past them faults.
+	class GuardedBytes
+	{
+	public:
+		explicit GuardedBytes(const std::vector<unsigned char> &aBytes)
+		{
+#ifdef _WIN32
+			SYSTEM_INFO info;
+			GetSystemInfo(&info);
+			mPage = info.dwPageSize;
+			mBase = (unsigned char *)VirtualAlloc(NULL, 2 * mPage, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+			DWORD old;
+			VirtualProtect(mBase + mPage, mPage, PAGE_NOACCESS, &old);
+#else
+			mPage = (size_t)sysconf(_SC_PAGESIZE);
+			mBase = (unsigned char *)mmap(NULL, 2 * mPage, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+			mprotect(mBase + mPage, mPage, PROT_NONE);
+#endif
+			mData = mBase + mPage - aBytes.size();
+			std::memcpy(mData, aBytes.data(), aBytes.size());
+		}
+		~GuardedBytes()
+		{
+#ifdef _WIN32
+			VirtualFree(mBase, 0, MEM_RELEASE);
+#else
+			munmap(mBase, 2 * mPage);
+#endif
+		}
+		unsigned char *data() { return mData; }
+
+	private:
+		GuardedBytes(const GuardedBytes &);
+		GuardedBytes &operator=(const GuardedBytes &);
+		size_t mPage;
+		unsigned char *mBase;
+		unsigned char *mData;
+	};
+
+	// Speech::setParams took any speed: 0 or below gave a frame of no or a
+	// negative number of samples, so SpeechInstance asked new[] for a
+	// negative size or played nothing, and a speed past the int range of
+	// 11025 * speed gave the same. Speeds now give frames of 1 to 11025
+	// samples (up to 1000 ms).
+	void speech_speed_is_checked()
+	{
+		Speech speech;
+		check(speech.setParams(1330, 0.0f) == INVALID_PARAMETER, "a speed of 0 fails");
+		check(speech.setParams(1330, -10.0f) == INVALID_PARAMETER, "a negative speed fails");
+		check(speech.setParams(1330, std::numeric_limits<float>::quiet_NaN()) == INVALID_PARAMETER, "a NaN speed fails");
+		check(speech.setParams(1330, 0.05f) == INVALID_PARAMETER, "a frame under one sample fails");
+		check(speech.setParams(1330, 1001.0f) == INVALID_PARAMETER, "a frame over a second fails");
+		check(speech.mBaseSpeed == 10.0f && speech.mBaseWaveform == KW_SQUARE, "a failed call changes nothing");
+		check(speech.setParams(1330, 0.1f, 0.5f, KW_SAW) == SO_NO_ERROR, "a frame of one sample is set");
+		check(speech.setParams(1330, 1000.0f) == SO_NO_ERROR, "a frame of a second is set");
+		check(speech.mBaseSpeed == 1000.0f, "the speed is kept");
+	}
+
+	// SpeechInstance sized its sample buffer for the speed it started with,
+	// but getAudio and rewind took Speech's speed every time: after
+	// setParams lengthened the frames, a long element wrote past the buffer.
+	// A voice now keeps its speed; the other parameters still reach it.
+	void speech_voice_keeps_its_speed()
+	{
+		Speech speech, plain;
+		check(speech.setText("hello world") == SO_NO_ERROR && plain.setText("hello world") == SO_NO_ERROR,
+			"the texts are set");
+		AudioSourceInstance *instance = speech.createInstance();
+		instance->init(speech, 0);
+		std::vector<float> block(512), changed, again;
+		for (int i = 0; i < 8; i++)
+		{
+			if (i == 2)
+				check(speech.setParams(1330, 80.0f, 0.5f, KW_SQUARE) == SO_NO_ERROR, "the speed changes");
+			std::fill(block.begin(), block.end(), 0.0f);
+			instance->getAudio(block.data(), 512, 512);
+			changed.insert(changed.end(), block.begin(), block.end());
+		}
+		check(changed == sourceAudio(plain, 4096), "a playing voice keeps its speed");
+		// rewind keeps the resonators' history, so compare with a voice of
+		// plain rewound at the same point.
+		AudioSourceInstance *plainInstance = plain.createInstance();
+		plainInstance->init(plain, 0);
+		for (int i = 0; i < 8; i++)
+			plainInstance->getAudio(block.data(), 512, 512);
+		std::vector<float> plainAgain;
+		check(instance->rewind() == SO_NO_ERROR && plainInstance->rewind() == SO_NO_ERROR, "the voices rewind");
+		for (int i = 0; i < 4; i++)
+		{
+			std::fill(block.begin(), block.end(), 0.0f);
+			instance->getAudio(block.data(), 512, 512);
+			again.insert(again.end(), block.begin(), block.end());
+			std::fill(block.begin(), block.end(), 0.0f);
+			plainInstance->getAudio(block.data(), 512, 512);
+			plainAgain.insert(plainAgain.end(), block.begin(), block.end());
+		}
+		delete instance;
+		delete plainInstance;
+		check(again == plainAgain, "a rewound voice keeps its speed");
+		check(sourceAudio(speech, 2048) != sourceAudio(plain, 2048), "new voices take the new speed");
+	}
+
+	// The bytes of Speech's element array for aText.
+	std::vector<unsigned char> speechElements(const char *aText)
+	{
+		Speech speech;
+		speech.setText(aText);
+		const unsigned char *data = (const unsigned char *)speech.mElement.getData();
+		return std::vector<unsigned char>(data, data + speech.mElement.getSize());
+	}
+
+	// Every sample klatt renders from aCount bytes of elements.
+	std::vector<short> klattSamples(unsigned char *aElements, int aCount)
+	{
+		klatt synth;
+		synth.init(1330, 10.0f, 0.5f, KW_SQUARE);
+		synth.initsynth(aCount, aElements);
+		std::vector<short> frame(synth.mNspFr * 100), out;
+		int n;
+		while ((n = synth.synth(synth.mNspFr, frame.data())) >= 0)
+			out.insert(out.end(), frame.begin(), frame.begin() + n);
+		return out;
+	}
+
+	// klatt::synth's stress lookahead read a duration past the end of the
+	// elements when it reached their end: darray's zero-filled spare
+	// usually held it, but an array that filled its allocation (384 bytes,
+	// 128 elements) read past the heap block.
+	void speech_stress_lookahead_in_bounds()
+	{
+		std::vector<unsigned char> elements = speechElements("hello world");
+		check(!elements.empty(), "the text makes elements");
+		GuardedBytes guarded(elements);
+		std::vector<unsigned char> spare(elements);
+		spare.resize(elements.size() + 16, 0);
+		check(klattSamples(guarded.data(), (int)elements.size()) == klattSamples(spare.data(), (int)elements.size()),
+			"the elements play as with a zeroed spare");
+	}
+
+	// klatt::phone_to_elm looked each phoneme up with the byte after it,
+	// even after the last: darray's spare usually held a 0, but phonemes
+	// that filled its allocation read past the heap block, and a byte there
+	// could make the last phoneme a two-byte one.
+	void speech_phoneme_lookup_in_bounds()
+	{
+		const char text[] = "h@'l@Ut"; // ends in a one-byte phoneme
+		std::vector<unsigned char> bytes(text, text + sizeof(text) - 1);
+		GuardedBytes guarded(bytes);
+		darray fromGuarded, fromText;
+		int guardedFrames = klatt::phone_to_elm((char *)guarded.data(), (int)bytes.size(), &fromGuarded);
+		int textFrames = klatt::phone_to_elm((char *)text, (int)bytes.size(), &fromText);
+		check(guardedFrames == textFrames && fromGuarded.getSize() == fromText.getSize() &&
+			std::memcmp(fromGuarded.getData(), fromText.getData(), fromText.getSize()) == 0,
+			"the last phoneme is read alone");
+	}
+
+	// klatt::phone_to_elm read a byte that is not a phoneme (a stress mark,
+	// or anything else in [phonemes]) from the position after it, skipping
+	// that byte: stress marks never applied, the phoneme after one was
+	// dropped, and an unknown last byte read past the phonemes.
+	void speech_stress_marks_apply()
+	{
+		const unsigned char ELM_A_INDEX = 52; // ELM_A, '@', in klatt.cpp's ELEMENTS
+		const char text[] = "'@?"; // primary stress, a vowel, a byte that is no phoneme
+		std::vector<unsigned char> bytes(text, text + sizeof(text) - 1);
+		GuardedBytes guarded(bytes);
+		darray elements;
+		klatt::phone_to_elm((char *)guarded.data(), (int)bytes.size(), &elements);
+		const unsigned char *e = (const unsigned char *)elements.getData();
+		check(elements.getSize() == 3 && e[0] == ELM_A_INDEX && e[2] == 3, "the vowel plays with primary stress");
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -2524,6 +2707,11 @@ namespace
 		{ "ay_long_wait_is_spread", ay_long_wait_is_spread },
 		{ "ay_tail_is_played", ay_tail_is_played },
 		{ "ay_rewind_restarts", ay_rewind_restarts },
+		{ "speech_speed_is_checked", speech_speed_is_checked },
+		{ "speech_voice_keeps_its_speed", speech_voice_keeps_its_speed },
+		{ "speech_stress_lookahead_in_bounds", speech_stress_lookahead_in_bounds },
+		{ "speech_phoneme_lookup_in_bounds", speech_phoneme_lookup_in_bounds },
+		{ "speech_stress_marks_apply", speech_stress_marks_apply },
 	};
 }
 

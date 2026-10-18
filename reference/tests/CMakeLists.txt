@@ -140,6 +140,11 @@ set(REFERENCE_TESTS
   ay_long_wait_is_spread
   ay_tail_is_played
   ay_rewind_restarts
+  speech_speed_is_checked
+  speech_voice_keeps_its_speed
+  speech_stress_lookahead_in_bounds
+  speech_phoneme_lookup_in_bounds
+  speech_stress_marks_apply
 )
 
 enable_testing()

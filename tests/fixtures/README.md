@@ -72,5 +72,11 @@ repository's license and contain no third-party audio.
   `bad_ay_chip_0` is a TedSid chip type, `bad_ay_cpu_0`, `bad_ay_cpu_10`
   and `bad_ay_chip_speed` have speeds the player cannot render, and
   `bad_ay_no_chunks`, `bad_ay_cut` and `bad_ay_zx7_cut` are damaged.
+  Speech texts (`speech/`, read byte for byte): a sentence with numbers,
+  a decimal point, a negative number and punctuation (`sentence`);
+  `[phonemes]` with stress marks, a byte that is no phoneme and an
+  unclosed bracket (`phonemes`); UTF-8, control bytes, spelled words,
+  numbers past the int range and suffix rules (`odd`); text after a 0
+  (`stops_at_zero`); and more than 128 elements (`long`).
 
 Change a fixture by editing the generator and rerunning it, never by hand.

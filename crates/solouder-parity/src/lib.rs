@@ -21,6 +21,7 @@ pub mod run;
 pub mod scenario;
 mod sfxr_ops;
 mod spatial_ops;
+mod speech_ops;
 mod stream_ops;
 mod vic_ops;
 mod voice_ops;

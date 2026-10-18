@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:32:27 +0300
+Subject: [PATCH] Speech::setParams: refuse speeds that give no or too long
+ frames
+
+A speed of 0 or below gave klatt frames of no or a negative number of samples, so SpeechInstance asked new[] for a negative size or played nothing; a speed past the int range of 11025 * speed did the same. Speeds now give frames of 1 to 11025 samples (up to 1000 ms); others return INVALID_PARAMETER and change nothing.
+---
+ src/audiosource/speech/soloud_speech.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/audiosource/speech/soloud_speech.cpp b/src/audiosource/speech/soloud_speech.cpp
+index 6affec7..51cfb81 100644
+--- a/src/audiosource/speech/soloud_speech.cpp
++++ b/src/audiosource/speech/soloud_speech.cpp
+@@ -106,6 +106,10 @@ namespace SoLoud
+ 
+ 	result Speech::setParams(unsigned int aBaseFrequency, float aBaseSpeed, float aBaseDeclination, int aBaseWaveform)
+ 	{
++		// klatt renders frames of (int)(11025 * speed) / 1000 samples: take
++		// the speeds that give 1 to 11025 (up to 1000 ms).
++		if (!(aBaseSpeed > 0.0f && aBaseSpeed <= 1000.0f) || (int)(11025 * aBaseSpeed) / 1000 < 1)
++			return INVALID_PARAMETER;
+ 		mBaseFrequency = aBaseFrequency;
+ 		mBaseSpeed = aBaseSpeed;
+ 		mBaseDeclination = aBaseDeclination;

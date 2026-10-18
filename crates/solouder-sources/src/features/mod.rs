@@ -8,6 +8,8 @@ pub mod monotone;
 pub mod noise;
 #[cfg(feature = "sfxr")]
 pub mod sfxr;
+#[cfg(feature = "speech")]
+pub mod speech;
 #[cfg(feature = "tedsid")]
 pub mod tedsid;
 #[cfg(feature = "vic")]

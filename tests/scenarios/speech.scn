@@ -1,0 +1,466 @@
+# Speech (milestone F unit 6): text through the letter-to-sound rules,
+# numbers (with a point, negative, past the int range), spelled words,
+# punctuation, [phonemes] with stress marks and bytes that are no
+# phonemes (reference patches 0096 and 0097), bytes from 0x80 and
+# control bytes, text after a 0, a text of more than 128 elements
+# (patch 0095) and no text; every waveform at several frequencies,
+# speeds and declinations, each played to its end; speeds refused
+# (patch 0093); parameters changed under a playing voice, which keeps
+# its speed (patch 0094); reads of odd sizes (every read restarts the
+# glottal period, as in SoLoud); looping with a loop point, seeks, play
+# speeds, storing a name again stopping its voices; and a 44.1 kHz
+# stereo engine resampling, panning and filtering.
+init channels=1 rate=11025
+# hello
+speech name=hello text=Hello_world
+speech_query name=hello
+play sound=hello as=hello
+mix frames=4096
+query h=hello
+mix frames=4096
+mix frames=4096
+query h=hello
+stop_all
+
+# pulse
+speech name=pulse text=Hello_world
+speech_set name=pulse waveform=4 frequency=900
+speech_query name=pulse
+play sound=pulse as=pulse
+mix frames=4096
+query h=pulse
+mix frames=4096
+mix frames=4096
+query h=pulse
+stop_all
+
+# sentence
+speech name=sentence file=speech/sentence.txt
+speech_set name=sentence waveform=0 frequency=1000 declination=0.3 speed=6
+speech_query name=sentence
+play sound=sentence as=sentence
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=sentence
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=sentence
+stop_all
+
+# phonemes
+speech name=phonemes file=speech/phonemes.txt
+speech_set name=phonemes waveform=2
+speech_query name=phonemes
+play sound=phonemes as=phonemes
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=phonemes
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=phonemes
+stop_all
+
+# odd
+speech name=odd file=speech/odd.txt
+speech_set name=odd waveform=5 speed=4 frequency=1600
+speech_query name=odd
+play sound=odd as=odd
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=odd
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=odd
+stop_all
+
+# zero
+speech name=zero file=speech/stops_at_zero.txt
+speech_set name=zero waveform=6 declination=2
+speech_query name=zero
+play sound=zero as=zero
+mix frames=4096
+query h=zero
+mix frames=4096
+mix frames=4096
+query h=zero
+stop_all
+
+# long
+speech name=long file=speech/long.txt
+speech_set name=long waveform=1 speed=5 frequency=2000 declination=0
+speech_query name=long
+play sound=long as=long
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+query h=long
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+mix frames=1000
+query h=long
+stop_all
+
+# empty
+speech name=empty
+speech_query name=empty
+play sound=empty as=empty
+query h=empty
+mix frames=4096
+query h=empty
+stop_all
+
+# Speeds whose frames hold no samples or more than 11025 are refused
+# and change nothing; the slowest and fastest are taken.
+speech name=p text=Speed
+speech_set name=p speed=0 frequency=7
+speech_query name=p
+speech_set name=p speed=-1 frequency=7
+speech_query name=p
+speech_set name=p speed=0.05 frequency=7
+speech_query name=p
+speech_set name=p speed=1001 frequency=7
+speech_query name=p
+speech_set name=p speed=0.1
+speech_query name=p
+play sound=p as=fast
+mix frames=4096
+query h=fast
+speech_set name=p speed=1000 frequency=4294967295
+speech_query name=p
+stop_all
+
+# Frequency, declination and waveform reach a playing voice at its next
+# read; its speed stays, and a new voice takes the new one.
+speech name=live text=one_two_three_four_five_six_seven_eight_nine_ten_eleven_twelve
+speech_query name=live
+play sound=live as=v1
+mix frames=4096
+mix frames=4096
+speech_set name=live frequency=2200 waveform=0 declination=1.5
+mix frames=4096
+mix frames=4096
+speech_set name=live speed=14 waveform=2
+play sound=live as=v2 pan=0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=v1
+query h=v2
+mix frames=777
+mix frames=777
+mix frames=777
+mix frames=777
+query h=v1
+query h=v2
+stop_all
+
+# Reads of odd sizes.
+speech name=reads text=Reading_in_odd_sizes
+play sound=reads as=r
+mix frames=1
+mix frames=1
+mix frames=2
+mix frames=2
+mix frames=77
+mix frames=77
+mix frames=300
+mix frames=300
+mix frames=511
+mix frames=511
+mix frames=512
+mix frames=512
+mix frames=513
+mix frames=513
+mix frames=1023
+mix frames=1023
+mix frames=2048
+mix frames=2048
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=r
+stop_all
+
+# Looping: rewinding keeps the filters' history, as in SoLoud; one
+# voice loops to a loop point.
+speech name=loop text=Hi_there looping=1
+speech name=point text=Hi_there looping=1 loop_point=0.2
+play sound=loop as=l
+play sound=point as=lp volume=0.6
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=l
+query h=lp
+# Seeks forward and back, and play speeds.
+set h=l seek=0.3
+query h=l
+mix frames=4096
+set h=l seek=0.05 speed=1.5
+query h=l
+mix frames=4096
+mix frames=4096
+set h=lp speed=0.7
+query h=lp
+mix frames=4096
+mix frames=4096
+# Storing a name again stops its voices.
+speech name=loop text=Bye
+query h=l
+counts
+mix frames=4096
+stop_all
+
+# Without auto stop, an ended voice stays, silent.
+speech name=still text=Bye auto_stop=0
+play sound=still as=st
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=st
+counts
+stop_all
+
+# A 44.1 kHz stereo engine: resampled, panned and filtered voices. The
+# filter has no feedback: a biquad decays into subnormals in the
+# silences between words, which the reference flushes to zero.
+init channels=2
+speech name=st text=Stereo_speech,_resampled.
+speech_set name=st waveform=3 frequency=1200
+filter name=low kind=lofi rate=8000 bits=8
+sound_filter sound=st slot=0 filter=low
+play sound=st as=s1 pan=-0.6
+play sound=st as=s2 pan=0.6 volume=0.5
+set h=s2 speed=1.25
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=s1
+query h=s2
+voice_info h=s1 from=0 to=3
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=s1
+query h=s2
+stop_all

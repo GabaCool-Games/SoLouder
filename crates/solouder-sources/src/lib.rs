@@ -22,6 +22,8 @@ pub use features::monotone::{MONOTONE_CHANNELS, Monotone, MonotoneError, Monoton
 pub use features::noise::{Noise, NoiseType, OCTAVES};
 #[cfg(feature = "sfxr")]
 pub use features::sfxr::{Sfxr, SfxrError, SfxrParams, SfxrPreset};
+#[cfg(feature = "speech")]
+pub use features::speech::{InvalidSpeechSpeed, KlattWaveform, Speech, SpeechParams};
 #[cfg(feature = "tedsid")]
 pub use features::tedsid::{SidModel, TedSid};
 #[cfg(feature = "vic")]

@@ -223,7 +223,8 @@
 		{
 			return op == "noise" || op == "noise_set" || op == "vic" || op == "vic_set" || op == "vic_query" ||
 				op == "sfxr" || op == "sfxr_load" || op == "sfxr_reset" || op == "sfxr_query" || op == "monotone" ||
-				op == "monotone_set" || op == "monotone_query" || op == "tedsid" || op == "ay";
+				op == "monotone_set" || op == "monotone_query" || op == "tedsid" || op == "ay" ||
+				op == "speech" || op == "speech_set" || op == "speech_query";
 		}
 
 		void generatorOp(const Step &step)
@@ -387,4 +388,71 @@
 				chipOp(step, new SoLoud::TedSid);
 			else if (step.op == "ay")
 				chipOp(step, new SoLoud::Ay);
+			static const char *const speechKeys[] = { "name", "text", "file" };
+			static const char *const speechSetKeys[] = { "name", "frequency", "speed", "declination", "waveform" };
+			if (step.op == "speech")
+			{
+				checkGeneratorKeys(step, speechKeys, 3);
+				engine(step);
+				std::string name = textArg(step, "name");
+				bool hasText = step.get("text") != 0;
+				if (hasText && step.get("file"))
+					throw ScenarioError(step.line, "`text` and `file` cannot be combined");
+				std::string text;
+				if (hasText)
+				{
+					// `_` for spaces.
+					text = textArg(step, "text");
+					for (size_t i = 0; i < text.size(); i++)
+						if (text[i] == '_')
+							text[i] = ' ';
+				}
+				else if (step.get("file"))
+				{
+					std::string path = fixtureArg(step);
+					std::ifstream in(path.c_str(), std::ios::binary);
+					if (!in)
+						throw ScenarioError(step.line, "cannot read " + path);
+					text.assign((std::istreambuf_iterator<char>(in)), std::istreambuf_iterator<char>());
+					hasText = true;
+				}
+				SoLoud::Speech *speech = new SoLoud::Speech;
+				// setText reads up to the first 0.
+				SoLoud::result code = hasText ? speech->setText(text.c_str()) : SoLoud::SO_NO_ERROR;
+				sourceSettings(step, *speech);
+				storeGenerator(name, speech);
+				std::ostringstream line;
+				line << "speech " << name << " " << code;
+				logLine(line);
+			}
+			else if (step.op == "speech_set")
+			{
+				checkKeys(step, speechSetKeys, 5);
+				SoLoud::Speech &speech = generatorArg<SoLoud::Speech>(step, "name", "speech");
+				unsigned int frequency = uintArg(step, "frequency", false, (unsigned int)speech.mBaseFrequency);
+				float speed = floatArg(step, "speed", speech.mBaseSpeed);
+				float declination = floatArg(step, "declination", speech.mBaseDeclination);
+				int waveform = speech.mBaseWaveform;
+				if (step.get("waveform"))
+				{
+					unsigned int value = uintArg(step, "waveform", true, 0);
+					if (value > 6)
+						throw ScenarioError(step.line, "`waveform` must be 0 to 6");
+					waveform = (int)value;
+				}
+				SoLoud::result code = speech.setParams(frequency, speed, declination, waveform);
+				std::ostringstream line;
+				line << "speech_set " << textArg(step, "name") << " " << code;
+				logLine(line);
+			}
+			else if (step.op == "speech_query")
+			{
+				checkKeys(step, speechSetKeys, 1);
+				SoLoud::Speech &speech = generatorArg<SoLoud::Speech>(step, "name", "speech");
+				std::ostringstream line;
+				line << "speech_query " << textArg(step, "name") << " frequency=" << (unsigned int)speech.mBaseFrequency
+					<< " speed=" << hex32(speech.mBaseSpeed) << " declination=" << hex32(speech.mBaseDeclination)
+					<< " waveform=" << speech.mBaseWaveform << " frames=" << speech.mFrames;
+				logLine(line);
+			}
 		}

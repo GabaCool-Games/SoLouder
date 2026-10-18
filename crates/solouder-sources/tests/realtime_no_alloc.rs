@@ -1,8 +1,9 @@
 //! Generators through the real-time split: `Renderer::render` must not
 //! allocate or free memory while synths play, loop, seek, end and play in
-//! a queue, and while a Vic's registers and model and a Monotone's
-//! settings change under their voices (noise, Vic, sfxr, Monotone, TedSid
-//! and Ay voices, looping and not, an Ay restarting its chips as it loops),
+//! a queue, and while a Vic's registers and model, a Monotone's settings
+//! and a Speech's voice change under their voices (noise, Vic, sfxr,
+//! Monotone, TedSid, Ay and Speech voices, looping and not, an Ay
+//! restarting its chips as it loops),
 //! and must render exactly what an offline [`Mixer`] given the same calls
 //! renders. Generator instances are built when a voice is prepared, on the
 //! game thread, so only the reads run on the audio thread.
@@ -17,7 +18,10 @@ use solouder_core::{
     Controller, Generator, GeneratorContext, GeneratorInstance, Mixer, MixerConfig, Queue,
     Renderer, Synth,
 };
-use solouder_sources::{Ay, Monotone, Noise, NoiseType, Sfxr, SfxrPreset, TedSid, Vic, VicModel};
+use solouder_sources::{
+    Ay, KlattWaveform, Monotone, Noise, NoiseType, Sfxr, SfxrPreset, Speech, SpeechParams, TedSid,
+    Vic, VicModel,
+};
 use stats_alloc::{INSTRUMENTED_SYSTEM, Region, StatsAlloc};
 
 #[global_allocator]
@@ -149,6 +153,16 @@ fn looping_ay() -> Synth {
     synth
 }
 
+/// Speech's voice for a round: 3 ms frames, so a short word loops often.
+fn speech_params(round: usize) -> SpeechParams {
+    SpeechParams {
+        frequency: 1000 + 97 * round as u32,
+        speed: 3.0,
+        declination: 0.5,
+        waveform: KlattWaveform::from_index(round as u32 % 7).unwrap(),
+    }
+}
+
 fn ramp(frames: usize, rewinds: bool, looping: bool) -> Synth {
     let mut synth = Synth::new(Arc::new(Ramp { frames, rewinds })).unwrap();
     synth.set_looping(looping);
@@ -188,6 +202,10 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
     let mut chip = Synth::new(Arc::new(vic.clone())).unwrap();
     let song = Monotone::from_bytes(&monotone_song()).unwrap();
     chip.set_looping(true);
+    let speech = Speech::new("Hi there");
+    speech.set_params(speech_params(0)).unwrap();
+    let mut talk = Synth::new(Arc::new(speech.clone())).unwrap();
+    talk.set_looping(true);
     let sounds = [
         chip,
         noise(NoiseType::Pink),
@@ -201,6 +219,7 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
         // SID and TED together, from zx7 chunks.
         Synth::new(Arc::new(TedSid::from_bytes(TEDSID_DUMP).unwrap())).unwrap(),
         looping_ay(),
+        talk,
     ];
     let mut ids = Vec::new();
     let mut handles = Vec::new();
@@ -229,6 +248,8 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
         // Hardware channels and the waveform too.
         song.set_params(1 + round as u32 % 4, round as i32 % 9)
             .unwrap();
+        // And the speech's frequency and waveform.
+        speech.set_params(speech_params(round)).unwrap();
         if round == 3 {
             // Forward through the generic seek's discard passes, and back
             // with a rewind.
