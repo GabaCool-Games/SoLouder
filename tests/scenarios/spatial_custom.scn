@@ -12,7 +12,7 @@
 # their colliders ran (the counting collider); a collider sees the voice's
 # velocity, listener-relative flag, distances, rolloff and Doppler factor,
 # also in a slot a stopped voice left, and its handle; an attenuator gets
-# the distance unclamped.
+# the distance unclamped. Generators take the same 3D settings.
 init channels=2
 sound name=n frames=30000 pattern=noise seed=17 amp=0.5
 sound name=s frames=30000 pattern=saw period=31 amp=0.5
@@ -198,6 +198,28 @@ update3d
 query h=m2
 mix frames=200
 stop h=m2
+
+# Generators take the same 3D settings: a Vic with distance delay and
+# Doppler, moving away; a listener-relative noise whose meta collider sees
+# its velocity, flag, distances, rolloff and Doppler factor, with a raw
+# attenuator.
+listener x=0 y=0 z=0 vx=0 vy=0 vz=-10
+vic name=g bass=200 alto=220 volume=0.7
+sound3d name=g min=1 max=40 model=1 rolloff=1 delay=1 doppler=2
+noise name=w type=1 volume=0.5
+sound3d name=w relative=1 collider=meta data=12 attenuator=raw min=1.5 max=25 model=2 rolloff=0.6 doppler=0.8
+play3d sound=g as=gv x=0 y=0 z=-6 vx=0 vy=0 vz=-60
+play3d sound=w as=wv x=1 y=0.5 z=-2 vx=-20 vy=0 vz=4
+query h=gv
+query h=wv
+mix frames=700
+set3d h=gv x=3 y=1 z=-14 vx=-20 vy=0 vz=-90
+set3d h=wv x=-2 y=0 z=-5 vx=0 vy=3 vz=0
+update3d
+query h=gv
+query h=wv
+mix frames=1100
+stop_all
 
 # The handle a collider sees is the voice's, also in a reused slot. Last:
 # through the real-time controller a collider sees no handle.

@@ -13,7 +13,7 @@ use solouder_parity::{parse, replay_realtime, run};
 /// if any. Editing a scenario above its stop moves the line: update it here.
 const SCENARIOS: &[(&str, Option<(usize, &str)>)] = &[
     ("spatial_3d", Some((260, "`global`"))),
-    ("spatial_custom", Some((204, "`sound3d`"))),
+    ("spatial_custom", Some((226, "`sound3d`"))),
     ("spatial_delay", None),
     ("spatial_doppler", None),
     ("spatial_sources", None),
