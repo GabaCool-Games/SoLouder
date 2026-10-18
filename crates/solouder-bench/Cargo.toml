@@ -1,0 +1,22 @@
+[package]
+name = "solouder-bench"
+description = "Render-time benchmarks and a multi-threaded soak test for SoLouder (not published)"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+publish = false
+
+[dependencies]
+solouder-core.workspace = true
+solouder-decoders.workspace = true
+
+# The workspace forbids unsafe code. This crate only denies it, so the soak
+# test can install a counting global allocator (an unsafe trait) in one
+# module that allows it; nothing in the library or the binary uses unsafe.
+[lints.rust]
+unsafe_code = "deny"
+missing_docs = "warn"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }

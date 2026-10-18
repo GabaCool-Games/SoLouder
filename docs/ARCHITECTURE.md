@@ -157,6 +157,7 @@ crates/
       spatial/
       visualization/
   solouder-parity/              # scenario parser, Rust runner, comparison (not published)
+  solouder-bench/               # render-time benchmarks and the soak test (not published)
 tests/
   scenarios/                    # .scn parity scenarios shared with the C++ runner
   fixtures/                     # small, redistributable audio fixtures
@@ -173,7 +174,7 @@ Existing today: `solouder-core` (`contracts/`, `dsp/`, `features/playback/`
 and `features/realtime/`), `solouder-decoders` (`features/decoded_audio/`,
 WAV), `solouder-cpal` (`features/output_lifecycle/`), `bevy_solouder`
 (`features/decoded_audio/`, `features/output_lifecycle/`,
-`features/playback/`), `solouder-parity`, `tests/scenarios/`,
+`features/playback/`), `solouder-parity`, `solouder-bench`, `tests/scenarios/`,
 `tests/fixtures/wav/` and `docs/port-status.md`. Versions are pinned in `rust-toolchain.toml` (Rust
 1.98.1) and the root `Cargo.toml` (Bevy 0.20, CPAL 0.18).
 
@@ -499,3 +500,15 @@ golden, the difference is declared per scenario and platform in
 than loosening the scenario itself. The supported OS, architecture and host
 combinations, and what has been verified on each, are in
 [port-status.md](port-status.md#platforms).
+
+`solouder-bench` measures what a device callback costs: each case builds a
+mixer, splits it, starts its voices through the `Controller`, and times
+`Renderer::render`; `reference_bench.cpp` builds the same cases on the C++
+reference and times `Soloud::mix` (`scripts/run_bench.py` prints both against
+the callback budget). Its soak test runs a `Controller`, a `Renderer` and a
+`StreamWorker` on three threads with a counting allocator that sees only the
+rendering audio thread; it is the one place in the workspace with unsafe code
+(a `GlobalAlloc` that forwards to `System`), confined to the test, so that
+crate denies `unsafe_code` instead of forbidding it. New kinds of sources add
+benchmark cases in `cases::all` and plays in the soak. Results are in
+[port-status.md](port-status.md#performance).

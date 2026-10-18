@@ -2091,6 +2091,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "solouder-bench"
+version = "0.1.0"
+dependencies = [
+ "solouder-core",
+ "solouder-decoders",
+]
+
+[[package]]
 name = "solouder-core"
 version = "0.1.0"
 dependencies = [

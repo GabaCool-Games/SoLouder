@@ -111,7 +111,7 @@ jobs:
 
   # Each crate builds on its own (no features unified from the rest of the
   # workspace) and without default features. Crates with optional features
-  # add a line per feature (see docs/port-status.md, "Support matrix").
+  # add a line per feature (see docs/port-status.md, "Platforms").
   features:
     runs-on: ubuntu-latest
     strategy:
@@ -123,6 +123,7 @@ jobs:
           - -p solouder-cpal --no-default-features
           - -p bevy_solouder --no-default-features
           - -p solouder-parity
+          - -p solouder-bench
     steps:
       - uses: actions/checkout@v4
       - run: rustup show
@@ -135,10 +136,29 @@ jobs:
   miri:
     if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
     runs-on: ubuntu-latest
+    timeout-minutes: 120
     steps:
       - uses: actions/checkout@v4
       - run: rustup toolchain install nightly --profile minimal --component miri,rust-src
       - run: cargo +nightly miri setup
-      # The DSP kernels and the visualization triple buffer; the other
-      # real-time tests mix seconds of audio, too slow under Miri.
-      - run: "cargo +nightly miri test -p solouder-core --lib -- dsp:: realtime::visual"
+      # The DSP kernels, the value types, the visualization data and triple
+      # buffer, and the controller/renderer tests (queues, ID pools,
+      # retirement, routing): about 20 minutes. The stream, spatial and
+      # layout tests mix seconds of audio, too slow under Miri.
+      - run: >-
+          cargo +nightly miri test -p solouder-core --lib --
+          dsp:: contracts:: playback::visualization realtime::visual
+          realtime::tests realtime::routing_tests
+
+  # The soak test for ten minutes in release (check_all runs three seconds).
+  soak:
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - run: rustup show
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo test --release -p solouder-bench --test soak -- --nocapture
+        env:
+          SOLOUDER_SOAK_SECONDS: "600"

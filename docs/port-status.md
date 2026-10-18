@@ -193,7 +193,7 @@ every row but has not run: SoLouder is not pushed anywhere.
 | Linux | arm64 | ALSA | Not run | Not run | Not run | Not run |
 | macOS (CI `macos-latest`) | arm64 | CoreAudio | CI configured | CI configured: Rust tests and C++ regression tests | CI configured against the Windows golden, non-blocking until it has run | Unverified |
 | macOS | x86-64 | CoreAudio | Not run | Not run | Not run | Unverified |
-| Miri (nightly 2026-10-12, Linux container) | x86-64 | none | Verified | Verified: `dsp::` (16 tests) and `realtime::visual` (3 tests), no undefined behavior | n/a | n/a |
+| Miri (nightly 2026-10-12, Linux container) | x86-64 | none | Verified | Verified, no undefined behavior: `dsp::` (16 tests), `contracts::` (3), `playback::visualization` (3), `realtime::visual` (3), `realtime::tests` (14, 13 minutes) and `realtime::routing_tests` (3) | n/a | n/a |
 
 Cross-platform parity, measured with `run_parity.py --cpp-dir` (compare
 against another machine's runner output) and `--profile` (per-scenario
@@ -233,6 +233,121 @@ denied real-time priority as fatal, so `Output::state` reports `Failed` and
 `repeated_open_play_close` (and Bevy's `device_apps_start_play_and_tear_down_repeatedly`)
 fail. Whether this happens on real ALSA hardware is unknown; the CI device
 job is non-blocking until it is.
+
+## Performance
+
+Measured 2026-10-18 with `python scripts/run_bench.py` (release builds,
+2 seconds of output per row after a 0.25 s warmup, one run): AMD Ryzen 9
+9950X3D (16 cores, 32 threads), 32 GB, Windows 10 IoT Enterprise LTSC 21H2
+(build 19045), Rust 1.98.1, MSVC 19.44 (`/O2`, the reference's
+`SOLOUDER_SSE_INTRINSICS` on). Nothing else was running.
+
+Each case builds a stereo 48 kHz mixer (buffer size at least 2048, as
+`solouder-cpal` sets it), starts its voices through the `Controller`, and
+times `Renderer::render` of one buffer; `reference_bench` builds the same
+case on the C++ reference with the null driver and times `Soloud::mix`. The
+tones are 2-second looping 44.1 kHz sines, so every voice is resampled;
+voices have volume 0.05 and spread pans, and all are active. `buses` is three
+levels (1, 4 and 16 buses) with 4 tones on each leaf; `filters` is 30 tones,
+three through each of the ten filters at their default settings, plus a
+global biquad; `streams_*` are 16 looping voices of one stereo 44.1 kHz file
+in memory; `spatial` is 256 3D tones that all move, with a turning listener
+and `update_3d_audio` before every render (untimed in both). The budget is
+the buffer's length; times are microseconds.
+
+| Case | 128 frames (2,667 µs): Rust mean / max | C++ mean / max | 512 frames (10,667 µs): Rust mean / max | C++ mean / max | Rust / C++ (mean, 512) |
+|---|---|---|---|---|---|
+| `voices16_point` | 2.5 / 3.8 | 1.5 / 16.5 | 8.6 / 10.1 | 4.2 / 5.3 | 2.05 |
+| `voices16_linear` | 3.4 / 4.7 | 1.7 / 2.8 | 11.9 / 12.2 | 6.3 / 6.9 | 1.89 |
+| `voices16_catmullrom` | 4.9 / 5.6 | 3.6 / 4.7 | 17.3 / 17.6 | 13.4 / 16.2 | 1.29 |
+| `voices64_point` | 10.8 / 14.8 | 4.3 / 6.2 | 31.5 / 34.7 | 13.6 / 14.3 | 2.32 |
+| `voices64_linear` | 12.9 / 16.6 | 6.2 / 8.6 | 45.7 / 46.5 | 21.4 / 24.7 | 2.14 |
+| `voices64_catmullrom` | 18.9 / 21.5 | 13.6 / 16.8 | 67.0 / 69.4 | 50.2 / 55.2 | 1.33 |
+| `voices256_point` | 43.3 / 54.4 | 17.3 / 25.8 | 141 / 149 | 53.2 / 55.7 | 2.65 |
+| `voices256_linear` | 52.6 / 67.8 | 24.9 / 42.1 | 181 / 189 | 84.2 / 89.9 | 2.15 |
+| `voices256_catmullrom` | 75.3 / 87.3 | 54.5 / 62.7 | 268 / 277 | 200 / 207 | 1.34 |
+| `voices1023_point` | 175 / 199 | 75.8 / 112 | 573 / 611 | 218 / 237 | 2.63 |
+| `voices1023_linear` | 208 / 230 | 106 / 138 | 732 / 750 | 341 / 366 | 2.15 |
+| `voices1023_catmullrom` | 303 / 326 | 225 / 277 | 1,140 / 1,661 | 812 / 836 | 1.40 |
+| `buses` | 24.6 / 134 | 9.8 / 45.5 | 72.5 / 113 | 38.2 / 44.2 | 1.90 |
+| `filters` | 25.9 / 230 | 23.2 / 102 | 97.8 / 139 | 91.5 / 102 | 1.07 |
+| `streams_wav` | 8.9 / 46.6 | 5.0 / 19.4 | 29.4 / 81.2 | 19.4 / 27.0 | 1.52 |
+| `streams_flac` | 9.0 / 34.0 | 17.5 / 171 | 29.4 / 70.4 | 69.1 / 182 | 0.43 |
+| `streams_ogg` | 9.1 / 24.3 | 23.5 / 321 | 31.5 / 116 | 91.9 / 312 | 0.34 |
+| `streams_mp3` | 8.5 / 34.8 | 21.2 / 195 | 29.0 / 59.9 | 83.2 / 201 | 0.35 |
+| `spatial` | 91.6 / 129 | 54.7 / 66.0 | 216 / 244 | 117 / 132 | 1.85 |
+
+`run_bench.py` also writes 256, 480 and 1024 frames (`build/bench/bench.md`,
+with the 99th percentiles). What they show:
+
+- **Against the budget:** the slowest render in any row is 15.6% of its
+  budget (`voices1023_catmullrom` at 512 frames, 1,661 µs; 12.2% at 128
+  frames). Every other Rust row stays under 9%; a 128-frame callback with
+  1,023 linear voices takes at most 230 µs of its 2,667 µs.
+- **Against C++:** the mixing path is 1.3 to 2.7 times slower in Rust:
+  about 2.1 to 2.7 times for point and linear resampling, 1.3 to 1.4 for
+  Catmull-Rom (where the interpolation itself dominates), about 1.1 for the
+  filters and 1.7 to 2 for buses and 3D. The C++ build uses SSE intrinsics
+  for clipping and for panning mono and stereo voices onto stereo output;
+  the Rust port computes the same values in scalar code, bit exact, and has
+  not been profiled or tuned. Not a budget problem at these sizes, but the
+  largest gap left.
+- **Streams:** Rust renders FLAC, Ogg and MP3 streams 2 to 3 times faster
+  (WAV, cheap to decode, 1.4 to 1.8 times slower, like other voices), with far smaller
+  worst cases (FLAC, Ogg and MP3 maxima of 170 to 320 µs in C++ against 24
+  to 116 µs), because the stream worker decodes on its own thread and the
+  render only copies decoded audio; the C++ reference decodes inside `mix`.
+  The Rust stream rows render at the output's pace (as behind a device) and
+  had no underflow; they do not compare the same work, and are cold-cache
+  numbers where the others run back to back.
+- **Block spikes:** with buffers under 512 frames, buses and the FFT filter
+  produce their output in 512-frame blocks, so every few renders costs much
+  more than the mean (`buses` at 128 frames: mean 24.6, max 134). C++ shows
+  the same pattern.
+
+Both benchmarks also build and run in the Linux container (GCC 14.2 for the
+reference); a short run there (0.2 s per row, 256 frames, under Docker's
+virtualization, not recorded as results) showed Rust at 1.1 to 1.85 times
+the C++ mean, a smaller gap than with MSVC.
+
+## Soak test
+
+`crates/solouder-bench/tests/soak.rs` runs a `Controller` on the test thread,
+a `Renderer` on an audio thread (random buffers of 128 to 1024 frames at four
+times real time) and the `StreamWorker` on its own thread, with a seeded
+random mix of requests: sounds, filtered sounds, streams of every codec,
+bursts of 4 to 32 plays into a bus, 3D plays with moving sources and listener
+updates, floods of 600 plays (past the 1024 voice slots, so voices are
+stolen, and past the 1024-command queue, so requests are refused), stops,
+volume, pan, fades, pauses, seeks, speed changes (not on filtered voices,
+see "Filter sizing"), scheduled stops, global volume and `stop_all`, at
+`max_active` 48. A global allocator counts allocations made on the audio
+thread inside `render` only.
+
+It fails on any panic, any allocation or free in a render, any sample that is
+not finite or outside [-1, 1], a play without exactly one final event (and a
+`Started` before any `Finished`), an ID handed out twice while live, a voice
+ID still in use at the end, or `retired_overflow` above 0. Every half second
+a probe stops everything and plays 47 looping tones into a bus at once: they
+must all start within a few renders, `Status` must show all 48 voices (bus
+included) active and the mix audible (#351: plays into a bus starting late;
+#163: valid, non-zero-volume voices that are silent); 16 more must leave
+exactly 48 active (the active-voice limit, the cause found upstream for #351).
+#274 (intelligibility with many voices) has no reproduction upstream; the
+soak checks only that many-voice mixes stay finite, bounded and fully mixed
+up to the limit.
+
+`check_all` runs it for 3 seconds (debug, 12,000 to 15,000 plays and 6
+probes);
+`SOLOUDER_SOAK_SECONDS` and `SOLOUDER_SOAK_SEED` set the length and seed, and
+CI's nightly `soak` job runs 600 seconds in release. On the machine above,
+600 seconds (release, seed 20261018) passed: 208,731 renders (2,084 s of
+audio), 2,874,430 plays (2,812,012 started, 62,418 failed for a bus that was
+not playing; finished: 170,373 ended, 1,853,592 stopped, 788,047 stolen),
+95,910 refused requests, 1,119 probes, the slowest probe burst started within
+2 renders, no allocation on the audio thread, every ID released, no
+retirement overflow. Streams underflowed 18,944 frames in total, which is
+expected when the audio thread renders at four times real time.
 
 ## Deliberate differences from the reference
 

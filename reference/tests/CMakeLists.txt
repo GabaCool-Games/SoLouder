@@ -43,6 +43,14 @@ add_executable(parity_runner parity_runner.cpp)
 target_include_directories(parity_runner PRIVATE "${SOLOUDER_REFERENCE_DIR}/include")
 target_link_libraries(parity_runner PRIVATE soloud Threads::Threads)
 
+# Times Soloud::mix for the cases of crates/solouder-bench
+# (scripts/run_bench.py). Not a test: build it in Release and run it.
+add_executable(reference_bench reference_bench.cpp)
+target_include_directories(reference_bench PRIVATE "${SOLOUDER_REFERENCE_DIR}/include")
+target_link_libraries(reference_bench PRIVATE soloud Threads::Threads)
+target_compile_definitions(reference_bench PRIVATE
+  SOLOUDER_FIXTURE_DIR="${CMAKE_CURRENT_SOURCE_DIR}/../../tests/fixtures")
+
 # One process per test so a crash or hang fails only that test.
 set(REFERENCE_TESTS
   wavstream_loop_channel_stride
