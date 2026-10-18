@@ -224,8 +224,8 @@ Device tests skip on machines without audio output (as in CI) unless
 
 Verified 2026-10-19 (Linux parity and device re-run on the merged tree). Windows ran on the development machine; Linux in Docker
 (`scripts/docker/linux.Dockerfile`: `rust:1.98`, Debian 13, GCC 14.2,
-glibc 2.41, Rust 1.98.1). CI (`.github/workflows/ci.yml`) is configured for
-every row but has not run: SoLouder is not pushed anywhere.
+glibc 2.41, Rust 1.98.1). CI (`.github/workflows/ci.yml`) covers every row; its first run, on
+2026-10-18, passed (macOS on arm64).
 
 | OS | Arch | Host | Builds | Tests | Parity | Device |
 |---|---|---|---|---|---|---|

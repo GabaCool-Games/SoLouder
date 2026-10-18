@@ -23,7 +23,7 @@ the details, and [the milestone F review](docs/PORTING.md#milestone-f-review)
 lists what stays open.
 
 - **A patched C++ reference.** Upstream SoLoud, pinned in
-  `reference/upstream.json`, plus 114 patches in `reference/patches/`. They fix
+  `reference/upstream.json`, plus 115 patches in `reference/patches/`. They fix
   upstream crashes, hangs, and memory-safety bugs that were never merged
   upstream, including the WavStream seek heap corruption
   ([#405](https://github.com/jarikomppa/soloud/issues/405)). Every behavioral

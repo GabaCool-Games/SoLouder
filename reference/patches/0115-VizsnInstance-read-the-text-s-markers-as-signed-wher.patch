@@ -1,0 +1,64 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 10:55:14 +0300
+Subject: [PATCH] VizsnInstance: read the text's markers as signed where char
+ is unsigned
+
+The end and clear markers are -1 and -2 in a char text. Where char is
+unsigned (Android, Linux on ARM), they read back as 255 and 254: a voice
+never found the end of its text and read past it, setphone took every
+clear marker for a phone and read its tables out of bounds, and plosive()
+never matched a clear marker. Since patch 0106, `{ P_END, 0 }` in a char
+array is also a narrowing error there. The voice now reads the text as
+signed char.
+---
+ include/soloud_vizsn.h                 | 5 +++--
+ src/audiosource/vizsn/soloud_vizsn.cpp | 6 +++---
+ 2 files changed, 6 insertions(+), 5 deletions(-)
+
+diff --git a/include/soloud_vizsn.h b/include/soloud_vizsn.h
+index 88a2338..b08aa35 100644
+--- a/include/soloud_vizsn.h
++++ b/include/soloud_vizsn.h
+@@ -54,14 +54,15 @@ namespace SoLoud
+ 		int mEchobuf[1024], mPtr;
+ 		int mCurrentVoiceType;
+ 		float mPitch;
+-		char *mS;
++		// Signed: the end and clear markers are negative, also where char is unsigned.
++		signed char *mS;
+ 		float mBuf[2048];
+ 		unsigned int mBufwrite;
+ 		unsigned int mBufread;
+ 		float vcsrc(int aPitch, int aVoicetype);
+ 		float noisrc();
+ 		float genwave();
+-		void setphone(VizsnBank *aB, char aP, float aPitch);
++		void setphone(VizsnBank *aB, signed char aP, float aPitch);
+ 		void slidePrepare(int aNumtix);
+ 		void slideTick();
+ 		int mA;
+diff --git a/src/audiosource/vizsn/soloud_vizsn.cpp b/src/audiosource/vizsn/soloud_vizsn.cpp
+index a71827c..16faf38 100644
+--- a/src/audiosource/vizsn/soloud_vizsn.cpp
++++ b/src/audiosource/vizsn/soloud_vizsn.cpp
+@@ -224,8 +224,8 @@ namespace SoLoud
+ 		memset(mEchobuf, 0, 1024 * sizeof(int));
+ 		mPitch = 800;
+ 		// Without a text the voice has ended.
+-		static char noText[] = { P_END, 0 };
+-		mS = mParent->mText ? mParent->mText : noText;
++		static signed char noText[] = { P_END, 0 };
++		mS = mParent->mText ? (signed char *)mParent->mText : noText;
+ 		mBufwrite = 0;
+ 		mBufread = 0;
+ 		mA = 0;
+@@ -416,7 +416,7 @@ namespace SoLoud
+ 		return ob * (1.0f / 255.0f);
+ 	}
+ 
+-	void VizsnInstance::setphone(VizsnBank *aB, char aP, float /*aPitch*/)
++	void VizsnInstance::setphone(VizsnBank *aB, signed char aP, float /*aPitch*/)
+ 	{
+ 		int i;
+ 		aB->frica = aB->aspir = aB->bypas = aB->breth = aB->voice = 0;
