@@ -255,18 +255,20 @@ fn start(
         protect: sent.protect,
         ..PlayOptions::default()
     };
-    let played = match (clip.pcm(), clip.stream()) {
-        (Some(pcm), _) => {
-            let mut sound = Sound::new(pcm.clone());
-            sound.set_looping(sent.looping);
-            controller.play_with(&sound, options)
-        }
-        (None, Some(stream)) => {
-            let mut stream = stream.clone();
-            stream.set_looping(sent.looping);
-            controller.play_with(&stream, options)
-        }
-        (None, None) => return Err(PlaybackError::AssetFailed),
+    let played = if let Some(pcm) = clip.pcm() {
+        let mut sound = Sound::new(pcm.clone());
+        sound.set_looping(sent.looping);
+        controller.play_with(&sound, options)
+    } else if let Some(stream) = clip.stream() {
+        let mut stream = stream.clone();
+        stream.set_looping(sent.looping);
+        controller.play_with(&stream, options)
+    } else if let Some(synth) = clip.synth() {
+        let mut synth = synth.clone();
+        synth.set_looping(sent.looping);
+        controller.play_with(&synth, options)
+    } else {
+        return Err(PlaybackError::AssetFailed);
     };
     match played {
         Ok(voice) => Ok(Some((voice, sent))),

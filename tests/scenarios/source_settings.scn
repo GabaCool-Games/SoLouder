@@ -1,0 +1,103 @@
+# Source settings on every generator class (milestone F unit 8): the
+# source's volume taken by plays that give none, looping and loop
+# points, auto stop off, single instance, and the inaudible behaviours
+# (ticking and killing) of voices left out of the active voices.
+init channels=2 rate=44100
+noise name=n type=1 volume=0.3 single=1
+play sound=n as=n1
+vic name=v bass=200 volume=0.5 looping=1 loop_point=0.05
+play sound=v as=v1
+sfxr name=s preset=1 seed=3 looping=1 loop_point=0.02 volume=0.7
+play sound=s as=s1
+monotone name=m file=monotone/demo.mon volume=0.4 auto_stop=0
+play sound=m as=m1
+tedsid name=t file=chipdump/ted.dump looping=1 loop_point=0.1 volume=0.6
+play sound=t as=t1
+ay name=a file=chipdump/ay_ay.dump auto_stop=0 volume=0.5 single=1
+play sound=a as=a1
+speech name=sp text=Settings volume=0.9 auto_stop=0
+play sound=sp as=sp1
+vizsn name=vz text=asetukset volume=0.8 looping=1 loop_point=0.1
+play sound=vz as=vz1
+query h=n1
+query h=v1
+query h=s1
+query h=m1
+query h=t1
+query h=a1
+query h=sp1
+query h=vz1
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=n1
+query h=v1
+query h=s1
+query h=m1
+query h=t1
+query h=a1
+query h=sp1
+query h=vz1
+# Single instance: a new play stops the source's other voice.
+play sound=n as=n2 pan=-0.5
+play sound=a as=a2 volume=0.25
+query h=n1
+query h=n2
+query h=a1
+query h=a2
+counts
+mix frames=4096
+mix frames=4096
+query h=n1
+query h=v1
+query h=s1
+query h=m1
+query h=t1
+query h=a1
+query h=sp1
+query h=vz1
+counts
+stop_all
+
+# Inaudible voices: two active voices, and quiet voices that tick, that
+# kill (which acts on 3D voices only, in update3dAudio, so they stay) or
+# neither.
+global max_active=2
+noise name=loud volume=0.9
+sfxr name=quiet preset=2 seed=1 volume=0.05 kill=1 looping=1
+speech name=hum text=hum_hum volume=0.04 tick=1 looping=1
+vizsn name=hiss text=hiss volume=0.03 kill=1 looping=1
+vic name=low soprano=180 volume=0.02
+monotone name=far file=monotone/demo.mon volume=0.01 tick=1 kill=0
+play sound=loud as=l1 pan=-1
+play sound=loud as=l2 pan=1
+play sound=quiet as=q
+play sound=hum as=hm
+play sound=hiss as=hs
+play sound=low as=lo
+play sound=far as=fa
+mix frames=512
+mix frames=512
+mix frames=512
+mix frames=512
+query h=q
+query h=hm
+query h=hs
+query h=lo
+query h=fa
+counts
+# The loud voices go, and the quiet ones take their places.
+stop h=l1
+stop h=l2
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=hm
+query h=lo
+query h=fa
+counts
+stop_all

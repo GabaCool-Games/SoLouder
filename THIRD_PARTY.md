@@ -24,7 +24,7 @@ Rows saying "ported" name the SoLouder code translated from them; the rest has n
 | AY | `src/audiosource/ay/` | YM-2149F emulator and resampler from Unreal Speccy by SMT, public domain; SoLoud wrapper zlib | Ported to `solouder-sources` (`features/ay/`); each file credits SMT |
 | WELL512 random numbers | `src/core/soloud_misc.cpp` (`Misc::Prg`) | WELL512 by Chris Lomont, public domain | Ported to `solouder-sources` (`prg.rs`), credited in the file |
 | zx7 decompression | `include/zx7decompress.h` | Jari Komppa, public domain (Unlicense), based on zx7 by Einar Saukas, who asks to be credited; the zx7 compressor has a different licence and is not used | Decompressor ported to `solouder-sources` (`chipdump/zx7.rs`), crediting both; the fixtures' encoder in `scripts/gen_source_fixtures.py` is first-party. SoLoud's `legal.mmd` mentions neither zx7 nor AY |
-| OpenMPT | `src/audiosource/openmpt/` | Loads libopenmpt (BSD-3-Clause) at runtime | Excluded unless needed |
+| OpenMPT | `src/audiosource/openmpt/` | Loads libopenmpt (BSD-3-Clause) at runtime | Excluded: its ledger rows are `excluded`; wrap a module-player crate in `Generator` instead |
 
 ## Rust dependencies
 

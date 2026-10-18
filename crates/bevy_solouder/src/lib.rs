@@ -3,6 +3,9 @@
 //! Add [`SolouderPlugin`] (after Bevy's asset plugin), load `.wav`, `.flac`,
 //! `.ogg` (Vorbis) and `.mp3` files as [`AudioClip`]s (decoded at load, or streamed with
 //! [`WavSettings::stream`]),
+//! sfxr parameter files (`.sfx`, `.sfs`), Monotone songs (`.mon`) and chip
+//! register dumps (`.dump`) as generated clips (with the default `sources`
+//! feature), or wrap any generator with [`AudioClip::from_generator`],
 //! and spawn entities with a [`SoundPlayer`]. A sound plays
 //! while its player exists: despawning the entity, removing the component or
 //! inserting a new one stops it. [`PlaybackSettings`] holds the requested
@@ -25,6 +28,10 @@ use bevy::transform::TransformSystems;
 use solouder_decoders::DecodeLimits;
 
 pub use features::decoded_audio::{AudioClip, AudioLoadError, WavLoader, WavSettings};
+#[cfg(feature = "sources")]
+pub use features::generated_audio::{
+    ChipDumpLoader, GeneratorLoadError, MonotoneLoader, MonotoneSettings, SfxrLoader,
+};
 pub use features::output_lifecycle::{
     AudioOutput, AudioOutputState, HeadlessRenderer, HeadlessStreamWorker, OutputMode,
     SolouderController,
@@ -36,7 +43,7 @@ pub use features::playback::{
 pub use solouder_core::{FinishReason, MixerConfig, VoiceId};
 pub use solouder_cpal::{OutputConfig, OutputInfo, StreamPreferences};
 
-/// Adds SoLouder audio: the clip asset and loader, the output, and playback.
+/// Adds SoLouder audio: the clip asset and loaders, the output, and playback.
 #[derive(Clone, Debug, Default)]
 pub struct SolouderPlugin {
     /// Device or headless output.
@@ -59,6 +66,8 @@ impl Plugin for SolouderPlugin {
             SolouderSystems::Sync.after(TransformSystems::Propagate),
         );
         features::decoded_audio::build(app, self.decode_limits);
+        #[cfg(feature = "sources")]
+        features::generated_audio::build(app);
         features::output_lifecycle::build(app, &self.output);
         features::playback::build(app);
     }

@@ -28,5 +28,9 @@ solouder-core.workspace = true
 [dev-dependencies]
 stats_alloc = "0.1"
 
+[[test]]
+name = "realtime_no_alloc"
+required-features = ["ay", "monotone", "noise", "sfxr", "speech", "tedsid", "vic", "vizsn"]
+
 [lints]
 workspace = true

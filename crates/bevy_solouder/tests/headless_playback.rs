@@ -194,7 +194,7 @@ fn streamed_wav_files_play_through_the_worker() {
     let clips = app.world().resource::<Assets<AudioClip>>();
     let clip = clips.get(&streamed).unwrap();
     assert!(clip.stream().is_some() && clip.pcm().is_none());
-    assert_eq!(clip.duration_seconds(), 1500.0 / 44100.0);
+    assert_eq!(clip.duration_seconds(), Some(1500.0 / 44100.0));
 
     // Silent until the worker has decoded the start.
     assert!(render(&mut app, 512).iter().all(|&s| s == 0.0));
@@ -232,7 +232,7 @@ fn flac_files_load_and_stream_through_the_asset_server() {
     let clips = app.world().resource::<Assets<AudioClip>>();
     assert_eq!(
         clips.get(&streamed).unwrap().duration_seconds(),
-        1500.0 / 44100.0
+        Some(1500.0 / 44100.0)
     );
     for _ in 0..8 {
         app.world_mut()
@@ -275,10 +275,10 @@ fn ogg_and_mp3_files_load_and_stream_through_the_asset_server() {
             .all(|&player| state(app, player) != PlaybackState::Loading)
     });
     let assets = app.world().resource::<Assets<AudioClip>>();
-    assert_eq!(assets.get(&clips[1]).unwrap().duration_seconds(), 1.0);
+    assert_eq!(assets.get(&clips[1]).unwrap().duration_seconds(), Some(1.0));
     assert_eq!(
         assets.get(&clips[3]).unwrap().duration_seconds(),
-        9792.0 / 8000.0
+        Some(9792.0 / 8000.0)
     );
     for _ in 0..64 {
         app.world_mut()

@@ -695,6 +695,7 @@ dependencies = [
  "solouder-core",
  "solouder-cpal",
  "solouder-decoders",
+ "solouder-sources",
 ]
 
 [[package]]

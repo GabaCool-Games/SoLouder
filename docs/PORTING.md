@@ -1162,11 +1162,26 @@ Rules for units 1 to 8:
    kept. `~Vizsn` leaks its text; Rust has nothing to patch, so the
    reference is left as it is. Output stays between 0 and 1, centred
    on 128/255, as in SoLoud. Bit-exact.
-8. **Openmpt and the source-common rows:** exclude the four `Openmpt::*` rows
+8. **Openmpt and the source-common rows** (done): exclude the four `Openmpt::*` rows
    (reason below). Close `AudioSource::setVolume` and `setLooping`, and re-audit
    every source-common row against all the classes in its `c_functions`.
    Generators become `Queueable` if that is decided. Add Bevy loaders for
    Monotone, sfxr and the chip dumps, plus code-built generator assets.
+   Done: the four `Openmpt` rows are `excluded`. Every source type gets
+   the `AudioSource` settings from one macro, so `setVolume`,
+   `setLooping` and the other playback rows hold for Sound, Stream,
+   Synth, Bus and Queue alike; scenario `source_settings` plays each
+   generator class with every setting, bit-exact, and the rows name
+   the generator scenarios that use them. The 3D source-common rows
+   are left to milestone E, which another agent is porting at the same
+   time. Generators were already `Queueable` (`Synth`), so nothing
+   changed there. `bevy_solouder` gains generated clips
+   (`AudioClip::generated`, `from_generator`; `duration_seconds` is now
+   an `Option`, `None` for them) and, behind the default `sources`
+   feature, `SfxrLoader`, `MonotoneLoader` (with `MonotoneSettings`) and
+   `ChipDumpLoader`, which plays a dump through `TedSid` unless its chip
+   type is an AY one. `realtime_no_alloc` in `solouder-sources` now
+   requires every source feature, so single-feature builds pass.
 9. **Visualization** (`soloud.cpp` lines 760–805 and 2314–2360, setters lines
    235–245). Data is taken from the clipped scratch buffer once per mix call
    (#244); mixes under 256 frames take the `i % aSamples` path. Rows:
