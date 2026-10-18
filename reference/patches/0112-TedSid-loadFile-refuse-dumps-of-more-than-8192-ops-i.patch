@@ -1,0 +1,74 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 06:07:05 +0300
+Subject: [PATCH] TedSid::loadFile: refuse dumps of more than 8192 ops in 1024
+ samples
+
+TedSidInstance::tick runs every op up to the next wait, so a dump of many
+writes between short waits made unbounded work for each sample on the
+audio thread: a loop of 5000 writes and a wait of 1 ran 5000 writes a
+sample, and a 64 MiB dump took seconds a block. A dump is now refused if
+any stretch of its ops before waits of 1024 samples (4.6 ms), reading
+from the start into the loop and around it again, holds more than 8192
+ops (waits of 0 count). A 6502 at the Plus/4's 1.77 MHz makes at most
+about 2048 register writes in 4.6 ms, so no dump of a real tune comes
+near; the check takes one pass over the ops.
+---
+ src/audiosource/tedsid/soloud_tedsid.cpp | 37 ++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+
+diff --git a/src/audiosource/tedsid/soloud_tedsid.cpp b/src/audiosource/tedsid/soloud_tedsid.cpp
+index 6da4621..bb1e168 100644
+--- a/src/audiosource/tedsid/soloud_tedsid.cpp
++++ b/src/audiosource/tedsid/soloud_tedsid.cpp
+@@ -163,6 +163,33 @@ namespace SoLoud
+ 		return res;
+ 	}
+ 
++	// The most ops in any stretch of the ops before waits of aWindow:
++	// the ops are read from 0 to the end, then from aLooppos to the end
++	// again and again (once if aLooppos is negative). Counts up to aLimit + 1.
++	static unsigned int mostOpsBeforeWaits(const unsigned short *aOps, int aLength, int aLooppos,
++		unsigned long long aWindow, unsigned int aLimit)
++	{
++		unsigned long long first = (aLength + 1) / 2;
++		unsigned long long loop = aLooppos < 0 ? 0 : (aLength - aLooppos + 1) / 2;
++		unsigned long long end = loop ? ~0ull : first;
++		unsigned long long i, j = 0, sum = 0;
++		unsigned int most = 0;
++		for (i = 0; i < first + loop && most <= aLimit; i++)
++		{
++			while (j < end && sum < aWindow && j - i <= aLimit)
++			{
++				unsigned short op = aOps[j < first ? j : (aLooppos + 2 * ((j - first) % loop)) / 2];
++				sum += (op & 0x8000) ? (op & 0x7fff) : 0;
++				j++;
++			}
++			if (j - i > most)
++				most = (unsigned int)(j - i);
++			unsigned short op = aOps[i < first ? i : (aLooppos + 2 * ((i - first) % loop)) / 2];
++			sum -= (op & 0x8000) ? (op & 0x7fff) : 0;
++		}
++		return most;
++	}
++
+ 	result TedSid::loadFile(File *aFile)
+ 	{
+ 		if (aFile == NULL)
+@@ -248,6 +275,16 @@ namespace SoLoud
+ 			delete[] ops;
+ 			return FILE_LOAD_FAILED;
+ 		}
++		// tick() runs every op up to the next wait, so a dump of many writes
++		// between short waits made unbounded work for each sample. Any 1024
++		// samples (4.6 ms) may run at most 8192 ops, counting the loop: a
++		// 6502 at the Plus/4's 1.77 MHz makes at most about 2048 register
++		// writes in that time.
++		if (mostOpsBeforeWaits(ops, length, looppos, 1024, 8192) > 8192)
++		{
++			delete[] ops;
++			return FILE_LOAD_FAILED;
++		}
+ 
+ 		mOps = ops;
+ 		mLength = length;

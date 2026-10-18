@@ -114,6 +114,10 @@ impl Sfxr {
         Ok(())
     }
 
+    /// The most bytes of a parameter file that are read: version 102's
+    /// fields take 105.
+    pub const MAX_FILE_BYTES: u64 = params::MAX_FILE;
+
     /// [`load_params`](Self::load_params) of what `reader` holds
     /// (`Sfxr::loadParamsFile`); at most the first 128 bytes are read.
     pub fn load_params_reader(&self, reader: impl Read) -> Result<(), SfxrError> {

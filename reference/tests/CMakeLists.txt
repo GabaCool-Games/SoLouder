@@ -130,6 +130,7 @@ set(REFERENCE_TESTS
   sfxr_short_file_fails
   sfxr_filter_flag_is_a_bool
   sfxr_ended_sound_stays_silent
+  sfxr_looping_high_base_freq_survives
   monotone_empty_song_is_silent
   monotone_short_file_fails
   monotone_long_title_is_cut
@@ -143,6 +144,7 @@ set(REFERENCE_TESTS
   tedsid_header_is_checked
   tedsid_loop_without_wait_fails
   tedsid_zx7_stays_in_bounds
+  tedsid_busy_dumps_fail
   sid_envelope_rate_starts_in_range
   sid_attack_from_full_level_wraps
   ay_right_channel_at_buffer_stride
@@ -150,6 +152,8 @@ set(REFERENCE_TESTS
   ay_header_is_checked
   ay_zx7_stays_in_bounds
   ay_speeds_are_checked
+  ay_chip_clock_is_bounded
+  ay_busy_dumps_fail
   ay_chip_starts_at_zero
   ay_last_write_is_played
   ay_long_wait_is_spread

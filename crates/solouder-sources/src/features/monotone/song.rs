@@ -13,6 +13,11 @@ pub const MONOTONE_CHANNELS: u32 = 12;
 /// Rows of a pattern.
 pub(crate) const ROWS: usize = 64;
 
+/// The longest song: the magic, two Pascal strings of 40 bytes, the
+/// version, pattern, track and cell size bytes, the order list, and 255
+/// patterns of 12 tracks of 2-byte cells.
+pub(crate) const MAX_FILE: u64 = 9 + 2 * 41 + 4 + 256 + (ROWS as u64) * 255 * 12 * 2;
+
 /// The file's first bytes: a backspace, then `MONOTONE`.
 const MAGIC: &[u8; 9] = b"\x08MONOTONE";
 

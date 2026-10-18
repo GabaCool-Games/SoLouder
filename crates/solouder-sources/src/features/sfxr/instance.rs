@@ -123,7 +123,11 @@ impl SfxrInstance {
             self.phase = 0;
         }
         self.fperiod = 100.0 / (f64::from(p.base_freq * p.base_freq) + 0.001);
-        self.period = c_int(self.fperiod);
+        // At least 8, as `sample` keeps it: a looping sound restarts here
+        // at its envelope's end, and `supersample` divides by the period
+        // (reference patch 0111; SoLoud divided by 0 past a base frequency
+        // of about 10).
+        self.period = c_int(self.fperiod).max(8);
         self.fmaxperiod = 100.0 / (f64::from(p.freq_limit * p.freq_limit) + 0.001);
         self.fslide = 1.0 - f64::from(p.freq_ramp).powf(3.0) * 0.01;
         self.fdslide = -f64::from(p.freq_dramp).powf(3.0) * 0.000001;

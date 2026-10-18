@@ -12,7 +12,7 @@ use solouder_core::dsp::waveform;
 use solouder_core::{Generator, Synth, SynthError};
 use solouder_sources::{Ay, ChipDumpError, Monotone, MonotoneError, Sfxr, SfxrError, TedSid};
 
-use crate::features::decoded_audio::AudioClip;
+use crate::features::decoded_audio::{AudioClip, read_up_to};
 
 /// Why a generator's file failed to load.
 #[derive(Debug)]
@@ -44,13 +44,12 @@ impl std::fmt::Display for GeneratorLoadError {
 
 impl std::error::Error for GeneratorLoadError {}
 
-async fn read_all(reader: &mut dyn Reader) -> Result<Vec<u8>, GeneratorLoadError> {
-    let mut bytes = Vec::new();
-    reader
-        .read_to_end(&mut bytes)
+/// At most the first `limit` bytes of `reader`: as much as the source's own
+/// reader takes.
+async fn read_prefix(reader: &mut dyn Reader, limit: u64) -> Result<Vec<u8>, GeneratorLoadError> {
+    read_up_to(reader, limit)
         .await
-        .map_err(GeneratorLoadError::Io)?;
-    Ok(bytes)
+        .map_err(GeneratorLoadError::Io)
 }
 
 fn clip(generator: Arc<dyn Generator>) -> Result<AudioClip, GeneratorLoadError> {
@@ -74,7 +73,7 @@ impl AssetLoader for SfxrLoader {
         _settings: &(),
         _load_context: &mut LoadContext<'_>,
     ) -> Result<AudioClip, GeneratorLoadError> {
-        let bytes = read_all(reader).await?;
+        let bytes = read_prefix(reader, Sfxr::MAX_FILE_BYTES).await?;
         let sfxr = Sfxr::from_bytes(&bytes).map_err(GeneratorLoadError::Sfxr)?;
         clip(Arc::new(sfxr))
     }
@@ -118,7 +117,7 @@ impl AssetLoader for MonotoneLoader {
         settings: &MonotoneSettings,
         _load_context: &mut LoadContext<'_>,
     ) -> Result<AudioClip, GeneratorLoadError> {
-        let bytes = read_all(reader).await?;
+        let bytes = read_prefix(reader, Monotone::MAX_FILE_BYTES).await?;
         let song = Monotone::from_bytes(&bytes).map_err(GeneratorLoadError::Monotone)?;
         song.set_params(settings.hardware_channels, settings.waveform)
             .map_err(GeneratorLoadError::Monotone)?;
@@ -133,6 +132,11 @@ impl AssetLoader for MonotoneLoader {
 /// Loads chip register dumps (`.dump`): SID and TED dumps play through
 /// `TedSid`, AY-3-8910 and YM2149F dumps through `Ay`, chosen by the dump's
 /// chip type.
+///
+/// Dumps are untrusted input. Files past 80 MiB are refused unread, and
+/// `TedSid` and `Ay` check a dump's structure and refuse those whose
+/// operations or chip clock would make a voice's work for a block
+/// unbounded (`ChipDumpError::TooManyOperations`, `UnsupportedSpeed`).
 #[derive(TypePath, Clone, Copy, Debug, Default)]
 pub struct ChipDumpLoader;
 
@@ -156,7 +160,11 @@ impl AssetLoader for ChipDumpLoader {
         _settings: &(),
         _load_context: &mut LoadContext<'_>,
     ) -> Result<AudioClip, GeneratorLoadError> {
-        let bytes = read_all(reader).await?;
+        let limit = TedSid::MAX_FILE_BYTES.max(Ay::MAX_FILE_BYTES);
+        let bytes = read_prefix(reader, limit + 1).await?;
+        if bytes.len() as u64 > limit {
+            return Err(GeneratorLoadError::ChipDump(ChipDumpError::TooLarge));
+        }
         clip(chip_dump(&bytes).map_err(GeneratorLoadError::ChipDump)?)
     }
 

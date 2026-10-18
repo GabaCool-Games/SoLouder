@@ -4,7 +4,7 @@
 use std::sync::Arc;
 
 use bevy::asset::io::Reader;
-use bevy::asset::{Asset, AssetApp, AssetLoader, LoadContext};
+use bevy::asset::{Asset, AssetApp, AssetLoader, AsyncReadExt, LoadContext};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
 use solouder_core::{Generator, Pcm, Stream, Synth, SynthError};
@@ -151,6 +151,13 @@ fn streamed(bytes: Vec<u8>) -> Result<AudioClip, DecodeError> {
     Ok(AudioClip::streamed(stream))
 }
 
+/// At most the first `limit` bytes of `reader`.
+pub(crate) async fn read_up_to(reader: &mut dyn Reader, limit: u64) -> std::io::Result<Vec<u8>> {
+    let mut bytes = Vec::new();
+    (&mut *reader).take(limit).read_to_end(&mut bytes).await?;
+    Ok(bytes)
+}
+
 impl AssetLoader for WavLoader {
     type Asset = AudioClip;
     type Settings = WavSettings;
@@ -162,11 +169,14 @@ impl AssetLoader for WavLoader {
         settings: &WavSettings,
         _load_context: &mut LoadContext<'_>,
     ) -> Result<AudioClip, AudioLoadError> {
-        let mut bytes = Vec::new();
-        reader
-            .read_to_end(&mut bytes)
+        // As `decode_reader`: no more than the limits allow is read.
+        let limit = self.limits.max_file_bytes();
+        let bytes = read_up_to(reader, limit.saturating_add(1))
             .await
             .map_err(AudioLoadError::Io)?;
+        if bytes.len() as u64 > limit {
+            return Err(AudioLoadError::Decode(DecodeError::FileTooLarge { limit }));
+        }
         let clip = if settings.stream {
             streamed(bytes)
         } else {

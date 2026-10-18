@@ -104,6 +104,10 @@ def sfxr_fixtures() -> dict[str, bytes]:
         "v102_filter_byte_2.sfx": sfxr_file(102, 0, LASER, filter_byte=2),
         # Extra bytes after the last field are ignored.
         "v101_trailing.sfx": sfxr_file(101, 0, BURST) + b"trailing bytes",
+        # A base frequency of 20: a period below 1, which a looping voice's
+        # restart left at 0 (reference patch 0111).
+        "v102_high_base.sfx": sfxr_file(102, 0, {"sound_vol": 0.5, "base_freq": 20.0, "env_sustain": 0.02,
+                                                 "env_decay": 0.03, "lpf_freq": 1.0}),
     }
     whole = sfxr_file(102, 0, LASER)
     files["bad_cut_102.sfx"] = whole[: len(whole) - 3]

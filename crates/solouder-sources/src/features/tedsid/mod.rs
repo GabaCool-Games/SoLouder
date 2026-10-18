@@ -24,6 +24,10 @@ use ted::Ted;
 /// Chip types TedSid plays: SID, TED, and both.
 const CHIPS: [u8; 4] = [0, 4, 5, 6];
 
+/// The most operations a dump may run in any [`WINDOW_SAMPLES`] samples.
+const MAX_OPS: usize = 8192;
+const WINDOW_SAMPLES: u64 = 1024;
+
 /// The SID revision a dump asks for.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum SidModel {
@@ -60,6 +64,12 @@ impl SidModel {
 /// `tedsid2dump` tool. Dumps loop forever from their loop position and
 /// never end; voices cannot seek back.
 ///
+/// Dumps are untrusted input: besides their structure, a dump is refused
+/// if any 1024 samples (4.6 ms) of it run more than 8192 operations,
+/// counting the loop ([`ChipDumpError::TooManyOperations`]), so a voice's
+/// work for each block is bounded. A 6502 at the Plus/4's 1.77 MHz makes
+/// at most about 2048 register writes in that time.
+///
 /// [`solouder_core::Mixer::info`] on a voice reports register `key & 127`
 /// as last written: the SID's are 0 to 31 and the TED's 64 to 68.
 #[derive(Clone, Debug, Default)]
@@ -68,6 +78,10 @@ pub struct TedSid {
 }
 
 impl TedSid {
+    /// The longest dump read (80 MiB): the longest data, compressed with
+    /// zx7's worst overhead, after the longest data offset.
+    pub const MAX_FILE_BYTES: u64 = crate::chipdump::MAX_FILE;
+
     /// No dump: voices play silence.
     pub fn new() -> Self {
         Self::default()
@@ -85,6 +99,14 @@ impl TedSid {
         }
         if !dump.loop_waits() {
             return Err(ChipDumpError::NoWait);
+        }
+        // `tick` runs every operation up to the next wait: any 1024
+        // samples (4.6 ms) may run at most 8192, counting the loop
+        // (reference patch 0112). A 6502 at the Plus/4's 1.77 MHz makes
+        // at most about 2048 register writes in that time.
+        let most = dump.most_ops_before_waits(Some(dump.loop_pos), WINDOW_SAMPLES, MAX_OPS);
+        if most > MAX_OPS {
+            return Err(ChipDumpError::TooManyOperations);
         }
         Ok(Self {
             dump: Some(Arc::new(dump)),

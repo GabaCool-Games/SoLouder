@@ -70,7 +70,8 @@ fn fixtures_load_and_play() {
     ];
     for (bytes, (chip, ym, cpu)) in GOOD.iter().zip(expected) {
         let ay = Ay::from_bytes(bytes).unwrap();
-        assert_eq!((ay.chip_type(), ay.is_ym()), (Some(chip), Some(ym)));
+        let chip_type = ay.chip_type().map(AyChipType::to_byte);
+        assert_eq!((chip_type, ay.is_ym()), (Some(chip), Some(ym)));
         assert_eq!(ay.speeds().unwrap().0, cpu);
         let read = Ay::from_reader(*bytes).unwrap();
         assert_eq!(read.dump.unwrap().ops, ay.dump.as_ref().unwrap().ops);
@@ -221,4 +222,59 @@ fn info_reports_both_chips() {
     for key in [14, 15, 0x1E, 0x1F, 0x27, 0x2E] {
         assert_eq!(voice.info(key), 0.0, "key {key}");
     }
+}
+
+/// A stored dump of `ops` in as many chunks as they take, at tick rate
+/// `cpu` and chip clock `chip`.
+fn long_dump(ops: &[u16], cpu: u32, chip: u32) -> Vec<u8> {
+    let length = ops.len() * 2;
+    let chunks = length.div_ceil(1024);
+    let mut out = b"CHIPTUNE".to_vec();
+    for word in [28, 0x101, chunks, length - (chunks - 1) * 1024, 0, 0] {
+        out.extend_from_slice(&(word as u16).to_le_bytes());
+    }
+    out.extend_from_slice(&cpu.to_le_bytes());
+    out.extend_from_slice(&chip.to_le_bytes());
+    out.extend(ops.iter().flat_map(|op| op.to_le_bytes()));
+    out
+}
+
+#[test]
+fn chip_clocks_past_4_mhz_fail() {
+    // Reference patch 0113.
+    let tune = [0x073e, 0x080f, 0x8000 | 4];
+    for chip in [4_000_001, u32::MAX] {
+        let error = Ay::from_bytes(&long_dump(&tune, 50, chip)).unwrap_err();
+        assert!(
+            matches!(error, ChipDumpError::UnsupportedSpeed),
+            "{error:?}"
+        );
+    }
+    let ay = Ay::from_bytes(&long_dump(&tune, 50, 4_000_000)).unwrap();
+    assert!(render(ay.instance().as_mut(), 512, 100_000).1 > 0);
+}
+
+#[test]
+fn busy_dumps_fail() {
+    // Reference patch 0114: at most 131072 operations before waits of two
+    // frames' ticks, 8 at 50 Hz, counting restarts.
+    let load = |ops: &[u16]| Ay::from_bytes(&long_dump(ops, 50, 1_774_400));
+    let busy = |ops: &[u16]| matches!(load(ops), Err(ChipDumpError::TooManyOperations));
+    let mut ops = vec![0x080f; 131_071];
+    ops.push(0x8000 | 8);
+    let ay = load(&ops).unwrap();
+    assert!(render(ay.instance().as_mut(), 512, 4096).1 > 0);
+    ops.insert(0, 0x090f);
+    assert!(busy(&ops));
+    assert!(busy(&[0x080f; 131_073]), "without waits too");
+    // 16383 writes and a wait of 1 play 8 times in two frames.
+    let mut ops = vec![0x080f; 16_383];
+    ops.push(0x8001);
+    assert!(load(&ops).is_ok());
+    ops.insert(0, 0x090f);
+    assert!(busy(&ops));
+    assert!(
+        load(&[0x080f; 3]).is_ok(),
+        "a dump that never waits plays nothing again"
+    );
 }

@@ -1,0 +1,30 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 06:06:12 +0300
+Subject: [PATCH] SfxrInstance::resetSample: keep the period at least 8, as
+ getAudio does
+
+A looping sound restarts at its envelope's end through resetSample, which
+set period = (int)fperiod: a base frequency past about 10 (damaged or
+random settings) made it 0, and the next supersample's phase %= period
+divided by zero. resetSample now bounds it at 8 as getAudio does. This
+changes the rest of the restarting sample for periods of 1 to 7, which
+getAudio then raised to 8 only from the next sample.
+---
+ src/audiosource/sfxr/soloud_sfxr.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/audiosource/sfxr/soloud_sfxr.cpp b/src/audiosource/sfxr/soloud_sfxr.cpp
+index e3455de..4ad5785 100644
+--- a/src/audiosource/sfxr/soloud_sfxr.cpp
++++ b/src/audiosource/sfxr/soloud_sfxr.cpp
+@@ -253,6 +253,9 @@ namespace SoLoud
+ 			phase=0;
+ 		fperiod=100.0/(mParams.p_base_freq*mParams.p_base_freq+0.001);
+ 		period=(int)fperiod;
++		// As getAudio bounds it: a looping sound restarts here at its
++		// envelope's end, and the next supersample divides by the period.
++		if (period < 8) period = 8;
+ 		fmaxperiod=100.0/(mParams.p_freq_limit*mParams.p_freq_limit+0.001);
+ 		fslide=1.0-pow((double)mParams.p_freq_ramp, 3.0)*0.01;
+ 		fdslide=-pow((double)mParams.p_freq_dramp, 3.0)*0.000001;

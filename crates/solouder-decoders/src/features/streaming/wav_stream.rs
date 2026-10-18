@@ -93,12 +93,16 @@ impl WavStream {
     }
 
     /// Reads `reader` to its end and streams from those bytes
-    /// (`WavStream::loadFileToMem`). Nothing caps the read: the caller picks
-    /// the reader.
-    pub fn from_reader(mut reader: impl Read) -> Result<Self, DecodeError> {
-        let mut bytes = Vec::new();
-        reader.read_to_end(&mut bytes).map_err(DecodeError::Io)?;
-        Self::from_bytes(bytes)
+    /// (`WavStream::loadFileToMem`). As with
+    /// [`decode_reader`](crate::decode_reader), reading stops with
+    /// [`DecodeError::FileTooLarge`] past the default
+    /// [`DecodeLimits::max_file_bytes`](crate::DecodeLimits::max_file_bytes),
+    /// so an endless reader cannot exhaust memory.
+    pub fn from_reader(reader: impl Read) -> Result<Self, DecodeError> {
+        let limit = crate::DecodeLimits::default().max_file_bytes();
+        Self::from_bytes(crate::features::decoded_audio::reader::read_capped(
+            reader, limit,
+        )?)
     }
 
     /// A stream each voice opens through `file` (`WavStream::loadFile`); the

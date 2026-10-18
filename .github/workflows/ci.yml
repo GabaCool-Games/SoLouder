@@ -124,6 +124,7 @@ jobs:
           - -p bevy_solouder --no-default-features
           - -p solouder-sources --no-default-features
           - -p solouder-sources --no-default-features --features ay
+          - -p solouder-sources --no-default-features --features chipdump
           - -p solouder-sources --no-default-features --features monotone
           - -p solouder-sources --no-default-features --features noise
           - -p solouder-sources --no-default-features --features sfxr

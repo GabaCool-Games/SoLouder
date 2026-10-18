@@ -6,7 +6,9 @@
 //! their audio on the audio thread without allocating. Each source has a
 //! Cargo feature of its own.
 
+// Alone, the `chipdump` feature gives only `ChipDumpError`.
 #[cfg(feature = "chipdump")]
+#[cfg_attr(not(any(feature = "ay", feature = "tedsid")), allow(dead_code))]
 mod chipdump;
 mod features;
 #[cfg(feature = "prg")]
@@ -15,7 +17,7 @@ mod prg;
 #[cfg(feature = "chipdump")]
 pub use chipdump::ChipDumpError;
 #[cfg(feature = "ay")]
-pub use features::ay::Ay;
+pub use features::ay::{Ay, AyChipType};
 #[cfg(feature = "monotone")]
 pub use features::monotone::{MONOTONE_CHANNELS, Monotone, MonotoneError, MonotoneSong};
 #[cfg(feature = "noise")]

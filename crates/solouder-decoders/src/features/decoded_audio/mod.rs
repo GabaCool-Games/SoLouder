@@ -8,7 +8,7 @@ mod detect;
 mod error;
 pub(crate) mod flac;
 pub(crate) mod mp3;
-mod reader;
+pub(crate) mod reader;
 pub(crate) mod riff;
 pub(crate) mod vorbis;
 mod wav;

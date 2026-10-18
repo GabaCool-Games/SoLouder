@@ -9,7 +9,8 @@
 # previous arpeggio and slide change; settings changed after a play
 # reaching only later voices; looping inside the source (also switched
 # off while playing), seeking forward and back (NOT_IMPLEMENTED), a filter,
-# a queue, and a 48 kHz engine.
+# a queue, and a 48 kHz engine. Last, a looping file with a base frequency
+# of 20, restarting past a period of 0 (reference patch 0111).
 init channels=2
 sfxr name=p0_0 preset=0 seed=0
 sfxr_query name=p0_0
@@ -397,3 +398,13 @@ mix frames=4096
 set h=x seek=0.3
 mix frames=4096
 mix frames=4096
+
+# A looping sound restarting with a period below 1: SoLoud's resetSample
+# left it 0 and the next supersample divided by it (reference patch 0111).
+sfxr name=high file=sfxr/v102_high_base.sfx looping=1
+sfxr_query name=high
+play sound=high as=f_high
+mix frames=4096
+mix frames=4096
+query h=f_high
+stop_all

@@ -1,0 +1,32 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 06:07:21 +0300
+Subject: [PATCH] Ay::loadFile: refuse chip clocks above 4 MHz
+
+The chip does work for every tick of its clock, and Ay took any clock: at
+4294967295 Hz a voice took about seven times real time to render, on the
+audio thread. SoLoud's dump tools write 1774400 (ZX Spectrum) and 2000000
+(Atari ST), and the fastest of these chips is rated for a 4 MHz input
+clock (the YM2149, with its divider); a dump's chip clock is now at most
+4000000 Hz.
+---
+ src/audiosource/ay/soloud_ay.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/audiosource/ay/soloud_ay.cpp b/src/audiosource/ay/soloud_ay.cpp
+index 6bc8ea1..9f495c9 100644
+--- a/src/audiosource/ay/soloud_ay.cpp
++++ b/src/audiosource/ay/soloud_ay.cpp
+@@ -171,6 +171,12 @@ namespace SoLoud
+ 		// a sample a tick, or one tick could overrun the buffer.
+ 		if ((unsigned int)chipspeed < 8 * 44100 || (long long)(unsigned int)cpuspeed * (8192 - 20) / 44100 / 2 == 0)
+ 			return FILE_LOAD_FAILED;
++		// The chip works on every tick of its clock, which any speed made
++		// unbounded. SoLoud's dump tools write 1774400 (ZX Spectrum) and
++		// 2000000 (Atari ST); the fastest of these chips takes a 4 MHz input
++		// clock (the YM2149 with its divider).
++		if ((unsigned int)chipspeed > 4000000)
++			return FILE_LOAD_FAILED;
+ 		// Zeroed: an odd last byte makes an op with a high byte of 0.
+ 		unsigned short *ops = new unsigned short[(length + 1) / 2]();
+ 		aFile->seek(dataofs);

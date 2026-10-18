@@ -117,7 +117,22 @@ fn extreme_settings_render_without_panicking() {
                 ..SfxrParams::default()
             });
             render(&sfxr, false, 4096);
+            render(&sfxr, true, 4096);
         }
+    }
+    // A looping sound restarts through `reset`, which kept a period of 0
+    // past a base frequency of about 10 (reference patch 0111).
+    for base_freq in [20.0, -20.0, 11.0, 1e30] {
+        sfxr.set_params(SfxrParams {
+            base_freq,
+            env_attack: 0.0,
+            env_sustain: 0.01,
+            env_decay: 0.01,
+            ..SfxrParams::default()
+        });
+        let out = render(&sfxr, true, 8192);
+        assert_eq!(out.len(), 8192, "the looping sound plays on");
+        assert!(out.iter().all(|x| x.is_finite()));
     }
 }
 

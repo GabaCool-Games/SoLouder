@@ -63,6 +63,10 @@ impl Monotone {
         }
     }
 
+    /// The most bytes a song is read up to (392031); the rest of a file is
+    /// not read.
+    pub const MAX_FILE_BYTES: u64 = song::MAX_FILE;
+
     /// A song from a file's bytes (`Monotone::loadMem`).
     pub fn from_bytes(bytes: &[u8]) -> Result<Self, MonotoneError> {
         Self::from_reader(bytes)

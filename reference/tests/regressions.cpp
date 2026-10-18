@@ -1234,6 +1234,35 @@ namespace
 		delete instance;
 	}
 
+	// A looping sound restarts at its envelope's end through resetSample,
+	// which set period = (int)fperiod without getAudio's lower bound of 8:
+	// a base frequency past about 10 (as damaged or random settings give)
+	// made the period 0, and the next supersample divided by it.
+	void sfxr_looping_high_base_freq_survives()
+	{
+		Sfxr sfxr;
+		sfxr.resetParams();
+		sfxr.mParams.p_base_freq = 20.0f;
+		sfxr.mParams.p_env_attack = 0.0f;
+		sfxr.mParams.p_env_sustain = 0.01f;
+		sfxr.mParams.p_env_decay = 0.01f;
+		sfxr.setLooping(true);
+		AudioSourceInstance *instance = sfxr.createInstance();
+		instance->init(sfxr, 0);
+		std::vector<float> buffer(512);
+		unsigned int total = 0;
+		bool finite = true;
+		for (int i = 0; i < 8; i++)
+		{
+			total += instance->getAudio(buffer.data(), 512, 512);
+			for (float sample : buffer)
+				finite = finite && std::isfinite(sample);
+		}
+		check(total == 8 * 512 && !instance->hasEnded(), "the looping sound plays on past its restarts");
+		check(finite, "its samples are finite");
+		delete instance;
+	}
+
 	// A Monotone cell: a note (1 to 126, 127 ends the note, 0 keeps the
 	// last), an effect (0 to 7) and its 6 bits of data.
 	unsigned short monotoneCell(unsigned int aNote, unsigned int aEffect = 0, unsigned int aData = 0)
@@ -1628,6 +1657,41 @@ namespace
 		check(loadTedSid(packedTune, bytes) == FILE_LOAD_FAILED, "a cut chunk fails");
 	}
 
+	// TedSidInstance::tick runs every op up to the next wait, so a dump of
+	// many writes between short waits made unbounded work for each sample:
+	// a loop of 5000 writes and a wait of 1 ran 5000 writes a sample. Any
+	// 1024 samples (4.6 ms) may now run at most 8192 ops, counting the
+	// loop; a 6502 at the Plus/4's 1.77 MHz makes at most about 2048
+	// register writes in that time.
+	void tedsid_busy_dumps_fail()
+	{
+		TedSid tune;
+		std::vector<unsigned short> ops(8191, dumpWrite(24, 15));
+		ops.push_back(dumpWait(1024));
+		check(loadTedSid(tune, chipDump(0, 0, ops)) == SO_NO_ERROR, "8192 ops in 1024 samples load");
+		check(sourceAudio(tune, 4096).size() == 4096, "and play");
+		ops.insert(ops.begin(), dumpWrite(4, 0x11));
+		check(loadTedSid(tune, chipDump(0, 0, ops)) == FILE_LOAD_FAILED, "8193 fail");
+		check(tune.mOps == NULL, "a failed load leaves no ops");
+		ops.assign(8193, dumpWait(0));
+		ops.push_back(dumpWait(2000));
+		check(loadTedSid(tune, chipDump(0, 0, ops)) == FILE_LOAD_FAILED, "waits of 0 count as ops");
+		// Counting the loop: 7 writes and a wait of 1 a loop run 8192 ops in
+		// 1024 samples, 8 writes 9216.
+		ops.assign(7, dumpWrite(24, 15));
+		ops.push_back(dumpWait(1));
+		check(loadTedSid(tune, chipDump(0, 0, ops)) == SO_NO_ERROR, "a loop of 8 ops a sample loads");
+		ops.insert(ops.begin(), dumpWrite(4, 0x11));
+		check(loadTedSid(tune, chipDump(0, 0, ops)) == FILE_LOAD_FAILED, "a loop of 9 ops a sample fails");
+		std::vector<unsigned short> intro(4000, dumpWrite(24, 15));
+		intro.push_back(dumpWait(1));
+		intro.insert(intro.end(), 4192, dumpWrite(4, 0x11));
+		intro.push_back(dumpWait(3000));
+		check(loadTedSid(tune, chipDump(0, 0, intro, 4001 * 2)) == FILE_LOAD_FAILED,
+			"ops before the loop count with it");
+		check(loadTedSid(tune, chipDump(0, 0, sidTune())) == SO_NO_ERROR, "a tune loads");
+	}
+
 	// SIDsound::reset set each voice's envelope rate, an index into
 	// RateCountPeriod, to RateCountPeriod[0] (0x7f00) itself: until a gate
 	// set it, every envelope step read 0x7f00 entries past the table.
@@ -1843,6 +1907,53 @@ namespace
 		check(loadAy(ay, ayDump(ayTune(), 0, 11, 8 * 44100)) == SO_NO_ERROR, "the slowest speeds load");
 		check(ay.mCpuspeed == 11 && ay.mChipspeed == 8 * 44100, "the speeds are kept");
 		check(ayFramesPlayed(ay) > 0, "the slowest speeds play");
+	}
+
+	// The chip does work for every tick of its clock, and Ay took any clock:
+	// at 4294967295 Hz a voice took about 7 times real time to render. The
+	// clock is now at most 4 MHz: SoLoud's dump tools write 1774400 (ZX
+	// Spectrum) and 2000000 (Atari ST), and the fastest of these chips is
+	// rated for a 4 MHz input clock (the YM2149 with its divider).
+	void ay_chip_clock_is_bounded()
+	{
+		Ay ay;
+		check(loadAy(ay, ayDump(ayTune(), 0, 50, 4000001)) == FILE_LOAD_FAILED, "a chip clock past 4 MHz fails");
+		check(loadAy(ay, ayDump(ayTune(), 0, 50, 0xffffffffu)) == FILE_LOAD_FAILED, "the largest chip clock fails");
+		check(ay.mOps == NULL, "a failed load leaves no ops");
+		check(loadAy(ay, ayDump(ayTune(), 0, 50, 4000000)) == SO_NO_ERROR, "a 4 MHz chip loads");
+		check(ayFramesPlayed(ay) > 0, "and plays");
+	}
+
+	// ChipPlayer plays a frame's ops at once, and a frame takes ops until
+	// its waits reach the frame's ticks, which a dump may never do: 33.5
+	// million writes ran in one frame, about 135 ms of work, again at every
+	// restart of a looping voice. The ops a frame may take, those before
+	// waits of two frames' ticks (as a long wait carries a frame up to
+	// twice its ticks), counting restarts, are now at most 131072; a Z80 at
+	// 3.5 MHz writes at most about 28000 registers in those 0.19 s.
+	void ay_busy_dumps_fail()
+	{
+		Ay ay;
+		// At 50 Hz a frame is 4 ticks, two frames 8.
+		std::vector<unsigned short> ops(131071, dumpWrite(8, 0x0f));
+		ops.push_back(dumpWait(8));
+		check(loadAy(ay, ayDump(ops)) == SO_NO_ERROR, "131072 ops in two frames load");
+		check(ayFramesPlayed(ay) > 0, "and play");
+		ops.insert(ops.begin(), dumpWrite(9, 0x0f));
+		check(loadAy(ay, ayDump(ops)) == FILE_LOAD_FAILED, "131073 fail");
+		check(ay.mOps == NULL, "a failed load leaves no ops");
+		ops.assign(131073, dumpWrite(8, 0x0f));
+		check(loadAy(ay, ayDump(ops)) == FILE_LOAD_FAILED, "as do as many without a wait");
+		// A looping voice restarts within the frame: 16383 ops and a wait of
+		// 1 play 8 times in two frames, 131072 ops; 16384 and a wait 131080.
+		ops.assign(16383, dumpWrite(8, 0x0f));
+		ops.push_back(dumpWait(1));
+		check(loadAy(ay, ayDump(ops)) == SO_NO_ERROR, "a short dump restarting within the frames loads");
+		ops.insert(ops.begin(), dumpWrite(9, 0x0f));
+		check(loadAy(ay, ayDump(ops)) == FILE_LOAD_FAILED, "one op more fails");
+		ops.assign(3, dumpWrite(8, 0x0f));
+		check(loadAy(ay, ayDump(ops)) == SO_NO_ERROR, "a short dump without waits, which plays nothing, loads");
+		check(loadAy(ay, ayDump(ayTune())) == SO_NO_ERROR, "a tune loads");
 	}
 
 	// SNDCHIP's constructor left its tone, noise and envelope counters, the
@@ -3005,6 +3116,7 @@ namespace
 		{ "sfxr_short_file_fails", sfxr_short_file_fails },
 		{ "sfxr_filter_flag_is_a_bool", sfxr_filter_flag_is_a_bool },
 		{ "sfxr_ended_sound_stays_silent", sfxr_ended_sound_stays_silent },
+		{ "sfxr_looping_high_base_freq_survives", sfxr_looping_high_base_freq_survives },
 		{ "monotone_empty_song_is_silent", monotone_empty_song_is_silent },
 		{ "monotone_short_file_fails", monotone_short_file_fails },
 		{ "monotone_long_title_is_cut", monotone_long_title_is_cut },
@@ -3018,6 +3130,7 @@ namespace
 		{ "tedsid_header_is_checked", tedsid_header_is_checked },
 		{ "tedsid_loop_without_wait_fails", tedsid_loop_without_wait_fails },
 		{ "tedsid_zx7_stays_in_bounds", tedsid_zx7_stays_in_bounds },
+		{ "tedsid_busy_dumps_fail", tedsid_busy_dumps_fail },
 		{ "sid_envelope_rate_starts_in_range", sid_envelope_rate_starts_in_range },
 		{ "sid_attack_from_full_level_wraps", sid_attack_from_full_level_wraps },
 		{ "ay_right_channel_at_buffer_stride", ay_right_channel_at_buffer_stride },
@@ -3025,6 +3138,8 @@ namespace
 		{ "ay_header_is_checked", ay_header_is_checked },
 		{ "ay_zx7_stays_in_bounds", ay_zx7_stays_in_bounds },
 		{ "ay_speeds_are_checked", ay_speeds_are_checked },
+		{ "ay_chip_clock_is_bounded", ay_chip_clock_is_bounded },
+		{ "ay_busy_dumps_fail", ay_busy_dumps_fail },
 		{ "ay_chip_starts_at_zero", ay_chip_starts_at_zero },
 		{ "ay_last_write_is_played", ay_last_write_is_played },
 		{ "ay_long_wait_is_spread", ay_long_wait_is_spread },

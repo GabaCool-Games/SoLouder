@@ -159,7 +159,7 @@ fails with `CannotSeekBack`.
 | `noise` | White, pink, brownish and blueish noise, a type index without a preset, custom octave weights and weights summing to 0 (patch 0069), two voices of one noise (same seed), changed weights reaching only later plays, stopping and counting, speed, rate and seeks forward and back (back fails without `rewind`), a filter, single-instance looping noise, 3D, a queue and a queue seek, and a 48 kHz engine with a 6000-frame buffer (seek passes of another scratch size) | 47,867 |
 | `file_loading` | `Wav::loadFile` of a `DiskFile` and of a `MemoryFile` next to `Wav::load` for WAV, FLAC, Ogg Vorbis and MPEG audio (samples compared whole), `WavStream::loadFile` and `loadFileToMem` of each kind, looping Ogg Vorbis streams through each kind of file, seeks, and files that fail to load | 159,084 |
 | `vic` | Each oscillator and noise, off below 128 and at 255, registers and the model written between mixes reaching playing voices at their next block, register indices past the last (patch 0071), PAL and NTSC, two voices, speed, rate, seeks forward and back, the suggested lowpass, looping, single instance, 3D, a queue, a 48 kHz engine | 37,345 |
-| `sfxr` | All seven presets with four seeds each (two wrapping the seed arithmetic), each played through its decaying tail; an unknown preset; parameter files of versions 100 to 102 from a path, memory and a `DiskFile`, an unknown wave type, a filter byte of 2 (patch 0073), trailing bytes, damaged files that change nothing (patch 0072), version 100 keeping earlier values; settings changing for later plays only; looping inside the source and switched off; speed, rate, seeks forward and back (patch 0074); an echo, a queue and a queue seek; a 48 kHz engine | 1,165,872 |
+| `sfxr` | All seven presets with four seeds each (two wrapping the seed arithmetic), each played through its decaying tail; an unknown preset; parameter files of versions 100 to 102 from a path, memory and a `DiskFile`, an unknown wave type, a filter byte of 2 (patch 0073), trailing bytes, damaged files that change nothing (patch 0072), version 100 keeping earlier values; settings changing for later plays only; looping inside the source and switched off; speed, rate, seeks forward and back (patch 0074); an echo, a queue and a queue seek; a 48 kHz engine; a looping file with a base frequency of 20 restarting past a period of 0 (patch 0111) | 1,182,256 |
 | `monotone` | A song using every effect, including a slide from 0 Hz (patch 0082), vibrato on note 1 (patch 0080) and notes past 99 (patch 0079), on one hardware channel then four, changed while playing; every waveform and one past the last; order and row jumps into a missing pattern; twelve tracks on three hardware channels, thirteen refused (patch 0078); an order without an end marker passing its 256th entry; long titles (patch 0077); damaged songs from a path, memory and a `DiskFile` failing and playing silence (patches 0075, 0076); a play speed below 60 Hz (patch 0081); seeks forward and back; a filter; a 48 kHz engine | 1,212,416 |
 | `tedsid` | SID dumps for each model, from the dump's flags (patch 0083), stored and zx7-compressed, with every SID waveform, ring modulation, sync, the test bit, every filter type over a cutoff sweep and an attack from full level (patch 0088); a TED dump with both voices and noise; both chips over two zx7 chunks looping from an odd byte; chip type 6 with a later data offset; an odd length; registers through `getInfo`; storing under a name again stopping its voices; damaged dumps from a path, memory and a `DiskFile` failing (patches 0085 to 0087) and playing the idle chips; seeks forward and back; play speeds; a filter; a 48 kHz engine | 778,240 |
 | `ay` | AY and YM dumps, stored and zx7-compressed, with every tone, noise and mixer setting, fixed and enveloped volumes, every envelope shape, register numbers past 15 and a pause longer than a frame (patch 0097); TurboSound and TurboSound Next driving a second chip; the slowest speeds (patch 0095) and a fast tick rate; a dump of several chunks; registers of both chips through `getInfo`; last writes (patch 0096) and tails (patch 0098) played; looping voices restarting their chips (patch 0099) with reads shorter than the buffer (patch 0091) and a loop point; storing under a name again; damaged dumps from a path, memory and a `DiskFile` failing (patches 0092 to 0095); seeks forward and back; play speeds; a filter; a 48 kHz engine | 1,204,224 |
@@ -494,7 +494,7 @@ expected when the audio thread renders at four times real time.
 | Shutdown | `deinit` can free state while the device thread still runs (patch 0010) | The stream is dropped first, which stops the callback; the renderer is handed back (waiting up to half a second for backends that release the callback late) and freed afterwards | Teardown order is enforced by ownership |
 
 Known reference defects fixed on both sides by patches 0018 to 0024 and 0026
-to 0057 and 0060 to 0110 (pan ramp leftovers, surround fold-down volumes, no-free-voice
+to 0057 and 0060 to 0114 (pan ramp leftovers, surround fold-down volumes, no-free-voice
 handling, raw layout validation, the #343 hang, protection and ticking not
 recomputing the active voices, sound endings dropped when a mix ends
 mid-block, the hang on a negative sample rate, seeks scaled by play speed,
@@ -542,8 +542,11 @@ speed their buffer was not sized for, the speech stress lookahead and
 phoneme lookup reading past their arrays, stress marks never
 applying, Vizsn noise from the process-wide `rand()`, Vizsn voices
 without a text reading a null pointer or ending before their
-buffered samples, Vizsn reads overrunning its buffer, and Vizsn
-voices that could neither rewind nor loop) are
+buffered samples, Vizsn reads overrunning its buffer, Vizsn
+voices that could neither rewind nor loop, a looping sfxr sound
+dividing by a period of 0 at its restart, and TedSid and AY dumps
+whose operations or chip clock made unbounded work on the audio
+thread) are
 listed in
 [PORTING.md](PORTING.md#reference-patch-ledger). Patch 0025 (sounds, buses
 and queues that outlive their engine or play on several engines) has no Rust

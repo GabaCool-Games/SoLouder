@@ -207,3 +207,52 @@ fn attack_from_full_level_wraps() {
     assert!(wrapped);
     assert_eq!(envelope.level(), 0xFF);
 }
+
+/// A stored SID dump of `ops` in as many chunks as they take, looping to
+/// `loop_pos`.
+fn stored(ops: &[u16], loop_pos: usize) -> Vec<u8> {
+    let length = ops.len() * 2;
+    let chunks = length.div_ceil(1024);
+    let mut out = b"CHIPTUNE".to_vec();
+    let last = length - (chunks - 1) * 1024;
+    for word in [28, 0x100, chunks, last, loop_pos / 1024, loop_pos % 1024] {
+        out.extend_from_slice(&(word as u16).to_le_bytes());
+    }
+    out.extend_from_slice(&50_u32.to_le_bytes());
+    out.extend_from_slice(&985_248_u32.to_le_bytes());
+    out.extend(ops.iter().flat_map(|op| op.to_le_bytes()));
+    out
+}
+
+#[test]
+fn busy_dumps_fail() {
+    // Reference patch 0112: at most 8192 operations in any 1024 samples,
+    // counting the loop; waits of 0 count.
+    let load = |ops: &[u16], loop_pos| TedSid::from_bytes(&stored(ops, loop_pos));
+    let busy = |ops: &[u16], loop_pos| {
+        matches!(load(ops, loop_pos), Err(ChipDumpError::TooManyOperations))
+    };
+    let mut ops = vec![0x180f; 8191];
+    ops.push(0x8000 | 1024);
+    render(&load(&ops, 0).unwrap(), 4096);
+    ops.insert(0, 0x0411);
+    assert!(busy(&ops, 0));
+    let mut zeros = vec![0x8000; 8193];
+    zeros.push(0x8000 | 2000);
+    assert!(busy(&zeros, 0));
+    // 7 writes and a wait of 1 a loop: 8192 operations in 1024 samples.
+    let mut ops = vec![0x180f; 7];
+    ops.push(0x8001);
+    assert!(load(&ops, 0).is_ok());
+    ops.insert(0, 0x0411);
+    assert!(busy(&ops, 0));
+    let mut intro = vec![0x180f; 4000];
+    intro.push(0x8001);
+    intro.extend([0x0411; 4192]);
+    intro.push(0x8000 | 3000);
+    assert!(
+        busy(&intro, 4001 * 2),
+        "operations before the loop count with it"
+    );
+    assert!(load(&intro[4001..], 0).is_ok());
+}

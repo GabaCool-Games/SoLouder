@@ -21,7 +21,7 @@ const MIN_FILE: usize = 34;
 
 /// The most bytes a dump is read up to: the longest data, compressed with
 /// zx7's worst overhead, after the longest data offset.
-const MAX_FILE: u64 = 80 << 20;
+pub(crate) const MAX_FILE: u64 = 80 << 20;
 
 /// Why a chip dump was refused.
 #[derive(Debug)]
@@ -46,8 +46,15 @@ pub enum ChipDumpError {
     NoWait,
     /// For `Ay`, a tick rate below 11 Hz or a chip clock below 352800 Hz,
     /// which its player cannot render (reference patch 0095; SoLoud divided
-    /// by zero, spun, or overran its buffer).
+    /// by zero, spun, or overran its buffer), or a chip clock above 4 MHz,
+    /// which no AY or YM takes (reference patch 0113; the chip's work grows
+    /// with its clock).
     UnsupportedSpeed,
+    /// More operations between waits than a voice can play in bounded
+    /// time: for `TedSid` more than 8192 in any 1024 samples, for `Ay` more
+    /// than 131072 in any two frames (reference patches 0112 and 0114;
+    /// SoLoud ran them all on the audio thread, however many).
+    TooManyOperations,
     /// Longer than 80 MiB.
     TooLarge,
     /// Reading failed.
@@ -66,7 +73,10 @@ impl fmt::Display for ChipDumpError {
             Self::BadCompression => f.write_str("a compressed chunk of the chip dump is damaged"),
             Self::NoWait => f.write_str("the chip dump's loop never waits"),
             Self::UnsupportedSpeed => {
-                f.write_str("the chip dump's tick rate or chip clock is too slow")
+                f.write_str("the chip dump's tick rate or chip clock is out of range")
+            }
+            Self::TooManyOperations => {
+                f.write_str("the chip dump has too many operations between its waits")
             }
             Self::TooLarge => f.write_str("the chip dump is longer than 80 MiB"),
             Self::Io(error) => write!(f, "reading the chip dump failed: {error}"),
@@ -146,10 +156,13 @@ impl ChipDump {
             return Err(ChipDumpError::BadHeader);
         }
         let data = &bytes[data_offset..];
+        // Stored data must be there before its room is allocated.
+        if flags & 1 != 0 && data.len() < length {
+            return Err(ChipDumpError::Truncated);
+        }
         let mut raw = vec![0; length.div_ceil(2) * 2];
         if flags & 1 != 0 {
-            let stored = data.get(..length).ok_or(ChipDumpError::Truncated)?;
-            raw[..length].copy_from_slice(stored);
+            raw[..length].copy_from_slice(&data[..length]);
         } else {
             let mut used = 0;
             for chunk in 0..chunks {
@@ -178,6 +191,45 @@ impl ChipDump {
     /// so an odd loop position reads the operations from the byte before).
     pub(crate) fn op(&self, pos: usize) -> u16 {
         self.ops[pos / 2]
+    }
+
+    /// The most operations in any stretch of the dump before its waits
+    /// reach `window`, reading from the start to the end and then, with
+    /// `repeat_from`, from that position to the end again and again (as
+    /// the players continue). Counts up to `limit + 1`; one pass over the
+    /// operations.
+    pub(crate) fn most_ops_before_waits(
+        &self,
+        repeat_from: Option<usize>,
+        window: u64,
+        limit: usize,
+    ) -> usize {
+        let first = self.length.div_ceil(2);
+        let repeat = repeat_from.map_or(0, |from| (self.length - from).div_ceil(2));
+        let op = |k: usize| match repeat_from {
+            Some(from) if k >= first => self.op(from + 2 * ((k - first) % repeat)),
+            _ => self.ops[k],
+        };
+        let wait = |op: u16| {
+            if op & 0x8000 != 0 {
+                u64::from(op & 0x7fff)
+            } else {
+                0
+            }
+        };
+        let end = if repeat == 0 { first } else { usize::MAX };
+        let (mut j, mut sum, mut most) = (0, 0_u64, 0);
+        let mut i = 0;
+        while i < first + repeat && most <= limit {
+            while j < end && sum < window && j - i <= limit {
+                sum += wait(op(j));
+                j += 1;
+            }
+            most = most.max(j - i);
+            sum -= wait(op(i));
+            i += 1;
+        }
+        most
     }
 
     /// Whether the loop holds a wait of more than 0 (bit 15 set): TedSid's
