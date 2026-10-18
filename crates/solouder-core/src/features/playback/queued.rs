@@ -1,7 +1,7 @@
 // Ported from SoLoud src/core/soloud_queue.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
-//! Sounds and streams waiting in a queue (`Queue::mSource`).
+//! Sounds, streams and generators waiting in a queue (`Queue::mSource`).
 
 use std::sync::Arc;
 use std::sync::atomic::AtomicU64;
@@ -97,9 +97,8 @@ impl sealed::Queueable for Stream {
     }
 }
 
-/// A queued sound or stream: an instance that is read but not mixed on its
-/// own. `audio` is a sound's, stream's or generator's. Public
-/// only to the crate: the module is private.
+/// A queued sound, stream or generator: an instance that is read but not
+/// mixed on its own. Public only to the crate: the module is private.
 #[derive(Debug)]
 pub struct Queued {
     pub id: SoundId,

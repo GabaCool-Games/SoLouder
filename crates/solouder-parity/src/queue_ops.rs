@@ -10,7 +10,7 @@ use crate::scenario::{ScenarioError, Step};
 /// SoLoud's `OUT_OF_MEMORY`.
 const OUT_OF_MEMORY: i32 = 5;
 
-/// A sound or stream to queue.
+/// A sound, stream or generator to queue.
 enum Queued {
     Sound(Sound),
     Stream(Stream),

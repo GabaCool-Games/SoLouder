@@ -1,0 +1,106 @@
+# Generators in queues (Queue::play of a Synth, as SoLoud's Queue::play
+# takes any AudioSource): each queued item is an instance read at the
+# queue's rate and channels, one after another. Speech, whose every read
+# restarts its glottal period, read in the queue's blocks, the same text queued
+# twice, and a seek through the queue discarding in reads; Vizsn texts
+# ending and the next starting mid-block; AY dumps (stereo, two chips)
+# following each other, resampled to an 11025 Hz output, the last set to
+# loop, which a queue plays once (reference patch 0049); Monotone and
+# TedSid, which never end, after a sound that does, so whatever is
+# queued after them waits.
+init channels=1 rate=11025
+speech name=s1 text=hello
+speech name=s2 text=queued_words
+queue name=qs rate=11025 channels=1
+play sound=qs as=qsv
+queue_add queue=qs sound=s1
+queue_add queue=qs sound=s2
+queue_add queue=qs sound=s1
+queue_query queue=qs sound=s1
+mix frames=4096
+mix frames=4096
+queue_query queue=qs sound=s2
+mix frames=4096
+mix frames=4096
+set h=qsv seek=1.5
+query h=qsv
+mix frames=4096
+mix frames=4096
+mix frames=4096
+queue_query queue=qs
+query h=qsv
+stop_all
+
+init channels=1 rate=8000
+vizsn name=v1 text=hei
+vizsn name=v2 text=kissa_istuu
+queue name=qv rate=8000 channels=1
+play sound=qv as=qvv
+queue_add queue=qv sound=v1
+queue_add queue=qv sound=v2
+queue_query queue=qv sound=v1
+mix frames=4096
+queue_query queue=qv sound=v2
+mix frames=4096
+mix frames=4096
+mix frames=4096
+queue_query queue=qv
+query h=qvv
+stop_all
+
+init channels=2 rate=11025
+ay name=a1 file=chipdump/ay_ay.dump
+ay name=a2 file=chipdump/ay_turbo.dump
+ay name=a3 file=chipdump/ay_ym.zx7.dump looping=1
+queue name=qa rate=44100 channels=2
+play sound=qa as=qav
+queue_add queue=qa sound=a1
+queue_add queue=qa sound=a2
+queue_add queue=qa sound=a3
+queue_query queue=qa sound=a1
+mix frames=4096
+mix frames=4096
+mix frames=4096
+queue_query queue=qa sound=a1
+mix frames=4096
+mix frames=4096
+queue_query queue=qa sound=a2
+mix frames=4096
+mix frames=4096
+mix frames=4096
+queue_query queue=qa sound=a3
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+queue_query queue=qa sound=a3
+query h=qav
+stop_all
+
+init channels=2
+sound name=beep frames=3000 pattern=saw period=50 amp=0.5
+monotone name=m1 file=monotone/demo.mon hardware=4
+queue name=qm rate=44100 channels=1
+play sound=qm as=qmv pan=-0.5
+queue_add queue=qm sound=beep
+queue_add queue=qm sound=m1
+queue_add queue=qm sound=beep
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+queue_query queue=qm sound=m1
+tedsid name=t1 file=chipdump/sidted.zx7.dump
+queue name=qt rate=221680 channels=1
+play sound=qt as=qtv pan=0.5
+queue_add queue=qt sound=t1
+queue_add queue=qt sound=t1
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+queue_query queue=qt sound=t1
+queue_query queue=qm
+query h=qmv
+query h=qtv
+stop_all

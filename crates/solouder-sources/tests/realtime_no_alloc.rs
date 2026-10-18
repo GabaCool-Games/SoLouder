@@ -1,9 +1,10 @@
 //! Generators through the real-time split: `Renderer::render` must not
 //! allocate or free memory while synths play, loop, seek, end and play in
-//! a queue, and while a Vic's registers and model, a Monotone's settings
-//! and a Speech's voice change under their voices (noise, Vic, sfxr,
-//! Monotone, TedSid, Ay, Speech and Vizsn voices, looping and not, an Ay
-//! restarting its chips as it loops, a Vizsn starting over),
+//! queues (an Ay dump, Speech and TedSid among the queued), and while a
+//! Vic's registers and model, a Monotone's settings and a Speech's voice
+//! change under their voices (noise, Vic, sfxr, Monotone, TedSid, Ay,
+//! Speech and Vizsn voices, looping and not, an Ay restarting its chips as
+//! it loops, a Vizsn starting over),
 //! and must render exactly what an offline [`Mixer`] given the same calls
 //! renders. Generator instances are built when a voice is prepared, on the
 //! game thread, so only the reads run on the audio thread.
@@ -137,9 +138,8 @@ const TEDSID_DUMP: &[u8] = include_bytes!(concat!(
     "/../../tests/fixtures/chipdump/sidted.zx7.dump"
 ));
 
-/// An Ay dump of a tone and noise for 3 ticks at 50 Hz (2646 frames),
-/// looping, so it restarts its chips several times.
-fn looping_ay() -> Synth {
+/// An Ay dump of a tone and noise for 3 ticks at 50 Hz (2646 frames).
+fn ay() -> Ay {
     let ops: [u16; 6] = [0x0730, 0x0080, 0x080f, 0x0605, 0x8002, 0x8001];
     let mut dump = b"CHIPTUNE".to_vec();
     for word in [28, 0x101, 1, 12, 0, 0] {
@@ -148,7 +148,12 @@ fn looping_ay() -> Synth {
     dump.extend_from_slice(&50_u32.to_le_bytes());
     dump.extend_from_slice(&1_774_400_u32.to_le_bytes());
     dump.extend(ops.iter().flat_map(|op| op.to_le_bytes()));
-    let mut synth = Synth::new(Arc::new(Ay::from_bytes(&dump).unwrap())).unwrap();
+    Ay::from_bytes(&dump).unwrap()
+}
+
+/// [`ay`] looping, so it restarts its chips several times.
+fn looping_ay() -> Synth {
+    let mut synth = Synth::new(Arc::new(ay())).unwrap();
     synth.set_looping(true);
     synth
 }
@@ -240,6 +245,34 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
         controller.queue_play(&queue, &sound).unwrap();
         offline.queue_play(&queue, &sound).unwrap();
     }
+    // Chip dumps one after another, the looping one played once, then a
+    // ramp; and speech, read in the queue's blocks, before Vizsn and a
+    // TedSid dump.
+    let mut chips = Queue::new();
+    chips.set_params(44100.0, 2).unwrap();
+    let mut voices = Queue::new();
+    voices.set_params(11025.0, 1).unwrap();
+    for queue in [&chips, &voices] {
+        controller.play(queue).unwrap();
+        offline.play(queue);
+    }
+    let once = Synth::new(Arc::new(ay())).unwrap();
+    for sound in [once.clone(), looping_ay(), once, ramp(900, true, false)] {
+        controller.queue_play(&chips, &sound).unwrap();
+        offline.queue_play(&chips, &sound).unwrap();
+    }
+    let hi = Speech::new("Hi");
+    hi.set_params(speech_params(2)).unwrap();
+    let queued = [
+        Synth::new(Arc::new(hi)).unwrap(),
+        Synth::new(Arc::new(Vizsn::new("moi"))).unwrap(),
+        Synth::new(Arc::new(TedSid::from_bytes(TEDSID_DUMP).unwrap())).unwrap(),
+    ];
+    for sound in &queued {
+        controller.queue_play(&voices, sound).unwrap();
+        offline.queue_play(&voices, sound).unwrap();
+    }
+    drop(queued);
     drop(sounds);
     for round in 0..12 {
         between(&mut controller);
@@ -279,6 +312,10 @@ fn rendering_synths_never_allocates_and_matches_the_mixer() {
             "round {round} differs from the offline mixer"
         );
     }
+    assert!(
+        offline.queue_count(&chips) < 4 && offline.queue_count(&voices) < 3,
+        "queued synths ended and the next played"
+    );
     controller.stop(ids[1]).unwrap();
     measured_render(&mut renderer, &mut output, "stopping");
     between(&mut controller);
