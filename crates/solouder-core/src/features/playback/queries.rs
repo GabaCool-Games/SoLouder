@@ -2,6 +2,7 @@
 // src/core/soloud_core_basicops.cpp (zlib/libpng,
 // Copyright (c) 2013-2020 Jari Komppa); altered for SoLouder.
 
+use super::generator;
 use super::handle::Handle;
 use super::mixer::Mixer;
 use super::source::Playable;
@@ -87,10 +88,12 @@ impl Mixer {
         self.voices.get(handle).map(|v| v.loop_count)
     }
 
-    /// A value the voice's source reports under `key` (`Soloud::getInfo`).
-    /// Sounds report nothing, so this is 0 for every voice today.
-    pub fn info(&self, handle: Handle, _key: u32) -> Option<f32> {
-        self.voices.get(handle).map(|_| 0.0)
+    /// A value the voice's source reports under `key` (`Soloud::getInfo`):
+    /// what a generator's instance answers, and 0 for every other source.
+    pub fn info(&self, handle: Handle, key: u32) -> Option<f32> {
+        self.voices
+            .get(handle)
+            .map(|v| generator::info(&v.source, key))
     }
 
     /// Voices playing or paused.

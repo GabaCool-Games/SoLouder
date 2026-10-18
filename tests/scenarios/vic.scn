@@ -1,0 +1,90 @@
+# Vic (milestone F unit 2): the bass, alto and soprano squares and noise,
+# off below 128 and at the highest step at 255; registers and the model
+# written between mixes and inside a mix's blocks reaching playing voices
+# at their next block; indices past the last register ignored and read as
+# 0 (reference patch 0071); PAL and NTSC clocks; two voices with their own
+# phases; speed, sample rate, a seek forward in passes of the scratch size
+# and one back (NOT_IMPLEMENTED: Vic cannot rewind); SoLoud's suggested
+# lowpass; looping, single instance, 3D and a queue; a 48 kHz engine.
+init channels=2
+vic name=v bass=200 volume=0.8
+vic_query name=v
+play sound=v as=a
+mix frames=1500
+vic_set name=v alto=230
+mix frames=700
+vic_set name=v soprano=250 noise=240
+mix frames=1100
+vic_set name=v model=1
+mix frames=600
+vic_query name=v reg=2
+vic_set name=v reg=4 value=99
+vic_set name=v reg=1000 value=1
+vic_set name=v reg=4294967295 value=7
+vic_query name=v reg=4
+vic_query name=v reg=4294967295
+vic_set name=v bass=127 alto=128 soprano=255 noise=255
+mix frames=1024
+vic_set name=v model=0 bass=0 alto=0 soprano=0 noise=129
+mix frames=900
+query h=a
+
+# A second voice starts its own phases; both hear later writes.
+vic_set name=v bass=180 noise=0
+play sound=v as=b pan=-0.5
+mix frames=513
+vic_set name=v bass=240 alto=150
+mix frames=999
+sound_query name=v
+stop_sound name=v
+counts
+
+# Speed, sample rate and seeking.
+vic name=w bass=210 alto=220 soprano=230 noise=200
+play sound=w as=s
+set h=s speed=1.5
+mix frames=1300
+set h=s speed=0.7 seek=0.5
+mix frames=800
+set h=s seek=0.1
+query h=s
+set h=s rate=22050
+mix frames=1000
+stop h=s
+
+# The authentic sound: a biquad lowpass at 1500 Hz, resonance 2.
+filter name=lp kind=biquad type=lowpass freq=1500 res=2
+sound_filter sound=w slot=0 filter=lp
+play sound=w as=f
+mix frames=2000
+stop_all
+
+# Looping and single instance (Vic never ends), 3D, a queue.
+vic name=one bass=230 single=1 looping=1 loop_point=0.2
+play sound=one as=o1
+mix frames=300
+play sound=one as=o2
+query h=o1
+query h=o2
+mix frames=600
+stop_all
+sound3d name=w min=1 max=50 model=2 rolloff=1
+play3d sound=w as=t x=4 y=0 z=1
+mix frames=700
+set3d h=t x=-3 y=0 z=0
+update3d
+mix frames=700
+stop_all
+queue name=q rate=44100 channels=2
+play sound=q as=qv
+queue_add queue=q sound=one
+mix frames=900
+set h=qv seek=0.4
+mix frames=600
+
+init channels=1 rate=48000 buffer=6000
+vic name=v soprano=245 noise=230 model=1
+play sound=v as=r
+mix frames=4096
+set h=r seek=0.3
+mix frames=777

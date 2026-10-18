@@ -1,0 +1,57 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:33:15 +0300
+Subject: [PATCH] SpeechInstance: keep the speed the voice started with
+
+SpeechInstance sized its sample buffer for Speech's speed at play, but getAudio and rewind took Speech's speed every time: after setParams lengthened the frames, an element longer than the buffer wrote past it. A voice now keeps its speed; the frequency, declination and waveform still reach playing voices.
+---
+ include/soloud_speech.h                  | 3 +++
+ src/audiosource/speech/soloud_speech.cpp | 7 ++++---
+ 2 files changed, 7 insertions(+), 3 deletions(-)
+
+diff --git a/include/soloud_speech.h b/include/soloud_speech.h
+index fa7436c..74fcd3d 100644
+--- a/include/soloud_speech.h
++++ b/include/soloud_speech.h
+@@ -67,6 +67,9 @@ namespace SoLoud
+ 		short *mSample;
+ 		int mSampleCount;
+ 		int mOffset;
++		// The speed mSample is sized for: setParams's speed reaches new
++		// voices only.
++		float mBaseSpeed;
+ 	public:
+ 		SpeechInstance(Speech *aParent);
+         virtual ~SpeechInstance();
+diff --git a/src/audiosource/speech/soloud_speech.cpp b/src/audiosource/speech/soloud_speech.cpp
+index 51cfb81..ba7f54b 100644
+--- a/src/audiosource/speech/soloud_speech.cpp
++++ b/src/audiosource/speech/soloud_speech.cpp
+@@ -31,7 +31,8 @@ namespace SoLoud
+ 	SpeechInstance::SpeechInstance(Speech *aParent)
+ 	{
+ 		mParent = aParent;			
+-		mSynth.init(mParent->mBaseFrequency, mParent->mBaseSpeed, mParent->mBaseDeclination, mParent->mBaseWaveform);
++		mBaseSpeed = mParent->mBaseSpeed;
++		mSynth.init(mParent->mBaseFrequency, mBaseSpeed, mParent->mBaseDeclination, mParent->mBaseWaveform);
+ 		mSample = new short[mSynth.mNspFr * 100];
+ 		mSynth.initsynth(mParent->mElement.getSize(), (unsigned char *)mParent->mElement.getData());
+ 		mOffset = 10;
+@@ -54,7 +55,7 @@ namespace SoLoud
+ 
+ 	unsigned int SpeechInstance::getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int /*aBufferSize*/)
+ 	{
+-		mSynth.init(mParent->mBaseFrequency, mParent->mBaseSpeed, mParent->mBaseDeclination, mParent->mBaseWaveform);
++		mSynth.init(mParent->mBaseFrequency, mBaseSpeed, mParent->mBaseDeclination, mParent->mBaseWaveform);
+ 		unsigned int samples_out = 0;
+ 		if (mSampleCount > mOffset)
+ 		{
+@@ -89,7 +90,7 @@ namespace SoLoud
+ 
+ 	result SpeechInstance::rewind()
+ 	{
+-		mSynth.init(mParent->mBaseFrequency, mParent->mBaseSpeed, mParent->mBaseDeclination, mParent->mBaseWaveform);
++		mSynth.init(mParent->mBaseFrequency, mBaseSpeed, mParent->mBaseDeclination, mParent->mBaseWaveform);
+ 		mSynth.initsynth(mParent->mElement.getSize(), (unsigned char *)mParent->mElement.getData());
+ 		mOffset = 10;
+ 		mSampleCount = 10;

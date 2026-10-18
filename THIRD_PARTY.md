@@ -16,13 +16,15 @@ Rows saying "ported" name the SoLouder code translated from them; the rest has n
 | FLAC decoding | `src/audiosource/wav/dr_flac.h` | dr_flac by David Reid, Unlicense or MIT No Attribution | Decoding path ported to `solouder-decoders` (`decoded_audio/flac/`), credited in its files |
 | Freeverb | `src/filter/soloud_freeverbfilter.cpp` | Jezar at Dreampoint, public domain (original release, not GPL Freeverb3) | Port with attribution |
 | FFT | `src/core/soloud_fft.cpp` | Based on fftreal by Laurent de Soras, WTFPL | Port with attribution |
-| Sfxr | `src/audiosource/sfxr/` | Tomas Pettersson, relicensed to zlib by permission | Port; keep the zlib notice and permission note |
-| Speech synthesizer | `src/audiosource/speech/` | rsynth by Nick Ing-Simmons et al., public domain; SoLoud changes public domain/CC0; `soloud_speech.*` zlib | Port with attribution |
-| Vizsn | `src/audiosource/vizsn/` | Ville-Matias Heikkilä, WTFPL | Port with attribution |
-| VIC 6560/6561 emulator | `src/audiosource/vic/` | Petri Häkkinen, zlib/libpng | Port; keep his zlib notice |
-| TED/SID | `src/audiosource/tedsid/` | Based on tedplay by Attila Grósz, Unlicense | Port with attribution |
-| AY | `src/audiosource/ay/` | YM-2149F emulator and resampler from Unreal Speccy by SMT, public domain; SoLoud wrapper zlib | Port with attribution |
-| OpenMPT | `src/audiosource/openmpt/` | Loads libopenmpt (BSD-3-Clause) at runtime | Excluded unless needed |
+| Sfxr | `src/audiosource/sfxr/` | Tomas Pettersson, relicensed to zlib by permission | Ported to `solouder-sources` (`features/sfxr/`); each file names him and the permission |
+| Speech synthesizer | `src/audiosource/speech/` | rsynth by Nick Ing-Simmons et al., public domain; SoLoud changes public domain/CC0; `soloud_speech.*` zlib | Ported to `solouder-sources` (`features/speech/`); `Elements.def` and the rule tables copied into `features/speech/data/`; each file credits rsynth |
+| Vizsn | `src/audiosource/vizsn/` | Ville-Matias Heikkilä, WTFPL | Ported to `solouder-sources` (`features/vizsn/`); each file credits Ville-Matias Heikkilä and the WTFPL |
+| VIC 6560/6561 emulator | `src/audiosource/vic/` | Petri Häkkinen, zlib/libpng | Ported to `solouder-sources` (`features/vic/`), with his zlib notice in the file |
+| TED/SID | `src/audiosource/tedsid/` | Based on tedplay by Attila Grósz, Unlicense | Ported to `solouder-sources` (`features/tedsid/`); each file names him and the Unlicense |
+| AY | `src/audiosource/ay/` | YM-2149F emulator and resampler from Unreal Speccy by SMT, public domain; SoLoud wrapper zlib | Ported to `solouder-sources` (`features/ay/`); each file credits SMT |
+| WELL512 random numbers | `src/core/soloud_misc.cpp` (`Misc::Prg`) | WELL512 by Chris Lomont, public domain | Ported to `solouder-sources` (`prg.rs`), credited in the file |
+| zx7 decompression | `include/zx7decompress.h` | Jari Komppa, public domain (Unlicense), based on zx7 by Einar Saukas, who asks to be credited; the zx7 compressor has a different licence and is not used | Decompressor ported to `solouder-sources` (`chipdump/zx7.rs`), crediting both; the fixtures' encoder in `scripts/gen_source_fixtures.py` is first-party. SoLoud's `legal.mmd` mentions neither zx7 nor AY |
+| OpenMPT | `src/audiosource/openmpt/` | Loads libopenmpt (BSD-3-Clause) at runtime | Excluded: its ledger rows are `excluded`; wrap a module-player crate in `Generator` instead |
 
 ## Rust dependencies
 
@@ -34,6 +36,6 @@ are MIT, Apache-2.0, Zlib, Unicode-3.0 or CC0 variants; check again with `cargo 
 | `cpal` 0.18 | `solouder-cpal` | Apache-2.0 | Links the platform audio API (WASAPI, ALSA, CoreAudio). |
 | `rtrb` 0.4 | `solouder-core`, `solouder-cpal` | MIT OR Apache-2.0 | Wait-free ring buffers between game and audio thread. |
 | `bevy` 0.20 (`std`, `bevy_asset`) | `bevy_solouder` | MIT OR Apache-2.0 | |
-| `stats_alloc` 0.1 | `solouder-core` tests only | MIT | Counts allocations in `realtime_no_alloc`. |
+| `stats_alloc` 0.1 | `solouder-core` and `solouder-sources` tests only | MIT | Counts allocations in `realtime_no_alloc`. |
 
 WAV, FLAC, Ogg Vorbis and MP3 are decoded by first-party code (the last three ported from the libraries above).

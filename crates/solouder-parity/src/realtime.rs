@@ -123,6 +123,11 @@ impl Replay {
             }
             "sound" | "stream" | "load" | "bus" | "queue" => self.define(step, "name"),
             "filter" | "sound_filter" => self.define(step, ""),
+            // Generators; their setters change what playing voices share.
+            "noise" | "vic" | "sfxr" | "monotone" | "tedsid" | "ay" | "speech" | "vizsn" => {
+                self.define(step, "name")
+            }
+            op if crate::generator_ops::is_generator_op(op) => self.define(step, ""),
             "sound3d" if step.get("collider") == Some("handle") => {
                 stop("the controller gives colliders no handle")
             }
@@ -335,6 +340,7 @@ pub(crate) fn with_source<R>(source: &Source, f: impl FnOnce(&dyn PlayAny) -> R)
         Source::Stream(stream) => f(stream),
         Source::Bus(bus) => f(bus),
         Source::Queue(queue) => f(queue),
+        Source::Synth(synth) => f(synth),
     }
 }
 

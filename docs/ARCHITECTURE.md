@@ -141,6 +141,11 @@ crates/
     features/
       decoded_audio/
       streaming/
+  solouder-sources/src/
+    lib.rs
+    prg.rs                      # WELL512, shared by noise and sfxr
+    features/                   # one slice and Cargo feature per generator
+      noise/
   solouder-cpal/src/
     lib.rs
     features/
@@ -172,7 +177,8 @@ reference/
 
 Existing today: `solouder-core` (`contracts/`, `dsp/`, `features/playback/`
 and `features/realtime/`), `solouder-decoders` (`features/decoded_audio/`,
-WAV), `solouder-cpal` (`features/output_lifecycle/`), `bevy_solouder`
+WAV), `solouder-sources` (`prg.rs`, `features/noise/`), `solouder-cpal`
+(`features/output_lifecycle/`), `bevy_solouder`
 (`features/decoded_audio/`, `features/output_lifecycle/`,
 `features/playback/`), `solouder-parity`, `solouder-bench`, `tests/scenarios/`,
 `tests/fixtures/wav/` and `docs/port-status.md`. Versions are pinned in `rust-toolchain.toml` (Rust
@@ -183,8 +189,11 @@ up front. Introduce a slice when it has an implemented use case. File names
 inside a slice should describe their responsibility; no single feature or
 crate-root file is allowed to grow beyond 400 lines.
 
-Dependency direction is `bevy_solouder` → output/decoder/core crates, with
-output and decoder crates depending on `solouder-core`, never the reverse. The
+Dependency direction is `bevy_solouder` → output/decoder/source/core crates,
+with output, decoder and source crates depending on `solouder-core`, never
+the reverse. Generators (`solouder-sources`) implement core's `Generator`
+and `GeneratorInstance` traits; core plays them through `Synth` without
+knowing any of them. The
 names were free on crates.io on 2026-10-12 (`soloud` and `soloud-sys` belong to
 unrelated bindings); they are not reserved until published.
 The crates are dependency/execution boundaries, not horizontal business layers.

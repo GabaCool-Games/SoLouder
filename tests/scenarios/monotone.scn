@@ -1,0 +1,283 @@
+# Monotone (milestone F unit 4): a song using every effect (arpeggios,
+# slides up, down and to a note, the first from 0 Hz (reference patch
+# 0082), vibrato, including on note 1 (patch 0080), notes past 99 (patch
+# 0079), tempo changes and a row jump) played with tracks taking turns
+# on one hardware channel, then on four, changed while playing; every
+# waveform and one past the last; order and row jumps into a missing
+# pattern (patch 0079); twelve tracks on three hardware channels, then
+# twelve, and thirteen refused (patch 0078); a song without an end
+# marker passing the order's last entry (patch 0079); titles cut at 40
+# bytes (patch 0077); damaged songs from a path, memory and a DiskFile
+# failing (patches 0075, 0076, 0078) and playing silence; a play speed
+# below 60 Hz (patch 0081), seeks forward and back (NOT_IMPLEMENTED), a
+# filter, and a 48 kHz engine.
+init channels=2
+monotone name=demo file=monotone/demo.mon
+monotone_query name=demo
+play sound=demo as=d
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+monotone_set name=demo hardware=4 waveform=2
+monotone_query name=demo
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+set h=d seek=6
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+set h=d seek=10.5
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+set h=d seek=14
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+set h=d seek=1
+query h=d
+mix frames=4096
+mix frames=4096
+stop_all
+
+# Every waveform, and an index without one (square).
+monotone name=w0 file=monotone/demo.mon hardware=3 waveform=0 volume=0.5
+play sound=w0 as=w0
+mix frames=4096
+mix frames=4096
+stop_all
+monotone name=w1 file=monotone/demo.mon hardware=3 waveform=1 volume=0.5
+play sound=w1 as=w1
+mix frames=4096
+mix frames=4096
+stop_all
+monotone name=w2 file=monotone/demo.mon hardware=3 waveform=2 volume=0.5
+play sound=w2 as=w2
+mix frames=4096
+mix frames=4096
+stop_all
+monotone name=w3 file=monotone/demo.mon hardware=3 waveform=3 volume=0.5
+play sound=w3 as=w3
+mix frames=4096
+mix frames=4096
+stop_all
+monotone name=w4 file=monotone/demo.mon hardware=3 waveform=4 volume=0.5
+play sound=w4 as=w4
+mix frames=4096
+mix frames=4096
+stop_all
+monotone name=w5 file=monotone/demo.mon hardware=3 waveform=5 volume=0.5
+play sound=w5 as=w5
+mix frames=4096
+mix frames=4096
+stop_all
+monotone name=w6 file=monotone/demo.mon hardware=3 waveform=6 volume=0.5
+play sound=w6 as=w6
+mix frames=4096
+mix frames=4096
+stop_all
+monotone name=w7 file=monotone/demo.mon hardware=3 waveform=7 volume=0.5
+play sound=w7 as=w7
+mix frames=4096
+mix frames=4096
+stop_all
+monotone name=w8 file=monotone/demo.mon hardware=3 waveform=8 volume=0.5
+play sound=w8 as=w8
+mix frames=4096
+mix frames=4096
+stop_all
+monotone name=w9 file=monotone/demo.mon hardware=3 waveform=9 volume=0.5
+play sound=w9 as=w9
+mix frames=4096
+mix frames=4096
+stop_all
+
+# Order and row jumps; an order entry naming a missing pattern.
+monotone name=jumps file=monotone/jumps.mon hardware=2 from=memory
+monotone_query name=jumps
+play sound=jumps as=j
+set h=j speed=4
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# Twelve tracks taking turns on three hardware channels, then on twelve.
+monotone name=twelve file=monotone/twelve.mon hardware=3 waveform=3 from=file
+filter name=low kind=biquad type=lowpass freq=2000 res=2
+sound_filter sound=twelve slot=0 filter=low
+play sound=twelve as=t pan=0.3
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+monotone_set name=twelve hardware=12
+monotone_set name=twelve hardware=13
+monotone_set name=twelve hardware=0
+monotone_set name=twelve waveform=4294967295
+monotone_query name=twelve
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+# No end marker: the order starts again after its 256th entry.
+monotone name=endless file=monotone/no_end.mon
+play sound=endless as=e
+set h=e seek=262
+set h=e speed=2
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=e
+stop_all
+
+# Titles and comments; extra bytes after the last cell.
+monotone name=long file=monotone/long_title.mon
+monotone_query name=long
+monotone name=trailing file=monotone/trailing.mon from=memory
+monotone_query name=trailing
+
+# Damaged songs fail and leave an empty, silent song.
+monotone name=bad_magic_path file=monotone/bad_magic.mon from=path
+monotone name=bad_magic_memory file=monotone/bad_magic.mon from=memory
+monotone name=bad_magic_file file=monotone/bad_magic.mon from=file
+monotone name=bad_version_2_path file=monotone/bad_version_2.mon from=path
+monotone name=bad_version_2_memory file=monotone/bad_version_2.mon from=memory
+monotone name=bad_version_2_file file=monotone/bad_version_2.mon from=file
+monotone name=bad_cell_size_1_path file=monotone/bad_cell_size_1.mon from=path
+monotone name=bad_cell_size_1_memory file=monotone/bad_cell_size_1.mon from=memory
+monotone name=bad_cell_size_1_file file=monotone/bad_cell_size_1.mon from=file
+monotone name=bad_13_tracks_path file=monotone/bad_13_tracks.mon from=path
+monotone name=bad_13_tracks_memory file=monotone/bad_13_tracks.mon from=memory
+monotone name=bad_13_tracks_file file=monotone/bad_13_tracks.mon from=file
+monotone name=bad_cut_title_path file=monotone/bad_cut_title.mon from=path
+monotone name=bad_cut_title_memory file=monotone/bad_cut_title.mon from=memory
+monotone name=bad_cut_title_file file=monotone/bad_cut_title.mon from=file
+monotone name=bad_cut_order_path file=monotone/bad_cut_order.mon from=path
+monotone name=bad_cut_order_memory file=monotone/bad_cut_order.mon from=memory
+monotone name=bad_cut_order_file file=monotone/bad_cut_order.mon from=file
+monotone name=bad_cut_cells_path file=monotone/bad_cut_cells.mon from=path
+monotone name=bad_cut_cells_memory file=monotone/bad_cut_cells.mon from=memory
+monotone name=bad_cut_cells_file file=monotone/bad_cut_cells.mon from=file
+monotone name=bad_empty_path file=monotone/bad_empty.mon from=path
+monotone name=bad_empty_memory file=monotone/bad_empty.mon from=memory
+monotone name=bad_empty_file file=monotone/bad_empty.mon from=file
+monotone_query name=bad_version_2_path
+monotone name=empty
+play sound=bad_version_2_path as=b1
+play sound=bad_cut_cells_memory as=b2
+play sound=empty as=b3
+play sound=long as=b4 volume=0.3
+mix frames=4096
+mix frames=4096
+mix frames=4096
+counts
+stop_all
+
+# Below 60 Hz a tick is a sample.
+play sound=demo as=slow
+set h=slow speed=0.001
+mix frames=4096
+mix frames=4096
+set h=slow speed=0.01
+mix frames=4096
+mix frames=4096
+set h=slow speed=3.7
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+stop_all
+
+init channels=2 rate=48000 buffer=6000
+monotone name=demo file=monotone/demo.mon hardware=2
+play sound=demo as=f
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096

@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:11:48 +0300
+Subject: [PATCH] Ay::loadFile: refuse speeds the player cannot render
+
+ChipPlayer divides by the dump's CPU (tick) speed and by its chip speed
+divided by 8, and renders frames of (cpuspeed * 8172 / 44100) / 2 ticks
+into an 8192-sample buffer: a CPU speed of 0 or a chip speed below 8
+divided by zero, a CPU speed below 11 made frames of 0 ticks, which
+never advanced and spun on the audio thread, and a chip ticking slower
+than the samples rendered a tick's samples at once, which at the
+slowest clocks overran the buffer. Dumps with a CPU speed below 11 or a
+chip speed below 8 * 44100 (real AY chips run at 1 to 2 MHz) now fail
+with FILE_LOAD_FAILED.
+---
+ src/audiosource/ay/soloud_ay.cpp | 5 +++++
+ 1 file changed, 5 insertions(+)
+
+diff --git a/src/audiosource/ay/soloud_ay.cpp b/src/audiosource/ay/soloud_ay.cpp
+index c0b242a..c898e67 100644
+--- a/src/audiosource/ay/soloud_ay.cpp
++++ b/src/audiosource/ay/soloud_ay.cpp
+@@ -161,6 +161,11 @@ namespace SoLoud
+ 		// The ops must be in the file.
+ 		if (kchunks == 0 || length <= 0 || dataofs > (int)aFile->length())
+ 			return FILE_LOAD_FAILED;
++		// ChipPlayer's frames of (cpuspeed * 8172 / 44100) / 2 ticks must
++		// advance, and the chip (ticking at chipspeed / 8) may render at most
++		// a sample a tick, or one tick could overrun the buffer.
++		if ((unsigned int)chipspeed < 8 * 44100 || (long long)(unsigned int)cpuspeed * (8192 - 20) / 44100 / 2 == 0)
++			return FILE_LOAD_FAILED;
+ 		// Zeroed: an odd last byte makes an op with a high byte of 0.
+ 		unsigned short *ops = new unsigned short[(length + 1) / 2]();
+ 		aFile->seek(dataofs);

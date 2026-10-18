@@ -1,0 +1,27 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:44:37 +0300
+Subject: [PATCH] SIDsound::reset: start each envelope's rate as an index
+
+envCounterCompare indexes RateCountPeriod, but reset set it to
+RateCountPeriod[0] (0x7F00) itself, so until a gate or a rate write set
+it, every envelope step read 0x7F00 entries past the table (a crash in
+GCC builds). It now starts at 0, the index of that period.
+---
+ src/audiosource/tedsid/sid.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/audiosource/tedsid/sid.cpp b/src/audiosource/tedsid/sid.cpp
+index e93b86b..7b83b5a 100644
+--- a/src/audiosource/tedsid/sid.cpp
++++ b/src/audiosource/tedsid/sid.cpp
+@@ -207,7 +207,8 @@ void SIDsound::reset(void)
+ 		voice[v].shiftReg = 0x7FFFFC;
+ 		voice[v].envExpCounter = 0;
+ 		voice[v].envAttackAdd = voice[v].envDecaySub = voice[v].envReleaseSub = 0;
+-		voice[v].envCounterCompare = RateCountPeriod[0];
++		// An index into RateCountPeriod, not one of its periods.
++		voice[v].envCounterCompare = 0;
+ 		voice[v].envCounter = 0x7fff;
+ 	}
+ 

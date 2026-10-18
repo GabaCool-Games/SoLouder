@@ -85,6 +85,13 @@ impl State {
     pub(crate) fn sound_query(&mut self, step: &Step) -> Result<(), ScenarioError> {
         step.check_keys(&["name"])?;
         let name = step.text("name")?;
+        let generator = !self.sounds.contains_key(name) && !self.streams.contains_key(name);
+        if let Some(synth) = self.synths.get(name).cloned().filter(|_| generator) {
+            // Generators have no length.
+            let count = self.mixer(step)?.count_sound(&synth);
+            self.log(format!("sound_query {name} count={count}"));
+            return Ok(());
+        }
         let (length, count) = match self.streams.get(name).cloned() {
             Some(stream) if !self.sounds.contains_key(name) => {
                 (stream.length(), self.mixer(step)?.count_sound(&stream))
@@ -113,6 +120,7 @@ impl State {
             Source::Stream(stream) => mixer.stop_sound(stream),
             Source::Bus(bus) => mixer.stop_sound(bus),
             Source::Queue(queue) => mixer.stop_sound(queue),
+            Source::Synth(synth) => mixer.stop_sound(synth),
         }
         Ok(())
     }

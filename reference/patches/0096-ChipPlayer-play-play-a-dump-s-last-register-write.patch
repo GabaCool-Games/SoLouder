@@ -1,0 +1,40 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:11:57 +0300
+Subject: [PATCH] ChipPlayer::play: play a dump's last register write
+
+After the ops it had read, play stopped at the end of the dump before
+playing the op it had just read, so a dump's last register write was
+dropped. It is now played; a dump ending in a wait ends as before.
+---
+ src/audiosource/ay/chipplayer.cpp | 9 +++++----
+ 1 file changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/src/audiosource/ay/chipplayer.cpp b/src/audiosource/ay/chipplayer.cpp
+index 2042ee3..218f121 100644
+--- a/src/audiosource/ay/chipplayer.cpp
++++ b/src/audiosource/ay/chipplayer.cpp
+@@ -97,9 +97,8 @@ unsigned ChipPlayer::play(float *dst, unsigned need_samples, unsigned stride)
+ 		chip2.start_frame();
+ 
+ 		unsigned frame_tick = playtick;
+-		while ((unsigned)(playtick - frame_tick) < ticks_per_buffer)
++		while ((unsigned)(playtick - frame_tick) < ticks_per_buffer && mInstance->mPos < mInstance->mParent->mLength)
+ 		{
+-
+ 			unsigned short rd;
+ 			do
+ 			{
+@@ -110,8 +109,10 @@ unsigned ChipPlayer::play(float *dst, unsigned need_samples, unsigned stride)
+ 					playtick += rd ^ 0x8000;
+ 				}
+ 			} while ((rd & 0x8000) && !(mInstance->mPos >= mInstance->mParent->mLength));
+-			
+-			if (mInstance->mPos >= mInstance->mParent->mLength)
++
++			// Out of ops while waiting. A register write that is the last op
++			// is still played.
++			if (rd & 0x8000)
+ 				break;
+ 
+ 			unsigned char reg = rd >> 8;

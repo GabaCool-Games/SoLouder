@@ -296,6 +296,26 @@ impl State {
         Ok(())
     }
 
+    /// `getInfo` of the voice for each key from `from` (default 0) to
+    /// `to` (default `from`), at most 256 keys.
+    pub(crate) fn voice_info(&mut self, step: &Step) -> Result<(), ScenarioError> {
+        step.check_keys(&["h", "from", "to"])?;
+        let name = step.text("h")?.to_owned();
+        let h = self.handle(step)?;
+        let from: u32 = step.value_or("from", 0)?;
+        let to: u32 = step.value_or("to", from)?;
+        if to < from || to - from > 255 {
+            return Err(step.error("`to` must be from `from` to `from` + 255"));
+        }
+        let m = self.mixer(step)?;
+        let mut line = format!("voice_info {name}");
+        for key in from..=to {
+            line += &format!(" {key}={}", hex32(m.info(h, key).unwrap_or(0.0)));
+        }
+        self.log(line);
+        Ok(())
+    }
+
     pub(crate) fn counts(&mut self, step: &Step) -> Result<(), ScenarioError> {
         step.check_keys(&[])?;
         let mixer = self.mixer(step)?;

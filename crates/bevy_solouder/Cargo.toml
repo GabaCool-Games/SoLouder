@@ -1,6 +1,6 @@
 [package]
 name = "bevy_solouder"
-description = "Bevy plugin for SoLouder: audio assets, playback entities and device output"
+description = "Bevy plugin for SoLouder: audio assets (decoded, streamed and generated), playback entities and device output"
 version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
@@ -11,11 +11,22 @@ publish.workspace = true
 solouder-core.workspace = true
 solouder-cpal.workspace = true
 solouder-decoders.workspace = true
+solouder-sources = { workspace = true, optional = true }
 bevy = { workspace = true, features = ["std", "bevy_asset"] }
 serde.workspace = true
+
+[features]
+default = ["sources"]
+# Loaders for sfxr, Monotone and chip dump files.
+sources = ["dep:solouder-sources"]
+
+[[test]]
+name = "generated_clips"
+required-features = ["sources"]
 
 [lints]
 workspace = true
 
 [dev-dependencies]
 solouder-core.workspace = true
+solouder-sources.workspace = true

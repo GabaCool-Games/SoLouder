@@ -1,0 +1,31 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:41:24 +0300
+Subject: [PATCH] SIDsound::doEnvelopeGenerator: keep the envelope level to 8
+ bits
+
+An attack starting at level 0xFF (a gate turned off and on again while
+sustaining at full level) counted on to 0x1FF before switching to decay,
+which then read envGenDRdivisors[0x1FF], past the table. The level now
+wraps from 0xFF to 0, as in reSID, and comes back to 0xFF.
+---
+ src/audiosource/tedsid/sid.cpp | 6 +++++-
+ 1 file changed, 5 insertions(+), 1 deletion(-)
+
+diff --git a/src/audiosource/tedsid/sid.cpp b/src/audiosource/tedsid/sid.cpp
+index a53f70f..e93b86b 100644
+--- a/src/audiosource/tedsid/sid.cpp
++++ b/src/audiosource/tedsid/sid.cpp
+@@ -509,7 +509,11 @@ inline int SIDsound::doEnvelopeGenerator(unsigned int cycles, SIDVoice &v)
+ 
+ 				case EG_ATTACK:
+ 					// According to Bob Yannes, Attack is linear...
+-					if ( ((++v.envCurrLevel) & 0xFF) == 0xFF) {
++					// An 8-bit counter: from 0xFF it wraps to 0, as in reSID.
++					// It counted on to 0x1FF, and decay then read past
++					// envGenDRdivisors.
++					v.envCurrLevel = (v.envCurrLevel + 1) & 0xFF;
++					if (v.envCurrLevel == 0xFF) {
+ 						v.egState = EG_DECAY;
+ 						v.envCounterCompare = v.envDecaySub;
+ 					}

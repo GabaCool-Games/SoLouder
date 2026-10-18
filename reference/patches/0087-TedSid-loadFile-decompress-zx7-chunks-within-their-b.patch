@@ -1,0 +1,157 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:41:17 +0300
+Subject: [PATCH] TedSid::loadFile: decompress zx7 chunks within their bounds
+
+zx7_decompress read and wrote without bounds, so a dump's compressed
+chunks could write past its ops and read past its data. A bounded
+zx7_decompress_bounded now stops at the data read and the ops' bytes
+(copying from anywhere in the ops before the write position, as the
+chunks did), and a chunk that would go outside fails the load.
+---
+ include/zx7decompress.h                  | 67 +++++++++++++++++++++++-
+ src/audiosource/tedsid/soloud_tedsid.cpp | 13 ++++-
+ 2 files changed, 77 insertions(+), 3 deletions(-)
+
+diff --git a/include/zx7decompress.h b/include/zx7decompress.h
+index 3c388aa..173a01e 100644
+--- a/include/zx7decompress.h
++++ b/include/zx7decompress.h
+@@ -23,9 +23,17 @@ struct zx7_io
+     size_t output_index;
+     int bit_mask;
+     int bit_value;
++    /* Bounds of zx7_decompress_bounded; 0 for none. */
++    size_t input_length;
++    size_t output_length;
++    int error;
+ };
+ 
+ static int zx7_read_byte(struct zx7_io *io) {
++    if (io->input_length && io->input_index >= io->input_length) {
++        io->error = 1;
++        return 0;
++    }
+     return io->input_data[io->input_index++];
+ }
+ 
+@@ -44,6 +52,9 @@ static int zx7_read_elias_gamma(struct zx7_io *io) {
+ 
+     while (!zx7_read_bit(io)) {
+         i++;
++        if (io->error) {
++            return -1;
++        }
+     }
+     if (i > 15) {
+         return -1;
+@@ -72,13 +83,21 @@ static int zx7_read_offset(struct zx7_io *io) {
+ }
+ 
+ static void zx7_write_byte(struct zx7_io *io, int value) {
++    if (io->output_length && io->output_index >= io->output_length) {
++        io->error = 1;
++        return;
++    }
+     io->output_data[io->output_index++] = value;
+ }
+ 
+ static void zx7_write_bytes(struct zx7_io *io, int offset, int length) {
+     int i;
+-    while (length-- > 0) {
++    while (length-- > 0 && !io->error) {
+         i = io->output_index - offset;
++        if (io->output_length && i < 0) {
++            io->error = 1;
++            return;
++        }
+         zx7_write_byte(io, io->output_data[i]);
+     }
+ }
+@@ -93,6 +112,9 @@ static int zx7_decompress(unsigned char *input_data, unsigned char *output_data)
+     io.output_index = 0;
+     io.bit_mask = 0;
+     io.bit_value = 0;
++    io.input_length = 0;
++    io.output_length = 0;
++    io.error = 0;
+ 
+     zx7_write_byte(&io, zx7_read_byte(&io));
+     while (1) {
+@@ -108,6 +130,49 @@ static int zx7_decompress(unsigned char *input_data, unsigned char *output_data)
+     }
+ }
+ 
++/*
++ * zx7_decompress within bounds: reads at most input_length bytes, writes
++ * output_data from output_start up to output_length, and copies from
++ * anywhere in output_data before the write position. Returns the bytes
++ * read, or -1 if the data would read or write outside.
++ */
++static int zx7_decompress_bounded(unsigned char *input_data, size_t input_length,
++                                  unsigned char *output_data, size_t output_length,
++                                  size_t output_start) {
++    struct zx7_io io;
++    int length;
++
++    if (input_length == 0 || output_start >= output_length) {
++        return -1;
++    }
++    io.input_data = input_data;
++    io.output_data = output_data;
++    io.input_index = 0;
++    io.output_index = output_start;
++    io.bit_mask = 0;
++    io.bit_value = 0;
++    io.input_length = input_length;
++    io.output_length = output_length;
++    io.error = 0;
++
++    zx7_write_byte(&io, zx7_read_byte(&io));
++    while (!io.error) {
++        if (!zx7_read_bit(&io)) {
++            zx7_write_byte(&io, zx7_read_byte(&io));
++        } else {
++            length = zx7_read_elias_gamma(&io) + 1;
++            if (io.error) {
++                break;
++            }
++            if (length == 0) {
++                return (int)io.input_index;
++            }
++            zx7_write_bytes(&io, zx7_read_offset(&io) + 1, length);
++        }
++    }
++    return -1;
++}
++
+ #ifdef __cplusplus
+ }
+ #endif
+diff --git a/src/audiosource/tedsid/soloud_tedsid.cpp b/src/audiosource/tedsid/soloud_tedsid.cpp
+index 1ef9e9c..6da4621 100644
+--- a/src/audiosource/tedsid/soloud_tedsid.cpp
++++ b/src/audiosource/tedsid/soloud_tedsid.cpp
+@@ -222,11 +222,20 @@ namespace SoLoud
+ 			unsigned char* buf = new unsigned char[len];
+ 			aFile->read(buf, len);
+ 			int bufofs = 0;
+-			for (int i = 0; i < kchunks; i++)
++			bool ok = true;
++			for (int i = 0; i < kchunks && ok; i++)
+ 			{
+-				bufofs += zx7_decompress(buf + bufofs, ((unsigned char*)ops) + i * 1024);
++				// Within the data read and the ops' bytes.
++				int used = zx7_decompress_bounded(buf + bufofs, len - bufofs, (unsigned char*)ops, ((length + 1) / 2) * 2, i * 1024);
++				ok = used >= 0;
++				bufofs += used;
+ 			}
+ 			delete[] buf;
++			if (!ok)
++			{
++				delete[] ops;
++				return FILE_LOAD_FAILED;
++			}
+ 		}
+ 
+ 		// tick() reads ops until a wait: the loop must wait somewhere, or it

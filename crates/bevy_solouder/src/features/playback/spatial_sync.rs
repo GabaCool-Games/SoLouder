@@ -4,7 +4,9 @@
 //! by one 3D update.
 
 use bevy::prelude::*;
-use solouder_core::{Controller, ControllerError, PlayOptions, Playable, Sound, Stream, VoiceId};
+use solouder_core::{
+    Controller, ControllerError, PlayOptions, Playable, Sound, Stream, Synth, VoiceId,
+};
 
 use super::records::Playback;
 use crate::features::spatial::{EmitterPose, SpatialSnapshot};
@@ -25,7 +27,7 @@ pub(super) fn send_listener(controller: &mut Controller, snapshot: &SpatialSnaps
     }
 }
 
-/// A source the plugin plays: a decoded sound or a stream.
+/// A source the plugin plays: a decoded sound, a stream or a generator.
 pub(super) trait Source: Playable {
     fn configure(&mut self, emitter: &EmitterPose);
 }
@@ -45,6 +47,7 @@ macro_rules! source {
 }
 source!(Sound);
 source!(Stream);
+source!(Synth);
 
 /// Plays `source`, in 3D at the emitter if there is one.
 pub(super) fn play(

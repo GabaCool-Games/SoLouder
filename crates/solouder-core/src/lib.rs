@@ -22,9 +22,10 @@ pub use contracts::{MAX_CHANNELS, Pcm, PcmError, SAMPLE_GRANULARITY};
 pub use dsp::{Clipper, Resampler};
 pub use features::filters;
 pub use features::playback::{
-    Bus, ConfigError, ControlError, FilterTarget, Handle, Mixer, MixerConfig, PlayOptions,
-    Playable, QUEUE_MAX, Queue, QueueError, Queueable, Sound, SoundId, Stream, StreamError,
-    StreamFormat, StreamReader, StreamSource, VOICE_COUNT, VisualizationData, WAVE_LEN,
+    Bus, ConfigError, ControlError, FilterTarget, Generator, GeneratorContext, GeneratorInstance,
+    Handle, Mixer, MixerConfig, PlayOptions, Playable, QUEUE_MAX, Queue, QueueError, Queueable,
+    Sound, SoundId, Stream, StreamError, StreamFormat, StreamReader, StreamSource, Synth,
+    SynthError, VOICE_COUNT, VisualizationData, WAVE_LEN,
 };
 pub use features::spatial;
 pub use features::spatial::{Attenuation, Attenuator, Collider, SpatialVoice};

@@ -1,10 +1,11 @@
 //! Scenario operations on audio files: `load` and `samples`. Each mirrors the
 //! operation of the same name in `reference/tests/parity_runner.cpp`.
 
-use std::path::PathBuf;
+use std::io::Cursor;
+use std::path::{Path, PathBuf};
 
 use solouder_core::Sound;
-use solouder_decoders::{DecodeError, DecodeLimits, decode};
+use solouder_decoders::{DecodeError, DecodeLimits, decode, decode_reader};
 
 use crate::ops::hex32;
 use crate::run::{SO_NO_ERROR, State};
@@ -42,18 +43,35 @@ pub(crate) fn load_code(error: &DecodeError) -> i32 {
     }
 }
 
+/// The bytes of the fixture at `path`.
+pub(crate) fn read_fixture(step: &Step, path: &Path) -> Result<Vec<u8>, ScenarioError> {
+    std::fs::read(path)
+        .map_err(|error| step.error(format!("cannot read {}: {error}", path.display())))
+}
+
+/// The fixture at `path`, opened.
+pub(crate) fn open_fixture(step: &Step, path: &Path) -> Result<std::fs::File, ScenarioError> {
+    std::fs::File::open(path)
+        .map_err(|error| step.error(format!("cannot open {}: {error}", path.display())))
+}
+
 impl State {
     pub(crate) fn load(&mut self, step: &Step) -> Result<(), ScenarioError> {
-        step.check_keys(&["name", "file", "volume", "looping"])?;
+        step.check_keys(&["name", "file", "from", "volume", "looping"])?;
         self.mixer(step)?;
         let name = step.text("name")?.to_owned();
         let path = fixture_path(step)?;
         let volume = step.number_or("volume", 1.0)?;
         let looping = step.flag_or("looping", false)?;
-        let bytes = std::fs::read(&path)
-            .map_err(|error| step.error(format!("cannot read {}: {error}", path.display())))?;
-
-        let code = match decode(&bytes, &DecodeLimits::default()) {
+        let limits = DecodeLimits::default();
+        // `Wav::load`, or `Wav::loadFile` of a `DiskFile` or `MemoryFile`.
+        let decoded = match step.get("from").unwrap_or("path") {
+            "path" => decode(&read_fixture(step, &path)?, &limits),
+            "disk_file" => decode_reader(open_fixture(step, &path)?, &limits),
+            "memory_file" => decode_reader(Cursor::new(read_fixture(step, &path)?), &limits),
+            other => return Err(step.error(format!("unknown from `{other}`"))),
+        };
+        let code = match decoded {
             Ok(pcm) => {
                 let mut sound = Sound::new(pcm);
                 sound.set_volume(volume);

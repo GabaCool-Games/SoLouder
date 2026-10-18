@@ -1,0 +1,62 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:54:52 +0300
+Subject: [PATCH] VizsnInstance::getAudio: buffer one phone at a time
+
+getAudio buffered whole phones until the read was covered, so a read of more than 1248 samples (a seek's discard pass of the scratch size, or a loop's seek of 4096) wrote past its 2048-sample buffer into the voice. It now buffers one phone (at most 800 samples) at a time; the samples are the same.
+---
+ src/audiosource/vizsn/soloud_vizsn.cpp | 27 ++++++++++----------------
+ 1 file changed, 10 insertions(+), 17 deletions(-)
+
+diff --git a/src/audiosource/vizsn/soloud_vizsn.cpp b/src/audiosource/vizsn/soloud_vizsn.cpp
+index a6af503..b62a733 100644
+--- a/src/audiosource/vizsn/soloud_vizsn.cpp
++++ b/src/audiosource/vizsn/soloud_vizsn.cpp
+@@ -239,25 +239,23 @@ namespace SoLoud
+ 	{
+ 		unsigned int idx = 0;
+ 		int i, j;
+-		if (mBufwrite > mBufread)
++		// One phone at a time: a phone is at most 800 samples, so mBuf holds
++		// it whatever the read's size.
++		while (idx < aSamplesToRead)
+ 		{
+-			for (; mBufwrite > mBufread && idx < aSamplesToRead; mBufread++)
++			if (mBufread < mBufwrite)
+ 			{
+-				aBuffer[idx] = mBuf[mBufread];
+-				idx++;
++				aBuffer[idx++] = mBuf[mBufread++];
++				continue;
+ 			}
+-		}
+-		if (idx == aSamplesToRead) return aSamplesToRead;
+-		mBufwrite = mBufread = 0;
+-		while (idx + mBufwrite < aSamplesToRead)
+-		{
++			mBufwrite = mBufread = 0;
+ 			setphone(&mBank0, *mS, mPitch);
+ 
+ 			if (*mS == P_END)
+ 			{
+-				mBuf[mBufwrite] = 0;
+-				mBufwrite++;
+-				SOLOUD_ASSERT(mBufwrite < 2048);
++				// Past the text the block is silent.
++				for (; idx < aSamplesToRead; idx++)
++					aBuffer[idx] = 0;
+ 				break;
+ 			}
+ 
+@@ -304,11 +302,6 @@ namespace SoLoud
+ 
+ 			memcpy(&mBank0, &mBank1, sizeof(VizsnBank));
+ 		}
+-		for (; idx < aSamplesToRead; idx++)
+-		{
+-			// Past the text the block is silent, not the buffer's old samples.
+-			aBuffer[idx] = mBufread < mBufwrite ? mBuf[mBufread++] : 0;
+-		}
+ 		return aSamplesToRead;
+ 	}
+ 

@@ -1,0 +1,64 @@
+# Loading through SoLoud's File objects: Wav::loadFile of a DiskFile and of a
+# MemoryFile next to Wav::load, and WavStream::loadFile and loadFileToMem of
+# each, for every codec, plus files that fail. Resident samples are compared
+# whole; the streams play to their ends, one Ogg Vorbis stream of each kind
+# loops (a DiskFile reads one byte past the data, a MemoryFile does not), and
+# one seeks.
+init channels=2 rate=44100 buffer=1024
+load name=wav_path file=wav/s16_stereo_44100.wav
+load name=wav_disk file=wav/s16_stereo_44100.wav from=disk_file
+load name=wav_mem file=wav/s16_stereo_44100.wav from=memory_file
+load name=flac_disk file=flac/s24_mono_48000.flac from=disk_file
+load name=flac_mem file=flac/s24_mono_48000.flac from=memory_file
+load name=ogg_disk file=ogg/vorbis_mono_22050_q0.ogg from=disk_file
+load name=ogg_mem file=ogg/vorbis_mono_22050_q0.ogg from=memory_file
+load name=mp3_disk file=mp3/mpeg2_mono_22050_vbr.mp3 from=disk_file
+load name=mp3_mem file=mp3/mpeg2_mono_22050_vbr.mp3 from=memory_file
+load name=bad_disk file=wav/bad_nine_channels.wav from=disk_file
+load name=bad_mem file=ogg/bad_cut_header.ogg from=memory_file
+samples name=wav_path
+samples name=wav_disk
+samples name=wav_mem
+samples name=flac_disk
+samples name=flac_mem
+samples name=ogg_disk
+samples name=ogg_mem
+samples name=mp3_disk
+samples name=mp3_mem
+stream name=s_wav file=wav/s16_stereo_44100.wav from=disk_file volume=0.4
+stream name=s_flac file=flac/s24_mono_48000.flac from=memory_file volume=0.4
+stream name=s_ogg_disk file=ogg/vorbis_short_mono_44100.ogg from=disk_file looping=1 volume=0.3
+stream name=s_ogg_mem file=ogg/vorbis_short_mono_44100.ogg from=memory_file looping=1 volume=0.3
+stream name=s_mp3 file=mp3/mpeg2_stereo_16000.mp3 from=disk_to_mem volume=0.4
+stream name=s_ogg_tm file=ogg/vorbis_stereo_44100.ogg from=memory_to_mem volume=0.4
+stream name=s_bad1 file=wav/bad_nine_channels.wav from=disk_file
+stream name=s_bad2 file=ogg/bad_headers_only.ogg from=memory_file
+stream name=s_bad3 file=flac/bad_cut_header.flac from=disk_to_mem
+stream name=s_bad4 file=mp3/bad_not_audio.mp3 from=memory_to_mem
+sound_query name=s_wav
+sound_query name=s_flac
+sound_query name=s_ogg_disk
+sound_query name=s_ogg_mem
+sound_query name=s_mp3
+sound_query name=s_ogg_tm
+play sound=s_ogg_disk as=od pan=-0.5
+play sound=s_ogg_mem as=om pan=0.5
+mix frames=1024
+play sound=s_wav as=w
+play sound=s_flac as=f
+play sound=s_mp3 as=m
+play sound=s_ogg_tm as=o
+mix frames=700
+set h=o seek=0.05
+set h=w seek=0.02
+mix frames=1500
+query h=od
+query h=om
+mix frames=4096
+mix frames=4096
+counts
+query h=od
+query h=om
+mix frames=4096
+mix frames=4096
+counts

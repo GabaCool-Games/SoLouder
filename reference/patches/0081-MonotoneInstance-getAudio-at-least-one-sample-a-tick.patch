@@ -1,0 +1,26 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:23:26 +0300
+Subject: [PATCH] MonotoneInstance::getAudio: at least one sample a tick
+
+A tick was floor(rate / 60) samples, so below 60 Hz, as with a slow
+play speed, getAudio took the sample count modulo 0. A tick is now at
+least one sample.
+---
+ src/audiosource/monotone/soloud_monotone.cpp | 3 +++
+ 1 file changed, 3 insertions(+)
+
+diff --git a/src/audiosource/monotone/soloud_monotone.cpp b/src/audiosource/monotone/soloud_monotone.cpp
+index e31ffda..bc704dd 100644
+--- a/src/audiosource/monotone/soloud_monotone.cpp
++++ b/src/audiosource/monotone/soloud_monotone.cpp
+@@ -73,6 +73,9 @@ namespace SoLoud
+ 	unsigned int MonotoneInstance::getAudio(float *aBuffer, unsigned int aSamplesToRead, unsigned int /*aBufferSize*/)
+ 	{
+ 		int samplesPerTick = (int)floor(mSamplerate / 60);
++		// Below 60 Hz (a slow play speed), a tick a sample.
++		if (samplesPerTick < 1)
++			samplesPerTick = 1;
+ 		unsigned int i;
+ 		for (i = 0; i < 12; i++)
+ 		{

@@ -10,6 +10,7 @@
 mod features;
 
 pub use features::decoded_audio::{
-    DecodeError, DecodeLimits, decode, decode_flac, decode_mp3, decode_ogg, decode_wav,
+    DecodeError, DecodeLimits, decode, decode_flac, decode_mp3, decode_ogg, decode_reader,
+    decode_wav,
 };
-pub use features::streaming::WavStream;
+pub use features::streaming::{StreamFile, StreamInput, WavStream};

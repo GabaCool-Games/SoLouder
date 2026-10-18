@@ -1,0 +1,34 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:22:38 +0300
+Subject: [PATCH] Monotone::loadFile: end titles and comments at their 40 bytes
+
+A Pascal title or comment was ended at the length in its first byte,
+up to 255, in a 200-byte buffer holding the 41 bytes read: a length
+over 40 took stale buffer bytes, and one over 198 wrote past the
+buffer. The length is now at most 40.
+---
+ src/audiosource/monotone/soloud_monotone.cpp | 8 ++++++--
+ 1 file changed, 6 insertions(+), 2 deletions(-)
+
+diff --git a/src/audiosource/monotone/soloud_monotone.cpp b/src/audiosource/monotone/soloud_monotone.cpp
+index f0269bf..77ba3fc 100644
+--- a/src/audiosource/monotone/soloud_monotone.cpp
++++ b/src/audiosource/monotone/soloud_monotone.cpp
+@@ -407,10 +407,14 @@ namespace SoLoud
+ 			}
+ 		}
+ 		MONOTONE_READ(temp, 41);
+-		temp[temp[0] + 1] = 0; // pascal -> asciiz: pascal strings have length as first byte
++		// pascal -> asciiz: pascal strings have length as first byte, and
++		// the file holds 40 bytes of each
++		temp[(temp[0] < 40 ? temp[0] : 40) + 1] = 0;
+ 		mSong.mTitle = mystrdup((char*)temp + 1);
+ 		MONOTONE_READ(temp, 41);
+-		temp[temp[0] + 1] = 0; // pascal -> asciiz: pascal strings have length as first byte
++		// pascal -> asciiz: pascal strings have length as first byte, and
++		// the file holds 40 bytes of each
++		temp[(temp[0] < 40 ? temp[0] : 40) + 1] = 0;
+ 		mSong.mComment = mystrdup((char*)temp + 1);
+ 		MONOTONE_READ(temp, 4);
+ 		mSong.mVersion = temp[0];

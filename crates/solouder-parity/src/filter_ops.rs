@@ -30,18 +30,25 @@ impl State {
         Ok(())
     }
 
-    /// `AudioSource::setFilter` on a sound or queue; without `filter` the
+    /// `AudioSource::setFilter` on a sound, generator or queue; without `filter` the
     /// slot is cleared.
     pub(crate) fn sound_filter(&mut self, step: &Step) -> Result<(), ScenarioError> {
         step.check_keys(&["sound", "slot", "filter"])?;
         let name = step.text("sound")?;
-        if !self.sounds.contains_key(name) && !self.queues.contains_key(name) {
-            return Err(step.error(format!("no sound or queue named `{name}`")));
+        let known = [
+            self.sounds.contains_key(name),
+            self.synths.contains_key(name),
+            self.queues.contains_key(name),
+        ];
+        if !known.contains(&true) {
+            return Err(step.error(format!("no sound, generator or queue named `{name}`")));
         }
         let slot: u32 = step.value("slot")?;
         let filter = self.named_filter(step, "filter")?;
         if let Some(sound) = self.sounds.get_mut(name) {
             sound.set_filter(slot, filter);
+        } else if let Some(synth) = self.synths.get_mut(name) {
+            synth.set_filter(slot, filter);
         } else if let Some(queue) = self.queues.get_mut(name) {
             queue.set_filter(slot, filter);
         }

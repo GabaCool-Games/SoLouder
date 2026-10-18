@@ -695,6 +695,7 @@ dependencies = [
  "solouder-core",
  "solouder-cpal",
  "solouder-decoders",
+ "solouder-sources",
 ]
 
 [[package]]
@@ -2129,6 +2130,15 @@ version = "0.1.0"
 dependencies = [
  "solouder-core",
  "solouder-decoders",
+ "solouder-sources",
+]
+
+[[package]]
+name = "solouder-sources"
+version = "0.1.0"
+dependencies = [
+ "solouder-core",
+ "stats_alloc",
 ]
 
 [[package]]

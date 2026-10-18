@@ -1,0 +1,25 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:36:51 +0300
+Subject: [PATCH] klatt::phone_to_elm: read a byte that is no phoneme at its
+ own position
+
+When a byte was not a phoneme, phoneme_to_element_lookup had already stepped past it, and phone_to_elm then read the byte after it as the stress mark and skipped that one too: stress marks in [phonemes] never applied, the phoneme after one was dropped, and an unknown last byte read past the phonemes. Text through the rules is unchanged: their output holds phonemes only.
+---
+ src/audiosource/speech/klatt.cpp | 3 ++-
+ 1 file changed, 2 insertions(+), 1 deletion(-)
+
+diff --git a/src/audiosource/speech/klatt.cpp b/src/audiosource/speech/klatt.cpp
+index 4ada118..ac2b432 100644
+--- a/src/audiosource/speech/klatt.cpp
++++ b/src/audiosource/speech/klatt.cpp
+@@ -772,7 +772,8 @@ int klatt::phone_to_elm(char *aPhoneme, int aCount, darray *aElement)
+ 
+ 		else
+ 		{
+-			char ch = *s++;
++			// The lookup stepped past the byte that is not a phoneme.
++			char ch = s[-1];
+ 
+ 			switch (ch)
+ 			{

@@ -5,7 +5,7 @@ use std::collections::HashMap;
 use std::sync::Arc;
 
 use solouder_core::filters::Filter;
-use solouder_core::{Bus, Clipper, Handle, Mixer, MixerConfig, Queue, Sound, Stream};
+use solouder_core::{Bus, Clipper, Handle, Mixer, MixerConfig, Queue, Sound, Stream, Synth};
 
 use crate::scenario::{Scenario, ScenarioError, Step};
 
@@ -51,6 +51,8 @@ pub(crate) struct State {
     pub buses: HashMap<String, Bus>,
     /// Queues by scenario name; cleared by `init`.
     pub queues: HashMap<String, Queue>,
+    /// Generators by scenario name; cleared by `init`.
+    pub synths: HashMap<String, Synth>,
     /// Voices started from each sound name, stopped when the name is
     /// reloaded; cleared by `init`.
     pub played: HashMap<String, Vec<Handle>>,
@@ -69,6 +71,7 @@ impl State {
             streams: HashMap::new(),
             buses: HashMap::new(),
             queues: HashMap::new(),
+            synths: HashMap::new(),
             played: HashMap::new(),
             handles: HashMap::new(),
             filters: HashMap::new(),
@@ -95,6 +98,7 @@ impl State {
             "set" => self.set(step),
             "global" => self.global(step),
             "query" => self.query(step),
+            "voice_info" => self.voice_info(step),
             "counts" => self.counts(step),
             "fade" => self.fade(step),
             "oscillate" => self.oscillate(step),
@@ -131,6 +135,7 @@ impl State {
             "update3d" => self.update3d(step),
             "speaker" => self.speaker(step),
             "sound_speed" => self.sound_speed(step),
+            op if crate::generator_ops::is_generator_op(op) => self.generator_op(step),
             other => Err(step.error(format!("unsupported operation `{other}`"))),
         }
     }
@@ -198,6 +203,7 @@ impl State {
         self.streams.clear();
         self.buses.clear();
         self.queues.clear();
+        self.synths.clear();
         self.played.clear();
         self.handles.clear();
         self.mixer = None;

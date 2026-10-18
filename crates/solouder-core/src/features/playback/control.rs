@@ -5,6 +5,7 @@
 use std::fmt;
 
 use super::bus;
+use super::generator::Discard;
 use super::handle::{Handle, next_play_index};
 use super::mixer::Mixer;
 use super::queue;
@@ -301,20 +302,25 @@ impl Mixer {
     /// voices over the time skipped, and a queue skips its queued sounds. For a group, the error is that of any voice that failed.
     pub fn seek(&mut self, handle: Handle, seconds: f64) -> Result<(), ControlError> {
         let (scratch_frames, time) = (self.scratch_frames, self.stream_time);
+        let scratch = &mut self.scratch;
         let mut result = Ok(());
         self.voices.for_each_slot(handle, |voices, slot| {
             let Some(mut voice) = voices.slots[slot].take() else {
                 return;
             };
+            // Generators discard into the mix scratch, as `Soloud::seek` does.
+            let discard = Discard {
+                buffer: &mut scratch[..],
+                scratch: scratch_frames,
+            };
             let sought = match voice.source {
-                VoiceSource::Pcm { .. } => {
-                    voice.seek(seconds);
-                    true
+                VoiceSource::Pcm { .. } | VoiceSource::Generator { .. } => {
+                    voice.seek_with(seconds, discard)
                 }
                 VoiceSource::Bus(_) => bus::seek(&mut voice, voices, seconds, scratch_frames, time),
                 VoiceSource::Queue { .. } => {
                     let (queues, retired) = (&mut voices.queues, &mut voices.retired);
-                    queue::seek(&mut voice, queues, retired, seconds, scratch_frames)
+                    queue::seek(&mut voice, queues, retired, seconds, discard)
                 }
                 VoiceSource::Stream { .. } => {
                     let (position, rate) = (voice.stream_position, voice.base_sample_rate);

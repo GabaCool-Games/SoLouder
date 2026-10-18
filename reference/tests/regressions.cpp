@@ -15,7 +15,17 @@
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#define NOMINMAX
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
 #include "soloud.h"
+#include "soloud_ay.h"
 #include "soloud_bassboostfilter.h"
 #include "soloud_biquadresonantfilter.h"
 #include "soloud_bus.h"
@@ -25,11 +35,23 @@
 #include "soloud_flangerfilter.h"
 #include "soloud_freeverbfilter.h"
 #include "soloud_lofifilter.h"
+#include "soloud_monotone.h"
+#include "soloud_noise.h"
 #include "soloud_robotizefilter.h"
+#include "soloud_sfxr.h"
 #include "soloud_waveshaperfilter.h"
 #include "soloud_queue.h"
+#include "soloud_tedsid.h"
+#include "soloud_vic.h"
+#include "soloud_vizsn.h"
 #include "soloud_wav.h"
 #include "soloud_wavstream.h"
+// The SID and AY emulators TedSid and Ay play; their state is private.
+#define private public
+#include "../src/audiosource/tedsid/sid.h"
+#include "../src/audiosource/ay/sndchip.h"
+#include "soloud_speech.h"
+#undef private
 
 using namespace SoLoud;
 
@@ -1089,6 +1111,1124 @@ namespace
 		check(own == played, "a listener-relative source delays by its own distance");
 	}
 
+	// Noise divides its sum by the sum of the octave weights: weights summing
+	// to 0 gave infinity, then NaN, which silenced the whole mix.
+	void noise_zero_octave_sum_is_silent()
+	{
+		Noise noise;
+		noise.setOctaveScale(1, -1, 0, 0, 0, 0, 0, 0, 0, 0);
+		Soloud soloud;
+		check(soloud.init(0, Soloud::NULLDRIVER, kRate, 2048, 2) == SO_NO_ERROR, "null driver init");
+		soloud.play(noise);
+		std::vector<float> out(2 * 1024);
+		soloud.mix(out.data(), 1024);
+		bool silent = true;
+		for (size_t i = 0; i < out.size(); i++)
+			silent = silent && out[i] == 0.0f;
+		check(silent, "weights summing to 0 give silence");
+	}
+
+	// WavStream::load* replaced the stream's data without stopping its
+	// voices, which went on reading the freed memory file. Wav's loaders
+	// stop first.
+	void wavstream_reload_stops_voices()
+	{
+		WavStream stream;
+		check(loadStream(stream, makeConstantWav(1, 44100, 0.25f)) == SO_NO_ERROR, "stream loads");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		handle first = soloud.play(stream);
+		render(soloud, 1024);
+		check(loadStream(stream, makeConstantWav(2, 44100, 0.5f)) == SO_NO_ERROR, "stream reloads");
+		check(!soloud.isValidVoiceHandle(first), "reloading stops the stream's voices");
+		handle second = soloud.play(stream);
+		render(soloud, 1024);
+		check(loadStream(stream, std::vector<unsigned char>(64, 0)) != SO_NO_ERROR, "garbage fails to load");
+		check(!soloud.isValidVoiceHandle(second), "a failed reload stops them too");
+		check(soloud.getActiveVoiceCount() == 0, "no voice reads the old data");
+	}
+
+	// Vic::setRegister and getRegister took any index: past the 4 registers
+	// they wrote and read the noise table that follows them, and before
+	// them the clocks.
+	void vic_register_index_in_range()
+	{
+		Vic vic;
+		unsigned char noise[4];
+		float clocks[4];
+		std::memcpy(noise, vic.m_noise, sizeof(noise));
+		std::memcpy(clocks, vic.m_clocks, sizeof(clocks));
+		for (int reg = Vic::MAX_REGS; reg < Vic::MAX_REGS + 4; reg++)
+			vic.setRegister(reg, (unsigned char)(vic.m_noise[reg - Vic::MAX_REGS] ^ 0xff));
+		for (int reg = -16; reg < 0; reg++)
+			vic.setRegister(reg, 0x5a);
+		check(std::memcmp(noise, vic.m_noise, sizeof(noise)) == 0, "the noise table is untouched");
+		check(std::memcmp(clocks, vic.m_clocks, sizeof(clocks)) == 0, "the clocks are untouched");
+		check(vic.getRegister(Vic::MAX_REGS) == 0 && vic.getRegister(-1) == 0, "out-of-range registers read 0");
+		vic.setRegister(Vic::NOISE, 200);
+		check(vic.getRegister(Vic::NOISE) == 200, "registers in range still work");
+	}
+
+	// An sfxr version 102 file: the version, a wave type, 22 floats with
+	// the filter flag byte after the 14th, then 2 more floats.
+	std::vector<unsigned char> sfxrFile(unsigned char aFilterByte)
+	{
+		std::vector<unsigned char> out;
+		int head[2] = { 102, 1 };
+		const unsigned char *bytes = (const unsigned char *)head;
+		out.insert(out.end(), bytes, bytes + sizeof(head));
+		for (int i = 0; i < 24; i++)
+		{
+			if (i == 14)
+				out.push_back(aFilterByte);
+			float value = 0.05f * (float)(i + 1);
+			bytes = (const unsigned char *)&value;
+			out.insert(out.end(), bytes, bytes + sizeof(value));
+		}
+		return out;
+	}
+
+	// Sfxr::loadParamsFile read field after field and succeeded whatever
+	// the file held, so a short file loaded with some settings changed and
+	// the rest kept.
+	void sfxr_short_file_fails()
+	{
+		std::vector<unsigned char> bytes = sfxrFile(0);
+		Sfxr sfxr;
+		check(sfxr.loadParamsMem(bytes.data(), (unsigned int)bytes.size(), true, false) == SO_NO_ERROR, "a whole file loads");
+		check(sfxr.mParams.wave_type == 1 && sfxr.mParams.p_arp_mod == 0.05f * 24, "every field is read");
+		Sfxr fresh;
+		bytes.resize(bytes.size() - 3);
+		check(fresh.loadParamsMem(bytes.data(), (unsigned int)bytes.size(), true, false) == FILE_LOAD_FAILED, "a short file fails");
+		check(fresh.mParams.wave_type == 0 && fresh.mParams.p_base_freq == 0.3f && fresh.mParams.sound_vol == 0.5f,
+			"a short file changes nothing");
+	}
+
+	// Sfxr::loadParamsFile read the filter flag's byte straight into a bool,
+	// so a byte other than 0 or 1 made a bool that is neither.
+	void sfxr_filter_flag_is_a_bool()
+	{
+		std::vector<unsigned char> bytes = sfxrFile(2);
+		Sfxr sfxr;
+		check(sfxr.loadParamsMem(bytes.data(), (unsigned int)bytes.size(), true, false) == SO_NO_ERROR, "the file loads");
+		unsigned char raw = 0xff;
+		std::memcpy(&raw, &sfxr.mParams.filter_on, 1);
+		check(raw == 1, "a nonzero flag byte reads as true");
+	}
+
+	// SfxrInstance::getAudio went on after the sound's end when called
+	// again, as the generic seek does while discarding: its envelope then
+	// read env_length[3], past the array.
+	void sfxr_ended_sound_stays_silent()
+	{
+		Sfxr sfxr;
+		sfxr.loadPreset(Sfxr::BLIP, 3);
+		AudioSourceInstance *instance = sfxr.createInstance();
+		instance->init(sfxr, 0);
+		std::vector<float> buffer(512);
+		unsigned int total = 0;
+		for (int i = 0; i < 1000 && !instance->hasEnded(); i++)
+			total += instance->getAudio(buffer.data(), 512, 512);
+		check(instance->hasEnded() && total > 0, "the sound ends");
+		check(instance->getAudio(buffer.data(), 512, 512) == 0, "an ended sound gives no more audio");
+		delete instance;
+	}
+
+	// A Monotone cell: a note (1 to 126, 127 ends the note, 0 keeps the
+	// last), an effect (0 to 7) and its 6 bits of data.
+	unsigned short monotoneCell(unsigned int aNote, unsigned int aEffect = 0, unsigned int aData = 0)
+	{
+		return (unsigned short)((aNote << 9) | (aEffect << 6) | aData);
+	}
+
+	// A Monotone song titled "Test": aPatterns patterns of 64 rows of
+	// aTracks cells, the first cells from aCells and the rest 0, played in
+	// aOrder (the remaining order entries are 0xff).
+	std::vector<unsigned char> monotoneSong(unsigned int aPatterns, unsigned int aTracks,
+		const std::vector<unsigned char> &aOrder, const std::vector<unsigned short> &aCells)
+	{
+		static const char magic[] = "\bMONOTONE";
+		std::vector<unsigned char> out(magic, magic + 9);
+		unsigned char title[41] = { 4, 'T', 'e', 's', 't' };
+		unsigned char comment[41] = { 0 };
+		out.insert(out.end(), title, title + 41);
+		out.insert(out.end(), comment, comment + 41);
+		out.push_back(1);
+		out.push_back((unsigned char)aPatterns);
+		out.push_back((unsigned char)aTracks);
+		out.push_back(2);
+		for (unsigned int i = 0; i < 256; i++)
+			out.push_back(i < aOrder.size() ? aOrder[i] : 0xff);
+		for (unsigned int i = 0; i < aPatterns * 64 * aTracks; i++)
+		{
+			unsigned short cell = i < aCells.size() ? aCells[i] : 0;
+			out.push_back((unsigned char)(cell & 0xff));
+			out.push_back((unsigned char)(cell >> 8));
+		}
+		return out;
+	}
+
+	result loadMonotone(Monotone &aSong, const std::vector<unsigned char> &aBytes)
+	{
+		return aSong.loadMem(aBytes.data(), (unsigned int)aBytes.size(), true, false);
+	}
+
+	// aFrames of a new voice of aSong read straight from its instance, in
+	// 512-frame calls, at aRate.
+	std::vector<float> monotoneAudio(Monotone &aSong, unsigned int aFrames, float aRate = 44100.0f)
+	{
+		AudioSourceInstance *instance = aSong.createInstance();
+		instance->init(aSong, 0);
+		instance->mSamplerate = aRate;
+		std::vector<float> out(aFrames, 0.0f);
+		for (unsigned int f = 0; f < aFrames; f += 512)
+			instance->getAudio(&out[f], aFrames - f < 512 ? aFrames - f : 512, 512);
+		delete instance;
+		return out;
+	}
+
+	// A Monotone built over bytes of 0xab, so members its constructor does
+	// not set hold garbage that is the same on every run.
+	Monotone *newMonotoneOverGarbage()
+	{
+		void *memory = std::malloc(sizeof(Monotone));
+		std::memset(memory, 0xab, sizeof(Monotone));
+		return new (memory) Monotone();
+	}
+
+	void deleteMonotoneOverGarbage(Monotone *aSong)
+	{
+		aSong->~Monotone();
+		std::free(aSong);
+	}
+
+	// Monotone's constructor left the song's track count and order
+	// uninitialised, and a failed load kept the track count it had read
+	// (or the previous song's) without any pattern data: playing either
+	// read through a null pointer.
+	void monotone_empty_song_is_silent()
+	{
+		Monotone *song = newMonotoneOverGarbage();
+		std::vector<float> out = monotoneAudio(*song, 4096);
+		check(maxAbsChannel(out, 0, 1) == 0, "a song never loaded is silent");
+		std::vector<unsigned char> bytes = monotoneSong(1, 1, { 0 }, { monotoneCell(40) });
+		check(loadMonotone(*song, bytes) == SO_NO_ERROR, "a song loads");
+		out = monotoneAudio(*song, 4096);
+		check(maxAbsChannel(out, 0, 1) > 0.1f, "the song plays");
+		bytes[9 + 41 + 41] = 2; // version
+		check(loadMonotone(*song, bytes) == FILE_LOAD_FAILED, "version 2 fails");
+		check(song->mSong.mTotalTracks == 0 && song->mSong.mPatternData == NULL, "a failed load leaves no song");
+		out = monotoneAudio(*song, 4096);
+		check(maxAbsChannel(out, 0, 1) == 0, "a failed load is silent");
+		deleteMonotoneOverGarbage(song);
+	}
+
+	// Monotone::loadFile ignored how many bytes each read gave, so a short
+	// file loaded with the rest of its bytes taken from earlier reads (or
+	// uninitialised ones).
+	void monotone_short_file_fails()
+	{
+		std::vector<unsigned char> bytes = monotoneSong(2, 3, { 0, 1 }, { monotoneCell(40), monotoneCell(50) });
+		Monotone song;
+		check(loadMonotone(song, bytes) == SO_NO_ERROR, "a whole song loads");
+		const unsigned int cuts[] = { 1, 8, 9, 49, 50, 91, 95, 350, 351, 352, (unsigned int)bytes.size() - 1 };
+		for (unsigned int cut : cuts)
+		{
+			std::vector<unsigned char> part(bytes.begin(), bytes.begin() + cut);
+			check(loadMonotone(song, part) == FILE_LOAD_FAILED, "a short song fails");
+			check(song.mSong.mTotalTracks == 0, "a short song leaves no song");
+		}
+	}
+
+	// Monotone::loadFile ended a Pascal title or comment at the length in
+	// its first byte, up to 255, in a 200-byte buffer holding 41 bytes from
+	// the file: a length over 40 read stale bytes, and over 198 wrote past
+	// the buffer.
+	void monotone_long_title_is_cut()
+	{
+		std::vector<unsigned char> bytes = monotoneSong(1, 1, { 0 }, {});
+		bytes[9] = 255;
+		std::memset(&bytes[10], 'T', 40);
+		bytes[50] = 41;
+		std::memset(&bytes[51], 'C', 40);
+		Monotone song;
+		check(loadMonotone(song, bytes) == SO_NO_ERROR, "the song loads");
+		check(std::strlen(song.mSong.mTitle) == 40 && song.mSong.mTitle[39] == 'T', "the title is its 40 bytes");
+		check(std::strlen(song.mSong.mComment) == 40 && song.mSong.mComment[39] == 'C', "the comment is its 40 bytes");
+	}
+
+	// Voices keep 12 channels and 12 hardware channels, but a song could
+	// have up to 255 tracks and setParams took any number of hardware
+	// channels: both overran the arrays.
+	void monotone_at_most_12_channels()
+	{
+		Monotone song;
+		check(loadMonotone(song, monotoneSong(1, 12, { 0 }, {})) == SO_NO_ERROR, "12 tracks load");
+		check(loadMonotone(song, monotoneSong(1, 13, { 0 }, {})) == FILE_LOAD_FAILED, "13 tracks fail");
+		check(song.setParams(12) == SO_NO_ERROR, "12 hardware channels are allowed");
+		check(song.setParams(13) == INVALID_PARAMETER, "13 hardware channels are refused");
+		check(song.mHardwareChannels == 12, "a refused count changes nothing");
+	}
+
+	// MonotoneInstance::getAudio indexed mNotesHz (800 entries) with notes
+	// up to 126 times 8, read the order past its 256 entries when the song
+	// had no end marker, and read patterns the song does not have.
+	void monotone_indices_in_range()
+	{
+		Monotone high;
+		check(loadMonotone(high, monotoneSong(1, 1, { 0 }, { monotoneCell(120) })) == SO_NO_ERROR, "note 120 loads");
+		Monotone top;
+		check(loadMonotone(top, monotoneSong(1, 1, { 0 }, { monotoneCell(100) })) == SO_NO_ERROR, "note 100 loads");
+		std::vector<float> a = monotoneAudio(high, 8192);
+		std::vector<float> b = monotoneAudio(top, 8192);
+		check(a == b, "notes past the table play its last entry");
+
+		// Every order entry is pattern 0; at 60 Hz a tick is one sample.
+		std::vector<unsigned char> order(256, 0);
+		Monotone endless;
+		check(loadMonotone(endless, monotoneSong(1, 1, order, { monotoneCell(40) })) == SO_NO_ERROR, "the song loads");
+		MonotoneInstance *instance = (MonotoneInstance *)endless.createInstance();
+		instance->init(endless, 0);
+		instance->mSamplerate = 60.0f;
+		std::vector<float> buffer(512);
+		bool inRange = true;
+		for (int i = 0; i < 300 && inRange; i++)
+		{
+			instance->getAudio(buffer.data(), 512, 512);
+			inRange = instance->mOrder >= 0 && instance->mOrder < 256;
+		}
+		check(inRange, "the order position stays in the order");
+		delete instance;
+
+		Monotone missing;
+		check(loadMonotone(missing, monotoneSong(1, 1, { 3 }, { monotoneCell(40) })) == SO_NO_ERROR, "the song loads");
+		Monotone empty;
+		check(loadMonotone(empty, monotoneSong(1, 1, { 0 }, {})) == SO_NO_ERROR, "the song loads");
+		check(monotoneAudio(missing, 8192) == monotoneAudio(empty, 8192), "a missing pattern plays as empty rows");
+	}
+
+	// Monotone's constructor filled mNotesHz down to entry 2 only; vibrato
+	// on note 1 reads entry 1.
+	void monotone_note_table_is_filled()
+	{
+		Monotone *song = newMonotoneOverGarbage();
+		const float interval = 1.00724641222f;
+		float hz = 27.5f;
+		for (int i = 0; i < 7; i++)
+			hz = hz / interval;
+		check(song->mNotesHz[1] == (int)std::floor(hz + 0.5f), "entry 1 continues the table");
+		check(song->mNotesHz[1] <= song->mNotesHz[2], "the table rises");
+		deleteMonotoneOverGarbage(song);
+	}
+
+	// MonotoneInstance::getAudio took floor(rate / 60) samples per tick, so
+	// below 60 Hz (a slow play speed) it divided by zero.
+	void monotone_slow_rate_does_not_divide_by_zero()
+	{
+		Monotone song;
+		check(loadMonotone(song, monotoneSong(1, 1, { 0 }, { monotoneCell(40) })) == SO_NO_ERROR, "the song loads");
+		MonotoneInstance *instance = (MonotoneInstance *)song.createInstance();
+		instance->init(song, 0);
+		instance->mSamplerate = 30.0f;
+		std::vector<float> buffer(512);
+		check(instance->getAudio(buffer.data(), 300, 512) == 300, "the voice plays");
+		// 4 ticks a row: 75 rows, the 11th of the second pattern.
+		check(instance->mRow == 11, "rows advance a tick a sample");
+		delete instance;
+	}
+
+	// MonotoneInstance's constructor left each channel's frequencies
+	// uninitialised, and a portamento to a note on a channel's first note
+	// slides from the frequency it had.
+	void monotone_first_slide_starts_at_zero()
+	{
+		Monotone song;
+		check(loadMonotone(song, monotoneSong(1, 1, { 0 }, { monotoneCell(40, 3, 5) })) == SO_NO_ERROR, "the song loads");
+		void *memory = std::malloc(sizeof(MonotoneInstance));
+		std::memset(memory, 0xab, sizeof(MonotoneInstance));
+		MonotoneInstance *instance = new (memory) MonotoneInstance(&song);
+		instance->init(song, 0);
+		instance->mSamplerate = 60.0f;
+		std::vector<float> buffer(4);
+		// The first row is read on the 4th tick, a sample each at 60 Hz.
+		instance->getAudio(buffer.data(), 4, 4);
+		check(instance->mChannel[0].mFreq[0] == 0 && instance->mChannel[0].mPortamento == 5,
+			"the slide starts from 0 Hz");
+		instance->~MonotoneInstance();
+		std::free(memory);
+	}
+
+	// A register write and a wait of a chip dump.
+	unsigned short dumpWrite(unsigned int aReg, unsigned int aValue)
+	{
+		return (unsigned short)(aReg << 8 | aValue);
+	}
+
+	unsigned short dumpWait(unsigned int aClocks)
+	{
+		return (unsigned short)(0x8000 | aClocks);
+	}
+
+	// A CHIPTUNE dump's 28-byte header: data at aDataOffset, aLength bytes
+	// of ops in 1024-byte chunks, looping to aLoopPos.
+	std::vector<unsigned char> chipHeader(unsigned char aChip, unsigned char aFlags, unsigned int aLength,
+		unsigned int aLoopPos = 0, unsigned int aDataOffset = 28)
+	{
+		std::vector<unsigned char> out;
+		const char magic[] = "CHIPTUNE";
+		out.insert(out.end(), magic, magic + 8);
+		unsigned int kchunks = (aLength + 1023) / 1024;
+		unsigned int lastchunk = aLength - (kchunks ? kchunks - 1 : 0) * 1024;
+		const unsigned short words[] = { (unsigned short)aDataOffset, (unsigned short)(aChip | aFlags << 8),
+			(unsigned short)kchunks, (unsigned short)lastchunk, (unsigned short)(aLoopPos / 1024),
+			(unsigned short)(aLoopPos % 1024) };
+		for (unsigned short word : words)
+		{
+			out.push_back((unsigned char)(word & 0xff));
+			out.push_back((unsigned char)(word >> 8));
+		}
+		const unsigned int speeds[] = { 50, 985248 };
+		for (unsigned int speed : speeds)
+			for (int i = 0; i < 4; i++)
+				out.push_back((unsigned char)(speed >> (8 * i)));
+		return out;
+	}
+
+	// An uncompressed dump (flags bit 0) of aOps.
+	std::vector<unsigned char> chipDump(unsigned char aChip, unsigned char aFlags, const std::vector<unsigned short> &aOps,
+		unsigned int aLoopPos = 0)
+	{
+		std::vector<unsigned char> out = chipHeader(aChip, aFlags | 1, (unsigned int)aOps.size() * 2, aLoopPos);
+		for (unsigned short op : aOps)
+		{
+			out.push_back((unsigned char)(op & 0xff));
+			out.push_back((unsigned char)(op >> 8));
+		}
+		return out;
+	}
+
+	// A SID tune: a triangle with an envelope, then a pulse.
+	std::vector<unsigned short> sidTune()
+	{
+		return { dumpWrite(24, 0x0f), dumpWrite(5, 0x22), dumpWrite(6, 0xa8), dumpWrite(0, 0x00), dumpWrite(1, 0x1c),
+			dumpWrite(4, 0x11), dumpWait(2000), dumpWrite(4, 0x10), dumpWait(2000), dumpWrite(1, 0x25),
+			dumpWrite(4, 0x41), dumpWrite(2, 0x00), dumpWrite(3, 0x08), dumpWait(3000) };
+	}
+
+	result loadTedSid(TedSid &aTune, const std::vector<unsigned char> &aBytes)
+	{
+		return aTune.loadMem(aBytes.data(), (unsigned int)aBytes.size(), true, false);
+	}
+
+	// aFrames of a new voice of aSource, read straight from its instance at
+	// its own rate.
+	std::vector<float> sourceAudio(AudioSource &aSource, unsigned int aFrames)
+	{
+		AudioSourceInstance *instance = aSource.createInstance();
+		instance->init(aSource, 0);
+		std::vector<float> out(aFrames, 0.0f);
+		for (unsigned int f = 0; f < aFrames; f += 512)
+			instance->getAudio(&out[f], aFrames - f < 512 ? aFrames - f : 512, 512);
+		delete instance;
+		return out;
+	}
+
+	// TedSid::loadFile picked the SID model from the source's own flags
+	// (mFlags, whose bits 4 and 5 are 3D settings) instead of the dump's.
+	void tedsid_model_from_dump()
+	{
+		TedSid r6581, r8580, relative;
+		check(loadTedSid(r6581, chipDump(0, 0, sidTune())) == SO_NO_ERROR, "a 6581 dump loads");
+		check(loadTedSid(r8580, chipDump(0, 16, sidTune())) == SO_NO_ERROR, "an 8580 dump loads");
+		relative.set3dListenerRelative(true);
+		check(loadTedSid(relative, chipDump(0, 0, sidTune())) == SO_NO_ERROR, "the dump loads");
+		std::vector<float> a = sourceAudio(r6581, 20000);
+		check(a != sourceAudio(r8580, 20000), "the dump's flags choose the model");
+		check(a == sourceAudio(relative, 20000), "the source's 3D flags do not");
+	}
+
+	// TedSid::loadFile freed the ops its voices were reading.
+	void tedsid_reload_stops_voices()
+	{
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		TedSid tune;
+		check(loadTedSid(tune, chipDump(0, 0, sidTune())) == SO_NO_ERROR, "the dump loads");
+		handle h = soloud.play(tune);
+		render(soloud, 1024);
+		check(loadTedSid(tune, chipDump(0, 16, sidTune())) == SO_NO_ERROR, "the dump reloads");
+		check(!soloud.isValidVoiceHandle(h), "reloading stops the voices");
+	}
+
+	// TedSid::loadFile took the header's sizes as they were: no chunks
+	// asked new[] for a negative size, a loop position at or past the end
+	// read past the ops, a data offset past the file's end read a negative
+	// length, a short file kept uninitialised ops, and the two halves of
+	// the loop position were read in either order.
+	void tedsid_header_is_checked()
+	{
+		TedSid tune;
+		std::vector<unsigned short> ops = sidTune();
+		std::vector<unsigned char> bytes = chipDump(0, 0, ops);
+		bytes[12] = bytes[13] = 0; // no chunks
+		check(loadTedSid(tune, bytes) == FILE_LOAD_FAILED, "a dump of no chunks fails");
+		check(loadTedSid(tune, chipDump(0, 0, ops, (unsigned int)ops.size() * 2)) == FILE_LOAD_FAILED,
+			"a loop at the end fails");
+		bytes = chipDump(0, 0, ops);
+		bytes[8] = 0xff; // data offset 255
+		check(loadTedSid(tune, bytes) == FILE_LOAD_FAILED, "data past the end fails");
+		bytes = chipDump(0, 0, ops);
+		bytes.resize(bytes.size() - 2);
+		check(loadTedSid(tune, bytes) == FILE_LOAD_FAILED, "a short dump fails");
+		check(loadTedSid(tune, chipDump(0, 0, ops, 1026)) == FILE_LOAD_FAILED, "a loop past the end fails");
+		check(tune.mOps == NULL && tune.mLength == 0, "a failed load leaves no ops");
+		// 1030 bytes of ops: the loop's chunk and offset are read in order.
+		std::vector<unsigned short> long_ops(515, dumpWait(10));
+		check(loadTedSid(tune, chipDump(0, 0, long_ops, 1026)) == SO_NO_ERROR, "a loop in the second chunk loads");
+		check(tune.mLooppos == 1026, "the loop position is the chunk then the offset");
+	}
+
+	// TedSidInstance::tick reads ops until a wait, so a dump whose loop has
+	// no wait (or only waits of 0) spun forever on the audio thread.
+	void tedsid_loop_without_wait_fails()
+	{
+		TedSid tune;
+		check(loadTedSid(tune, chipDump(0, 0, { dumpWrite(24, 15), dumpWrite(4, 0x11), dumpWrite(0, 3) })) == FILE_LOAD_FAILED,
+			"a dump without waits fails");
+		check(loadTedSid(tune, chipDump(0, 0, { dumpWait(100), dumpWrite(4, 0x11), dumpWait(0) }, 2)) == FILE_LOAD_FAILED,
+			"a loop with only a wait of 0 fails");
+		check(loadTedSid(tune, chipDump(0, 0, { dumpWrite(4, 0x11), dumpWait(1), dumpWrite(0, 3) }, 4)) == FILE_LOAD_FAILED,
+			"a loop after the last wait fails");
+		check(loadTedSid(tune, chipDump(0, 0, { dumpWrite(4, 0x11), dumpWait(1), dumpWrite(0, 3) }, 2)) == SO_NO_ERROR,
+			"a loop through a wait loads");
+	}
+
+	// zx7_decompress read and wrote without bounds: a dump's compressed
+	// chunks wrote past its ops and read past its data.
+	void tedsid_zx7_stays_in_bounds()
+	{
+		// sidTune()'s 28 bytes, compressed.
+		const unsigned char packed[] = { 0x0f, 0x00, 0x18, 0x22, 0x05, 0xa8, 0x06, 0x00, 0x00, 0x1c, 0x02, 0x01, 0x11,
+			0x04, 0xd0, 0x87, 0x10, 0x80, 0x03, 0x25, 0x01, 0x41, 0x04, 0x00, 0x02, 0x08, 0x08, 0x03, 0xb8, 0x8b, 0x00, 0x04 };
+		std::vector<unsigned char> bytes = chipHeader(0, 0, 28);
+		bytes.insert(bytes.end(), packed, packed + sizeof(packed));
+		TedSid packedTune, plainTune;
+		check(loadTedSid(packedTune, bytes) == SO_NO_ERROR, "a compressed dump loads");
+		check(loadTedSid(plainTune, chipDump(0, 0, sidTune())) == SO_NO_ERROR, "the dump loads");
+		check(sourceAudio(packedTune, 8000) == sourceAudio(plainTune, 8000), "compressed and plain play the same");
+
+		// 3001 zero bytes, compressed, for 28 bytes of ops.
+		const unsigned char zeros[] = { 0x00, 0x80, 0x0b, 0xb7, 0x00, 0x80, 0x00, 0x40 };
+		bytes = chipHeader(0, 0, 28);
+		bytes.insert(bytes.end(), zeros, zeros + sizeof(zeros));
+		bytes.resize(bytes.size() + 6, 0);
+		check(loadTedSid(packedTune, bytes) == FILE_LOAD_FAILED, "a chunk longer than the ops fails");
+		bytes = chipHeader(0, 0, 28);
+		bytes.insert(bytes.end(), packed, packed + 20);
+		check(loadTedSid(packedTune, bytes) == FILE_LOAD_FAILED, "a cut chunk fails");
+	}
+
+	// SIDsound::reset set each voice's envelope rate, an index into
+	// RateCountPeriod, to RateCountPeriod[0] (0x7f00) itself: until a gate
+	// set it, every envelope step read 0x7f00 entries past the table.
+	void sid_envelope_rate_starts_in_range()
+	{
+		SIDsound sid(SID8580, 0);
+		bool inRange = true;
+		for (int i = 0; i < 3; i++)
+			inRange = inRange && sid.voice[i].envCounterCompare < 16;
+		check(inRange, "envelope rates start as indices");
+		sid.setSampleRate(TED_SOUND_CLOCK);
+		sid.setFrequency(1);
+		short buffer[256];
+		sid.calcSamples(buffer, 256);
+		check(sid.read(0x1c) == 0, "a voice never gated stays silent");
+	}
+
+	// SIDsound's attack counted its envelope level past 0xff when a gate
+	// came back at full level: the level went to 0x1ff, decay then read
+	// envGenDRdivisors[0x1ff], past the table, and fell through the
+	// sustain level. The level is now 8 bits, wrapping to 0 as in reSID.
+	void sid_attack_from_full_level_wraps()
+	{
+		SIDsound sid(SID6581, 0);
+		sid.setSampleRate(TED_SOUND_CLOCK);
+		sid.setFrequency(1);
+		short buffer[256];
+		sid.write(24, 0x0f);
+		sid.write(14, 0x00);
+		sid.write(15, 0x10);
+		sid.write(19, 0x00); // fastest attack and decay
+		sid.write(20, 0xf0); // sustain at 0xff, fastest release
+		sid.write(18, 0x11);
+		for (int i = 0; i < 20; i++)
+			sid.calcSamples(buffer, 256);
+		check(sid.read(0x1c) == 0xff, "the envelope sustains at 0xff");
+		sid.write(18, 0x10);
+		sid.write(18, 0x11);
+		bool eightBits = true;
+		for (int i = 0; i < 40; i++)
+		{
+			sid.calcSamples(buffer, 256);
+			eightBits = eightBits && sid.voice[2].envCurrLevel <= 0xff;
+		}
+		check(eightBits, "the level stays below 0x100");
+		check(sid.read(0x1c) == 0xff, "a new attack from 0xff comes back to sustain at 0xff");
+	}
+
+	result loadAy(Ay &aAy, const std::vector<unsigned char> &aBytes)
+	{
+		return aAy.loadMem(aBytes.data(), (unsigned int)aBytes.size(), true, false);
+	}
+
+	// An uncompressed AY dump of aOps (chip type 1 unless given) at the given
+	// CPU (tick) and chip speeds.
+	std::vector<unsigned char> ayDump(const std::vector<unsigned short> &aOps, unsigned char aFlags = 0,
+		unsigned int aCpuSpeed = 50, unsigned int aChipSpeed = 1774400, unsigned char aChip = 1)
+	{
+		std::vector<unsigned char> out = chipDump(aChip, aFlags, aOps);
+		const unsigned int speeds[] = { aCpuSpeed, aChipSpeed };
+		for (int s = 0; s < 2; s++)
+			for (int i = 0; i < 4; i++)
+				out[20 + 4 * s + i] = (unsigned char)(speeds[s] >> (8 * i));
+		return out;
+	}
+
+	// An AY tune: channel A's tone and noise, then an envelope on channel C,
+	// 9 ticks long.
+	std::vector<unsigned short> ayTune()
+	{
+		return { dumpWrite(7, 0x36), dumpWrite(0, 0x80), dumpWrite(1, 0x01), dumpWrite(8, 0x0f), dumpWrite(6, 0x0c),
+			dumpWait(3), dumpWrite(4, 0x40), dumpWrite(5, 0x02), dumpWrite(10, 0x10), dumpWrite(11, 0x00),
+			dumpWrite(12, 0x04), dumpWrite(13, 0x0e), dumpWait(4), dumpWrite(8, 0x00), dumpWait(2) };
+	}
+
+	// aFrames (a multiple of 512) of a new voice of aAy, each 512-frame read
+	// with its left then its right channel.
+	std::vector<float> ayAudio(Ay &aAy, unsigned int aFrames)
+	{
+		AudioSourceInstance *instance = aAy.createInstance();
+		instance->init(aAy, 0);
+		std::vector<float> out, block(1024);
+		for (unsigned int f = 0; f < aFrames; f += 512)
+		{
+			std::fill(block.begin(), block.end(), 0.0f);
+			instance->getAudio(block.data(), 512, 512);
+			out.insert(out.end(), block.begin(), block.end());
+		}
+		delete instance;
+		return out;
+	}
+
+	// Frames a voice of aAy plays, read 512 at a time, until it ends.
+	unsigned int ayFramesPlayed(Ay &aAy)
+	{
+		AudioSourceInstance *instance = aAy.createInstance();
+		instance->init(aAy, 0);
+		std::vector<float> block(1024);
+		unsigned int frames = 0;
+		for (int i = 0; i < 1000 && !instance->hasEnded(); i++)
+			frames += instance->getAudio(block.data(), 512, 512);
+		delete instance;
+		return frames;
+	}
+
+	// AyInstance::getAudio wrote the right channel aSamplesToRead floats
+	// after the left instead of aBufferSize: a short read put it inside the
+	// left channel's buffer.
+	void ay_right_channel_at_buffer_stride()
+	{
+		Ay ay;
+		check(loadAy(ay, ayDump(ayTune())) == SO_NO_ERROR, "the dump loads");
+		AudioSourceInstance *full = ay.createInstance();
+		full->init(ay, 0);
+		AudioSourceInstance *part = ay.createInstance();
+		part->init(ay, 0);
+		std::vector<float> a(1024, -1.0f), b(1024, -1.0f);
+		full->getAudio(a.data(), 512, 512);
+		part->getAudio(b.data(), 100, 512);
+		bool same = true;
+		for (int i = 0; i < 100; i++)
+			same = same && b[i] == a[i] && b[512 + i] == a[512 + i];
+		check(same, "a short read puts both channels where a full read does");
+		check(b[100] == -1.0f, "a short read leaves the rest of the left channel");
+		delete full;
+		delete part;
+	}
+
+	// Ay::loadFile replaced the ops its voices were reading without stopping
+	// them, and leaked the old ones.
+	void ay_reload_stops_voices()
+	{
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		Ay ay;
+		check(loadAy(ay, ayDump(ayTune())) == SO_NO_ERROR, "the dump loads");
+		handle h = soloud.play(ay);
+		render(soloud, 1024);
+		check(soloud.isValidVoiceHandle(h), "the voice plays");
+		check(loadAy(ay, ayDump(ayTune(), 64)) == SO_NO_ERROR, "the dump reloads");
+		check(!soloud.isValidVoiceHandle(h), "reloading stops the voices");
+	}
+
+	// Ay::loadFile took the header's sizes as they were (as TedSid did): a
+	// data offset past the file's end read a negative length, a short file
+	// kept uninitialised ops, the two halves of the loop position were read
+	// in either order, and no chunks asked new[] for a negative size.
+	void ay_header_is_checked()
+	{
+		Ay ay;
+		std::vector<unsigned short> ops = ayTune();
+		std::vector<unsigned char> bytes = ayDump(ops);
+		bytes[8] = 0xff; // data offset 255
+		check(loadAy(ay, bytes) == FILE_LOAD_FAILED, "data past the end fails");
+		bytes = ayDump(ops);
+		bytes.resize(bytes.size() - 2);
+		check(loadAy(ay, bytes) == FILE_LOAD_FAILED, "a short dump fails");
+		check(ay.mOps == NULL && ay.mLength == 0, "a failed load leaves no ops");
+		// Ay does not loop to the loop position, so one at the end is kept.
+		bytes = ayDump(ops);
+		bytes[18] = (unsigned char)(ops.size() * 2);
+		check(loadAy(ay, bytes) == SO_NO_ERROR, "a loop position at the end loads");
+		std::vector<unsigned short> long_ops(515, dumpWait(1));
+		bytes = ayDump(long_ops);
+		bytes[16] = 1; // the loop at chunk 1, offset 2
+		bytes[18] = 2;
+		check(loadAy(ay, bytes) == SO_NO_ERROR, "a dump of two chunks loads");
+		check(ay.mLooppos == 1026, "the loop position is the chunk then the offset");
+		bytes = ayDump(ops);
+		bytes[12] = bytes[13] = 0; // no chunks
+		check(loadAy(ay, bytes) == FILE_LOAD_FAILED, "a dump of no chunks fails");
+	}
+
+	// Ay::loadFile decompressed zx7 chunks without bounds, as TedSid did.
+	void ay_zx7_stays_in_bounds()
+	{
+		// ayTune()'s 30 bytes, compressed.
+		const unsigned char packed[] = { 0x36, 0x00, 0x07, 0x80, 0x00, 0x01, 0x01, 0x0f, 0x08, 0x0c, 0x00, 0x06, 0x03,
+			0x80, 0x40, 0x04, 0x02, 0x05, 0x10, 0x00, 0x0a, 0x00, 0x0b, 0x04, 0x0c, 0x0e, 0x0d, 0x04, 0xc4, 0x16, 0x08,
+			0x02, 0x80, 0x00, 0x02 };
+		std::vector<unsigned char> plain = ayDump(ayTune());
+		std::vector<unsigned char> bytes(plain.begin(), plain.begin() + 28);
+		bytes[11] = 0; // compressed
+		bytes.insert(bytes.end(), packed, packed + sizeof(packed));
+		Ay packedTune, plainTune;
+		check(loadAy(packedTune, bytes) == SO_NO_ERROR, "a compressed dump loads");
+		check(loadAy(plainTune, plain) == SO_NO_ERROR, "the dump loads");
+		check(ayAudio(packedTune, 4096) == ayAudio(plainTune, 4096), "compressed and plain play the same");
+
+		// 3001 zero bytes, compressed, for 30 bytes of ops.
+		const unsigned char zeros[] = { 0x00, 0x80, 0x0b, 0xb7, 0x00, 0x80, 0x00, 0x40 };
+		std::vector<unsigned char> over(bytes.begin(), bytes.begin() + 28);
+		over.insert(over.end(), zeros, zeros + sizeof(zeros));
+		over.resize(over.size() + 6, 0);
+		check(loadAy(packedTune, over) == FILE_LOAD_FAILED, "a chunk longer than the ops fails");
+		std::vector<unsigned char> cut(bytes.begin(), bytes.begin() + 28 + 20);
+		check(loadAy(packedTune, cut) == FILE_LOAD_FAILED, "a cut chunk fails");
+	}
+
+	// ChipPlayer divides by the CPU (tick) speed and the chip's speed / 8,
+	// and renders frames of (CPU speed * 8172 / 44100) / 2 ticks: a speed of
+	// 0 divided by zero, below 11 Hz a frame of 0 ticks never advanced,
+	// spinning on the audio thread, and a chip ticking slower than the
+	// samples (below 8 * 44100 Hz) rendered a tick's samples at once, which
+	// could overrun the buffer.
+	void ay_speeds_are_checked()
+	{
+		Ay ay;
+		check(loadAy(ay, ayDump(ayTune(), 0, 0)) == FILE_LOAD_FAILED, "a CPU speed of 0 fails");
+		check(loadAy(ay, ayDump(ayTune(), 0, 10)) == FILE_LOAD_FAILED, "a CPU speed of 10 fails");
+		check(loadAy(ay, ayDump(ayTune(), 0, 50, 7)) == FILE_LOAD_FAILED, "a chip speed of 7 fails");
+		check(loadAy(ay, ayDump(ayTune(), 0, 50, 8 * 44100 - 1)) == FILE_LOAD_FAILED, "a chip slower than the samples fails");
+		check(loadAy(ay, ayDump(ayTune(), 0, 11, 8 * 44100)) == SO_NO_ERROR, "the slowest speeds load");
+		check(ay.mCpuspeed == 11 && ay.mChipspeed == 8 * 44100, "the speeds are kept");
+		check(ayFramesPlayed(ay) > 0, "the slowest speeds play");
+	}
+
+	// SNDCHIP's constructor left its tone, noise and envelope counters, the
+	// noise output, the chip type and the port registers uninitialised: each
+	// voice's first period came from whatever memory the chip was built in.
+	void ay_chip_starts_at_zero()
+	{
+		SNDBUFFER buffer(8192);
+		void *memory = std::malloc(sizeof(SNDCHIP));
+		std::memset(memory, 0xa5, sizeof(SNDCHIP));
+		SNDCHIP *chip = new (memory) SNDCHIP(buffer);
+		check(chip->ta == 0 && chip->tb == 0 && chip->tc == 0 && chip->tn == 0 && chip->te == 0, "counters start at 0");
+		check(chip->bitN == 0, "the noise output starts at 0");
+		check(chip->reg[14] == 0 && chip->reg[15] == 0, "the port registers start at 0");
+		chip->~SNDCHIP();
+		std::free(memory);
+	}
+
+	// ChipPlayer::play stopped at the end of the ops before playing the op it
+	// had just read, so a dump's last register write was dropped.
+	void ay_last_write_is_played()
+	{
+		Ay ay;
+		check(loadAy(ay, ayDump({ dumpWrite(8, 0x0f), dumpWait(2), dumpWrite(8, 0x03) })) == SO_NO_ERROR, "the dump loads");
+		AudioSourceInstance *instance = ay.createInstance();
+		instance->init(ay, 0);
+		std::vector<float> block(1024);
+		for (int i = 0; i < 8 && !instance->hasEnded(); i++)
+			instance->getAudio(block.data(), 512, 512);
+		check(instance->hasEnded(), "the voice ends");
+		check(instance->getInfo(8) == 3.0f, "the last write is played");
+		delete instance;
+	}
+
+	// ChipPlayer::play renders frames into an 8192-sample buffer, but played
+	// a wait whole within a frame: a wait of more than about 8000 samples
+	// overran the buffer onto its own samples (and rendered all of it in one
+	// read on the audio thread).
+	void ay_long_wait_is_spread()
+	{
+		Ay ay;
+		// A steady tone for one wait of 60 ticks at 50 Hz: 52920 frames.
+		check(loadAy(ay, ayDump({ dumpWrite(7, 0x3e), dumpWrite(0, 0x40), dumpWrite(8, 0x0f), dumpWait(60), dumpWrite(8, 0) })) ==
+			SO_NO_ERROR, "the dump loads");
+		unsigned int frames = ayFramesPlayed(ay);
+		check(frames >= 52900 && frames <= 53000, "the whole wait plays");
+		std::vector<float> audio = ayAudio(ay, 51200);
+		float low = 1e9f, high = -1e9f;
+		for (int i = 0; i < 512; i++)
+		{
+			float sample = audio[99 * 1024 + i];
+			low = sample < low ? sample : low;
+			high = sample > high ? sample : high;
+		}
+		check(high - low > 0.1f, "the tone plays through the wait");
+	}
+
+	// AyInstance::hasEnded turned true once the ops were read, while up to a
+	// frame of samples was still in the buffer: every dump's end was cut.
+	void ay_tail_is_played()
+	{
+		Ay ay;
+		// 6 ticks at 50 Hz: 5292 frames.
+		check(loadAy(ay, ayDump({ dumpWrite(7, 0x3e), dumpWrite(0, 0x40), dumpWrite(8, 0x0f), dumpWait(3), dumpWrite(0, 0x60),
+			dumpWait(3) })) == SO_NO_ERROR, "the dump loads");
+		unsigned int frames = ayFramesPlayed(ay);
+		check(frames >= 5290 && frames <= 5300, "the whole dump plays");
+	}
+
+	// AyInstance::rewind only went back to the first op: the chips kept their
+	// registers, counters and envelopes, and the buffer its samples, so a
+	// looped or rewound voice did not play the dump from its start.
+	void ay_rewind_restarts()
+	{
+		Ay ay;
+		check(loadAy(ay, ayDump(ayTune())) == SO_NO_ERROR, "the dump loads");
+		AudioSourceInstance *instance = ay.createInstance();
+		instance->init(ay, 0);
+		std::vector<float> block(1024), again;
+		for (int i = 0; i < 3; i++)
+			instance->getAudio(block.data(), 512, 512);
+		check(instance->rewind() == SO_NO_ERROR, "the voice rewinds");
+		for (int i = 0; i < 4; i++)
+		{
+			std::fill(block.begin(), block.end(), 0.0f);
+			instance->getAudio(block.data(), 512, 512);
+			again.insert(again.end(), block.begin(), block.end());
+		}
+		delete instance;
+		check(again == ayAudio(ay, 2048), "a rewound voice plays as a new one");
+	}
+
+	// aBytes copied to the end of a page followed by one that cannot be
+	// read, so reading a byte past them faults.
+	class GuardedBytes
+	{
+	public:
+		explicit GuardedBytes(const std::vector<unsigned char> &aBytes)
+		{
+#ifdef _WIN32
+			SYSTEM_INFO info;
+			GetSystemInfo(&info);
+			mPage = info.dwPageSize;
+			mBase = (unsigned char *)VirtualAlloc(NULL, 2 * mPage, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+			DWORD old;
+			VirtualProtect(mBase + mPage, mPage, PAGE_NOACCESS, &old);
+#else
+			mPage = (size_t)sysconf(_SC_PAGESIZE);
+			mBase = (unsigned char *)mmap(NULL, 2 * mPage, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0);
+			mprotect(mBase + mPage, mPage, PROT_NONE);
+#endif
+			mData = mBase + mPage - aBytes.size();
+			std::memcpy(mData, aBytes.data(), aBytes.size());
+		}
+		~GuardedBytes()
+		{
+#ifdef _WIN32
+			VirtualFree(mBase, 0, MEM_RELEASE);
+#else
+			munmap(mBase, 2 * mPage);
+#endif
+		}
+		unsigned char *data() { return mData; }
+
+	private:
+		GuardedBytes(const GuardedBytes &);
+		GuardedBytes &operator=(const GuardedBytes &);
+		size_t mPage;
+		unsigned char *mBase;
+		unsigned char *mData;
+	};
+
+	// Speech::setParams took any speed: 0 or below gave a frame of no or a
+	// negative number of samples, so SpeechInstance asked new[] for a
+	// negative size or played nothing, and a speed past the int range of
+	// 11025 * speed gave the same. Speeds now give frames of 1 to 11025
+	// samples (up to 1000 ms).
+	void speech_speed_is_checked()
+	{
+		Speech speech;
+		check(speech.setParams(1330, 0.0f) == INVALID_PARAMETER, "a speed of 0 fails");
+		check(speech.setParams(1330, -10.0f) == INVALID_PARAMETER, "a negative speed fails");
+		check(speech.setParams(1330, std::numeric_limits<float>::quiet_NaN()) == INVALID_PARAMETER, "a NaN speed fails");
+		check(speech.setParams(1330, 0.05f) == INVALID_PARAMETER, "a frame under one sample fails");
+		check(speech.setParams(1330, 1001.0f) == INVALID_PARAMETER, "a frame over a second fails");
+		check(speech.mBaseSpeed == 10.0f && speech.mBaseWaveform == KW_SQUARE, "a failed call changes nothing");
+		check(speech.setParams(1330, 0.1f, 0.5f, KW_SAW) == SO_NO_ERROR, "a frame of one sample is set");
+		check(speech.setParams(1330, 1000.0f) == SO_NO_ERROR, "a frame of a second is set");
+		check(speech.mBaseSpeed == 1000.0f, "the speed is kept");
+	}
+
+	// SpeechInstance sized its sample buffer for the speed it started with,
+	// but getAudio and rewind took Speech's speed every time: after
+	// setParams lengthened the frames, a long element wrote past the buffer.
+	// A voice now keeps its speed; the other parameters still reach it.
+	void speech_voice_keeps_its_speed()
+	{
+		Speech speech, plain;
+		check(speech.setText("hello world") == SO_NO_ERROR && plain.setText("hello world") == SO_NO_ERROR,
+			"the texts are set");
+		AudioSourceInstance *instance = speech.createInstance();
+		instance->init(speech, 0);
+		std::vector<float> block(512), changed, again;
+		for (int i = 0; i < 8; i++)
+		{
+			if (i == 2)
+				check(speech.setParams(1330, 80.0f, 0.5f, KW_SQUARE) == SO_NO_ERROR, "the speed changes");
+			std::fill(block.begin(), block.end(), 0.0f);
+			instance->getAudio(block.data(), 512, 512);
+			changed.insert(changed.end(), block.begin(), block.end());
+		}
+		check(changed == sourceAudio(plain, 4096), "a playing voice keeps its speed");
+		// rewind keeps the resonators' history, so compare with a voice of
+		// plain rewound at the same point.
+		AudioSourceInstance *plainInstance = plain.createInstance();
+		plainInstance->init(plain, 0);
+		for (int i = 0; i < 8; i++)
+			plainInstance->getAudio(block.data(), 512, 512);
+		std::vector<float> plainAgain;
+		check(instance->rewind() == SO_NO_ERROR && plainInstance->rewind() == SO_NO_ERROR, "the voices rewind");
+		for (int i = 0; i < 4; i++)
+		{
+			std::fill(block.begin(), block.end(), 0.0f);
+			instance->getAudio(block.data(), 512, 512);
+			again.insert(again.end(), block.begin(), block.end());
+			std::fill(block.begin(), block.end(), 0.0f);
+			plainInstance->getAudio(block.data(), 512, 512);
+			plainAgain.insert(plainAgain.end(), block.begin(), block.end());
+		}
+		delete instance;
+		delete plainInstance;
+		check(again == plainAgain, "a rewound voice keeps its speed");
+		check(sourceAudio(speech, 2048) != sourceAudio(plain, 2048), "new voices take the new speed");
+	}
+
+	// The bytes of Speech's element array for aText.
+	std::vector<unsigned char> speechElements(const char *aText)
+	{
+		Speech speech;
+		speech.setText(aText);
+		const unsigned char *data = (const unsigned char *)speech.mElement.getData();
+		return std::vector<unsigned char>(data, data + speech.mElement.getSize());
+	}
+
+	// Every sample klatt renders from aCount bytes of elements.
+	std::vector<short> klattSamples(unsigned char *aElements, int aCount)
+	{
+		klatt synth;
+		synth.init(1330, 10.0f, 0.5f, KW_SQUARE);
+		synth.initsynth(aCount, aElements);
+		std::vector<short> frame(synth.mNspFr * 100), out;
+		int n;
+		while ((n = synth.synth(synth.mNspFr, frame.data())) >= 0)
+			out.insert(out.end(), frame.begin(), frame.begin() + n);
+		return out;
+	}
+
+	// klatt::synth's stress lookahead read a duration past the end of the
+	// elements when it reached their end: darray's zero-filled spare
+	// usually held it, but an array that filled its allocation (384 bytes,
+	// 128 elements) read past the heap block.
+	void speech_stress_lookahead_in_bounds()
+	{
+		std::vector<unsigned char> elements = speechElements("hello world");
+		check(!elements.empty(), "the text makes elements");
+		GuardedBytes guarded(elements);
+		std::vector<unsigned char> spare(elements);
+		spare.resize(elements.size() + 16, 0);
+		check(klattSamples(guarded.data(), (int)elements.size()) == klattSamples(spare.data(), (int)elements.size()),
+			"the elements play as with a zeroed spare");
+	}
+
+	// klatt::phone_to_elm looked each phoneme up with the byte after it,
+	// even after the last: darray's spare usually held a 0, but phonemes
+	// that filled its allocation read past the heap block, and a byte there
+	// could make the last phoneme a two-byte one.
+	void speech_phoneme_lookup_in_bounds()
+	{
+		const char text[] = "h@'l@Ut"; // ends in a one-byte phoneme
+		std::vector<unsigned char> bytes(text, text + sizeof(text) - 1);
+		GuardedBytes guarded(bytes);
+		darray fromGuarded, fromText;
+		int guardedFrames = klatt::phone_to_elm((char *)guarded.data(), (int)bytes.size(), &fromGuarded);
+		int textFrames = klatt::phone_to_elm((char *)text, (int)bytes.size(), &fromText);
+		check(guardedFrames == textFrames && fromGuarded.getSize() == fromText.getSize() &&
+			std::memcmp(fromGuarded.getData(), fromText.getData(), fromText.getSize()) == 0,
+			"the last phoneme is read alone");
+	}
+
+	// klatt::phone_to_elm read a byte that is not a phoneme (a stress mark,
+	// or anything else in [phonemes]) from the position after it, skipping
+	// that byte: stress marks never applied, the phoneme after one was
+	// dropped, and an unknown last byte read past the phonemes.
+	void speech_stress_marks_apply()
+	{
+		const unsigned char ELM_A_INDEX = 52; // ELM_A, '@', in klatt.cpp's ELEMENTS
+		const char text[] = "'@?"; // primary stress, a vowel, a byte that is no phoneme
+		std::vector<unsigned char> bytes(text, text + sizeof(text) - 1);
+		GuardedBytes guarded(bytes);
+		darray elements;
+		klatt::phone_to_elm((char *)guarded.data(), (int)bytes.size(), &elements);
+		const unsigned char *e = (const unsigned char *)elements.getData();
+		check(elements.getSize() == 3 && e[0] == ELM_A_INDEX && e[2] == 3, "the vowel plays with primary stress");
+	}
+
+	// Vizsn::setText takes a char *: a copy of aText.
+	void setVizsnText(Vizsn &aVizsn, const char *aText)
+	{
+		std::vector<char> copy(aText, aText + std::strlen(aText) + 1);
+		aVizsn.setText(copy.data());
+	}
+
+	// aFrames of a new Vizsn voice, read aBlock frames at a time.
+	std::vector<float> vizsnAudio(Vizsn &aVizsn, unsigned int aFrames, unsigned int aBlock)
+	{
+		AudioSourceInstance *instance = aVizsn.createInstance();
+		instance->init(aVizsn, 0);
+		std::vector<float> out(aFrames, 0.0f);
+		for (unsigned int f = 0; f < aFrames; f += aBlock)
+			instance->getAudio(&out[f], aFrames - f < aBlock ? aFrames - f : aBlock, aBlock);
+		delete instance;
+		return out;
+	}
+
+	// VizsnInstance's noise came from the C runtime's rand(), shared by the
+	// process: each voice continued where the last left off, and MSVC and
+	// glibc gave different noise.
+	void vizsn_voices_are_deterministic()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "hei sisko"); // h and s take noise
+		std::vector<float> first = vizsnAudio(vizsn, 8000, 512);
+		std::srand(1234);
+		std::rand();
+		check(vizsnAudio(vizsn, 8000, 512) == first, "a second voice plays the same");
+	}
+
+	// A Vizsn played before setText read its text through a null pointer.
+	void vizsn_without_text_ends()
+	{
+		Vizsn vizsn;
+		AudioSourceInstance *instance = vizsn.createInstance();
+		instance->init(vizsn, 0);
+		check(instance->hasEnded(), "a voice without text has ended");
+		std::vector<float> block(512, 1.0f);
+		instance->getAudio(block.data(), 512, 512);
+		delete instance;
+		check(block == std::vector<float>(512, 0.0f), "and plays silence");
+	}
+
+	// VizsnInstance::hasEnded turned true once the last phone was buffered,
+	// with up to 800 of its samples unplayed, and the read that reached the
+	// end of the text filled the rest of its block with old samples.
+	void vizsn_tail_is_played()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "ma"); // phones of 600, 800 and 800 samples
+		AudioSourceInstance *instance = vizsn.createInstance();
+		instance->init(vizsn, 0);
+		std::vector<float> out, block(512);
+		while (!instance->hasEnded() && out.size() < 100000)
+		{
+			std::fill(block.begin(), block.end(), 9.0f);
+			instance->getAudio(block.data(), 512, 512);
+			out.insert(out.end(), block.begin(), block.end());
+		}
+		delete instance;
+		check(out.size() >= 2200, "every phone plays");
+		bool silent = out.size() > 2200;
+		for (size_t i = 2200; i < out.size(); i++)
+			silent = silent && out[i] == 0.0f;
+		check(silent, "after the text, silence");
+	}
+
+	// VizsnInstance::getAudio buffered whole phones until the read was
+	// covered, so a read of more than 1248 samples (a seek's discard pass,
+	// or a loop's seek of 4096) wrote past its 2048-sample buffer.
+	void vizsn_long_reads_stay_in_bounds()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "moi maailma");
+		check(vizsnAudio(vizsn, 16384, 4096) == vizsnAudio(vizsn, 16384, 512), "long reads play as short ones");
+	}
+
+	// VizsnInstance had no rewind, so looping and seeking back failed.
+	void vizsn_rewind_restarts()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "moi maailma");
+		AudioSourceInstance *instance = vizsn.createInstance();
+		instance->init(vizsn, 0);
+		std::vector<float> block(512), again;
+		for (int i = 0; i < 3; i++)
+			instance->getAudio(block.data(), 512, 512);
+		check(instance->rewind() == SO_NO_ERROR, "the voice rewinds");
+		for (int i = 0; i < 4; i++)
+		{
+			instance->getAudio(block.data(), 512, 512);
+			again.insert(again.end(), block.begin(), block.end());
+		}
+		delete instance;
+		check(again == vizsnAudio(vizsn, 2048, 512), "a rewound voice plays as a new one");
+	}
+
+	// VizsnInstance::getAudio said it filled every read, so the mixer never
+	// saw the text end: a looping Vizsn never looped, and played silence.
+	void vizsn_loops()
+	{
+		Vizsn vizsn;
+		setVizsnText(vizsn, "ma"); // 2200 samples at 8000 Hz
+		AudioSourceInstance *instance = vizsn.createInstance();
+		instance->init(vizsn, 0);
+		std::vector<float> block(4096, 1.0f);
+		unsigned int read = instance->getAudio(block.data(), 4096, 4096);
+		delete instance;
+		check(read == 2200, "the read ends with the text");
+		Soloud soloud;
+		check(initNull(soloud), "null driver init");
+		vizsn.setLooping(true);
+		handle h = soloud.play(vizsn);
+		std::vector<float> out(2 * 4096);
+		for (int i = 0; i < 8; i++)
+			soloud.mix(out.data(), 4096);
+		check(soloud.getLoopCount(h) > 0, "the voice loops");
+	}
+
 	// Planar raw samples, every channel set to aValue.
 	result loadConstantRaw(Wav &aWav, unsigned int aChannels, unsigned int aFrames, float aValue)
 	{
@@ -1859,6 +2999,48 @@ namespace
 		{ "oggstream_seek_lands_on_target", oggstream_seek_lands_on_target },
 		{ "oggstream_seek_past_end_ends", oggstream_seek_past_end_ends },
 		{ "oggstream_cut_first_page_fails", oggstream_cut_first_page_fails },
+		{ "noise_zero_octave_sum_is_silent", noise_zero_octave_sum_is_silent },
+		{ "wavstream_reload_stops_voices", wavstream_reload_stops_voices },
+		{ "vic_register_index_in_range", vic_register_index_in_range },
+		{ "sfxr_short_file_fails", sfxr_short_file_fails },
+		{ "sfxr_filter_flag_is_a_bool", sfxr_filter_flag_is_a_bool },
+		{ "sfxr_ended_sound_stays_silent", sfxr_ended_sound_stays_silent },
+		{ "monotone_empty_song_is_silent", monotone_empty_song_is_silent },
+		{ "monotone_short_file_fails", monotone_short_file_fails },
+		{ "monotone_long_title_is_cut", monotone_long_title_is_cut },
+		{ "monotone_at_most_12_channels", monotone_at_most_12_channels },
+		{ "monotone_indices_in_range", monotone_indices_in_range },
+		{ "monotone_note_table_is_filled", monotone_note_table_is_filled },
+		{ "monotone_slow_rate_does_not_divide_by_zero", monotone_slow_rate_does_not_divide_by_zero },
+		{ "monotone_first_slide_starts_at_zero", monotone_first_slide_starts_at_zero },
+		{ "tedsid_model_from_dump", tedsid_model_from_dump },
+		{ "tedsid_reload_stops_voices", tedsid_reload_stops_voices },
+		{ "tedsid_header_is_checked", tedsid_header_is_checked },
+		{ "tedsid_loop_without_wait_fails", tedsid_loop_without_wait_fails },
+		{ "tedsid_zx7_stays_in_bounds", tedsid_zx7_stays_in_bounds },
+		{ "sid_envelope_rate_starts_in_range", sid_envelope_rate_starts_in_range },
+		{ "sid_attack_from_full_level_wraps", sid_attack_from_full_level_wraps },
+		{ "ay_right_channel_at_buffer_stride", ay_right_channel_at_buffer_stride },
+		{ "ay_reload_stops_voices", ay_reload_stops_voices },
+		{ "ay_header_is_checked", ay_header_is_checked },
+		{ "ay_zx7_stays_in_bounds", ay_zx7_stays_in_bounds },
+		{ "ay_speeds_are_checked", ay_speeds_are_checked },
+		{ "ay_chip_starts_at_zero", ay_chip_starts_at_zero },
+		{ "ay_last_write_is_played", ay_last_write_is_played },
+		{ "ay_long_wait_is_spread", ay_long_wait_is_spread },
+		{ "ay_tail_is_played", ay_tail_is_played },
+		{ "ay_rewind_restarts", ay_rewind_restarts },
+		{ "speech_speed_is_checked", speech_speed_is_checked },
+		{ "speech_voice_keeps_its_speed", speech_voice_keeps_its_speed },
+		{ "speech_stress_lookahead_in_bounds", speech_stress_lookahead_in_bounds },
+		{ "speech_phoneme_lookup_in_bounds", speech_phoneme_lookup_in_bounds },
+		{ "speech_stress_marks_apply", speech_stress_marks_apply },
+		{ "vizsn_voices_are_deterministic", vizsn_voices_are_deterministic },
+		{ "vizsn_without_text_ends", vizsn_without_text_ends },
+		{ "vizsn_tail_is_played", vizsn_tail_is_played },
+		{ "vizsn_long_reads_stay_in_bounds", vizsn_long_reads_stay_in_bounds },
+		{ "vizsn_rewind_restarts", vizsn_rewind_restarts },
+		{ "vizsn_loops", vizsn_loops },
 	};
 }
 

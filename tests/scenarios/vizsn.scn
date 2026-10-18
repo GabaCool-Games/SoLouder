@@ -1,0 +1,184 @@
+# Vizsn (milestone F unit 7): Finnish text letter by letter, with ä and
+# ö as 0x84 and 0x94 or `{` and `|`, capitals, digits, punctuation and
+# bytes from 0x80 as pauses, text after a 0 (vizsn/finnish.txt), an
+# empty text and no text (reference patch 0106), each played to its
+# end and past it into silence (patch 0107); noise of its own per voice
+# (patch 0105); reads of odd and large sizes (patch 0108); looping at
+# the end of the text (patch 0110), with a loop point, seeks forward
+# and back (patch 0108) and rewinds to a new voice's state (patch
+# 0109); play speeds; storing a name again stopping its voices; an
+# ended voice without auto stop; and a 44.1 kHz stereo engine
+# resampling, panning and filtering.
+init channels=1 rate=8000
+# moi
+vizsn name=moi text=moi_maailma
+play sound=moi as=moi
+mix frames=4096
+query h=moi
+mix frames=4096
+mix frames=4096
+query h=moi
+stop_all
+
+# braces
+vizsn name=braces text=t{m{_on_s|p|
+play sound=braces as=braces
+mix frames=4096
+query h=braces
+mix frames=4096
+mix frames=4096
+query h=braces
+stop_all
+
+# finnish
+vizsn name=finnish file=vizsn/finnish.txt
+play sound=finnish as=finnish
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=finnish
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=finnish
+stop_all
+
+# empty
+vizsn name=empty text=
+play sound=empty as=empty
+query h=empty
+mix frames=4096
+query h=empty
+stop_all
+
+# none
+vizsn name=none
+play sound=none as=none
+query h=none
+mix frames=4096
+query h=none
+stop_all
+
+# Two voices at once, each with noise of its own.
+vizsn name=two text=hei_sisko
+play sound=two as=a
+play sound=two as=b pan=0.3
+mix frames=1000
+play sound=two as=c volume=0.7
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=a
+query h=c
+stop_all
+
+# Reads of odd sizes, and larger than the phone buffer.
+vizsn name=reads text=lukemisia_kaikenkokoisina
+play sound=reads as=r
+mix frames=1
+mix frames=2
+mix frames=7
+mix frames=77
+mix frames=300
+mix frames=511
+mix frames=512
+mix frames=513
+mix frames=799
+mix frames=800
+mix frames=801
+mix frames=1023
+mix frames=2048
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=r
+stop_all
+
+# Looping: each loop is a new voice; one voice loops to a loop point.
+vizsn name=loop text=kissa looping=1
+vizsn name=point text=kissa looping=1 loop_point=0.2
+play sound=loop as=l
+play sound=point as=lp volume=0.6
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=l
+query h=lp
+# Seeks forward (past a loop) and back, and play speeds.
+set h=l seek=1.7
+query h=l
+mix frames=4096
+set h=l seek=0.05 speed=1.5
+query h=l
+mix frames=4096
+mix frames=4096
+set h=lp speed=0.7
+query h=lp
+mix frames=4096
+mix frames=4096
+# Storing a name again stops its voices.
+vizsn name=loop text=hei
+query h=l
+counts
+mix frames=4096
+stop_all
+
+# Without auto stop, an ended voice stays, silent.
+vizsn name=still text=hei auto_stop=0
+play sound=still as=st
+mix frames=4096
+mix frames=4096
+query h=st
+counts
+stop_all
+
+# A 44.1 kHz stereo engine: resampled, panned and filtered voices.
+init channels=2
+vizsn name=st file=vizsn/finnish.txt
+filter name=low kind=lofi rate=6000 bits=6
+sound_filter sound=st slot=0 filter=low
+play sound=st as=s1 pan=-0.6
+play sound=st as=s2 pan=0.6 volume=0.5
+set h=s2 speed=1.25
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=s1
+query h=s2
+voice_info h=s1 from=0 to=3
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=s1
+query h=s2
+stop_all

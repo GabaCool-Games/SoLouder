@@ -1,0 +1,37 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 01:58:56 +0300
+Subject: [PATCH] Vic::setRegister, getRegister: ignore indices outside the
+ registers
+
+Both indexed m_regs with any int: past its 4 entries they wrote and read
+the noise table that follows it, and below 0 the clocks before it. An
+index out of range is now ignored by setRegister and reads 0.
+---
+ src/audiosource/vic/soloud_vic.cpp | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/src/audiosource/vic/soloud_vic.cpp b/src/audiosource/vic/soloud_vic.cpp
+index 9e18007..15701f2 100644
+--- a/src/audiosource/vic/soloud_vic.cpp
++++ b/src/audiosource/vic/soloud_vic.cpp
+@@ -150,13 +150,19 @@ namespace SoLoud
+ 		return m_model;
+ 	}
+ 
++	// An index outside the registers wrote or read the clocks before them
++	// or the noise table after them: it is ignored, and reads 0.
+ 	void Vic::setRegister(int reg, unsigned char value) 
+ 	{ 
++		if (reg < 0 || reg >= MAX_REGS)
++			return;
+ 		m_regs[reg] = value; 
+ 	}
+ 	
+ 	unsigned char Vic::getRegister(int reg)
+ 	{ 
++		if (reg < 0 || reg >= MAX_REGS)
++			return 0;
+ 		return m_regs[reg]; 
+ 	}
+ 

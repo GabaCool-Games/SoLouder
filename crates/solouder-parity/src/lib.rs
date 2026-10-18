@@ -5,12 +5,15 @@
 //! repository root; the C++ side is `reference/tests/parity_runner.cpp`.
 
 mod bus_ops;
+mod chip_ops;
 mod compare;
 mod fade_ops;
 mod fft_ops;
 mod files;
 mod filter_kinds;
 mod filter_ops;
+mod generator_ops;
+mod monotone_ops;
 mod ops;
 pub mod pattern;
 pub mod profiles;
@@ -19,9 +22,12 @@ mod realtime;
 mod realtime_ops;
 pub mod run;
 pub mod scenario;
+mod sfxr_ops;
 mod spatial_custom;
 mod spatial_ops;
+mod speech_ops;
 mod stream_ops;
+mod vic_ops;
 mod visual_ops;
 mod voice_ops;
 

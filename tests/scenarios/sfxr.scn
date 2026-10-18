@@ -1,0 +1,399 @@
+# Sfxr (milestone F unit 3): every preset with several seeds, including
+# seeds whose state arithmetic wraps (4294967295 is -1 and 2147483648 is
+# INT_MIN as an int), each played to its end through the decaying tails
+# of its filters; an unknown preset (INVALID_PARAMETER); parameter files of
+# versions 100, 101 and 102 loaded from a path, from memory and through a
+# DiskFile, a wave type without a waveform, a filter flag byte of 2
+# (reference patch 0073), trailing bytes, and damaged files that fail
+# without changing the settings (patch 0072), while version 100 keeps the
+# previous arpeggio and slide change; settings changed after a play
+# reaching only later voices; looping inside the source (also switched
+# off while playing), seeking forward and back (NOT_IMPLEMENTED), a filter,
+# a queue, and a 48 kHz engine.
+init channels=2
+sfxr name=p0_0 preset=0 seed=0
+sfxr_query name=p0_0
+play sound=p0_0 as=h_p0_0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p0_0
+stop_all
+sfxr name=p0_12345 preset=0 seed=12345
+sfxr_query name=p0_12345
+play sound=p0_12345 as=h_p0_12345
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p0_12345
+stop_all
+sfxr name=p0_4294967295 preset=0 seed=4294967295
+sfxr_query name=p0_4294967295
+play sound=p0_4294967295 as=h_p0_4294967295
+mix frames=4096
+mix frames=4096
+query h=h_p0_4294967295
+stop_all
+sfxr name=p0_2147483648 preset=0 seed=2147483648
+sfxr_query name=p0_2147483648
+play sound=p0_2147483648 as=h_p0_2147483648
+mix frames=4096
+mix frames=4096
+query h=h_p0_2147483648
+stop_all
+sfxr name=p1_0 preset=1 seed=0
+sfxr_query name=p1_0
+play sound=p1_0 as=h_p1_0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p1_0
+stop_all
+sfxr name=p1_12345 preset=1 seed=12345
+sfxr_query name=p1_12345
+play sound=p1_12345 as=h_p1_12345
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p1_12345
+stop_all
+sfxr name=p1_4294967295 preset=1 seed=4294967295
+sfxr_query name=p1_4294967295
+play sound=p1_4294967295 as=h_p1_4294967295
+mix frames=4096
+mix frames=4096
+query h=h_p1_4294967295
+stop_all
+sfxr name=p1_2147483648 preset=1 seed=2147483648
+sfxr_query name=p1_2147483648
+play sound=p1_2147483648 as=h_p1_2147483648
+mix frames=4096
+mix frames=4096
+query h=h_p1_2147483648
+stop_all
+sfxr name=p2_0 preset=2 seed=0
+sfxr_query name=p2_0
+play sound=p2_0 as=h_p2_0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p2_0
+stop_all
+sfxr name=p2_12345 preset=2 seed=12345
+sfxr_query name=p2_12345
+play sound=p2_12345 as=h_p2_12345
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p2_12345
+stop_all
+sfxr name=p2_4294967295 preset=2 seed=4294967295
+sfxr_query name=p2_4294967295
+play sound=p2_4294967295 as=h_p2_4294967295
+mix frames=4096
+mix frames=4096
+query h=h_p2_4294967295
+stop_all
+sfxr name=p2_2147483648 preset=2 seed=2147483648
+sfxr_query name=p2_2147483648
+play sound=p2_2147483648 as=h_p2_2147483648
+mix frames=4096
+mix frames=4096
+query h=h_p2_2147483648
+stop_all
+sfxr name=p3_0 preset=3 seed=0
+sfxr_query name=p3_0
+play sound=p3_0 as=h_p3_0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p3_0
+stop_all
+sfxr name=p3_12345 preset=3 seed=12345
+sfxr_query name=p3_12345
+play sound=p3_12345 as=h_p3_12345
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p3_12345
+stop_all
+sfxr name=p3_4294967295 preset=3 seed=4294967295
+sfxr_query name=p3_4294967295
+play sound=p3_4294967295 as=h_p3_4294967295
+mix frames=4096
+mix frames=4096
+query h=h_p3_4294967295
+stop_all
+sfxr name=p3_2147483648 preset=3 seed=2147483648
+sfxr_query name=p3_2147483648
+play sound=p3_2147483648 as=h_p3_2147483648
+mix frames=4096
+mix frames=4096
+query h=h_p3_2147483648
+stop_all
+sfxr name=p4_0 preset=4 seed=0
+sfxr_query name=p4_0
+play sound=p4_0 as=h_p4_0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p4_0
+stop_all
+sfxr name=p4_12345 preset=4 seed=12345
+sfxr_query name=p4_12345
+play sound=p4_12345 as=h_p4_12345
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p4_12345
+stop_all
+sfxr name=p4_4294967295 preset=4 seed=4294967295
+sfxr_query name=p4_4294967295
+play sound=p4_4294967295 as=h_p4_4294967295
+mix frames=4096
+mix frames=4096
+query h=h_p4_4294967295
+stop_all
+sfxr name=p4_2147483648 preset=4 seed=2147483648
+sfxr_query name=p4_2147483648
+play sound=p4_2147483648 as=h_p4_2147483648
+mix frames=4096
+mix frames=4096
+query h=h_p4_2147483648
+stop_all
+sfxr name=p5_0 preset=5 seed=0
+sfxr_query name=p5_0
+play sound=p5_0 as=h_p5_0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p5_0
+stop_all
+sfxr name=p5_12345 preset=5 seed=12345
+sfxr_query name=p5_12345
+play sound=p5_12345 as=h_p5_12345
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p5_12345
+stop_all
+sfxr name=p5_4294967295 preset=5 seed=4294967295
+sfxr_query name=p5_4294967295
+play sound=p5_4294967295 as=h_p5_4294967295
+mix frames=4096
+mix frames=4096
+query h=h_p5_4294967295
+stop_all
+sfxr name=p5_2147483648 preset=5 seed=2147483648
+sfxr_query name=p5_2147483648
+play sound=p5_2147483648 as=h_p5_2147483648
+mix frames=4096
+mix frames=4096
+query h=h_p5_2147483648
+stop_all
+sfxr name=p6_0 preset=6 seed=0
+sfxr_query name=p6_0
+play sound=p6_0 as=h_p6_0
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p6_0
+stop_all
+sfxr name=p6_12345 preset=6 seed=12345
+sfxr_query name=p6_12345
+play sound=p6_12345 as=h_p6_12345
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=h_p6_12345
+stop_all
+sfxr name=p6_4294967295 preset=6 seed=4294967295
+sfxr_query name=p6_4294967295
+play sound=p6_4294967295 as=h_p6_4294967295
+mix frames=4096
+mix frames=4096
+query h=h_p6_4294967295
+stop_all
+sfxr name=p6_2147483648 preset=6 seed=2147483648
+sfxr_query name=p6_2147483648
+play sound=p6_2147483648 as=h_p6_2147483648
+mix frames=4096
+mix frames=4096
+query h=h_p6_2147483648
+stop_all
+sfxr name=bad preset=7 seed=3
+sfxr_query name=bad
+sfxr_load name=bad preset=4294967295
+
+# Parameter files.
+sfxr name=laser file=sfxr/v102_laser.sfx volume=0.7
+sfxr name=burst file=sfxr/v101_burst.sfx from=memory
+sfxr name=sine file=sfxr/v100_sine.sfx from=file
+sfxr name=saw file=sfxr/v102_saw.sfx
+sfxr name=wave7 file=sfxr/v102_wave_7.sfx
+sfxr name=flag file=sfxr/v102_filter_byte_2.sfx from=memory
+sfxr name=trail file=sfxr/v101_trailing.sfx from=file
+sfxr_query name=laser
+sfxr_query name=burst
+sfxr_query name=sine
+sfxr_query name=saw
+sfxr_query name=wave7
+sfxr_query name=flag
+sfxr_query name=trail
+play sound=laser as=f_laser
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=f_laser
+stop_all
+play sound=burst as=f_burst
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=f_burst
+stop_all
+play sound=sine as=f_sine
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=f_sine
+stop_all
+play sound=saw as=f_saw
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=f_saw
+stop_all
+play sound=wave7 as=f_wave7
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=f_wave7
+stop_all
+sfxr_load name=laser file=sfxr/bad_cut_102.sfx from=path
+sfxr_load name=laser file=sfxr/bad_cut_102.sfx from=memory
+sfxr_load name=laser file=sfxr/bad_cut_102.sfx from=file
+sfxr_load name=laser file=sfxr/bad_cut_header.sfx from=path
+sfxr_load name=laser file=sfxr/bad_cut_header.sfx from=memory
+sfxr_load name=laser file=sfxr/bad_cut_header.sfx from=file
+sfxr_load name=laser file=sfxr/bad_version_103.sfx from=path
+sfxr_load name=laser file=sfxr/bad_version_103.sfx from=memory
+sfxr_load name=laser file=sfxr/bad_version_103.sfx from=file
+sfxr_load name=laser file=sfxr/bad_empty.sfx from=path
+sfxr_load name=laser file=sfxr/bad_empty.sfx from=memory
+sfxr_load name=laser file=sfxr/bad_empty.sfx from=file
+sfxr_query name=laser
+# Version 100 keeps the arpeggio and slide change already loaded.
+sfxr_load name=laser file=sfxr/v100_sine.sfx
+sfxr_query name=laser
+play sound=laser as=kept
+mix frames=4096
+mix frames=4096
+stop_all
+
+# A voice keeps the settings it started with.
+sfxr name=change preset=5 seed=9
+play sound=change as=c1
+mix frames=1000
+sfxr_load name=change preset=0 seed=9
+play sound=change as=c2 pan=0.5
+mix frames=4096
+sfxr_reset name=change
+sfxr_query name=change
+play sound=change as=c3 pan=-0.5
+mix frames=4096
+mix frames=4096
+sound_query name=change
+counts
+stop_all
+
+# Looping restarts inside the source; switching it off lets the sound end.
+sfxr name=loop preset=6 seed=77 looping=1
+play sound=loop as=l
+mix frames=4096
+mix frames=4096
+mix frames=4096
+query h=l
+set h=l looping=0
+mix frames=4096
+mix frames=4096
+query h=l
+counts
+
+# Speed, sample rate and seeks.
+sfxr name=long preset=3 seed=5
+play sound=long as=s
+set h=s speed=1.3
+mix frames=1500
+set h=s seek=0.2
+mix frames=900
+set h=s seek=0.05
+query h=s
+set h=s rate=30000
+mix frames=2000
+stop_all
+
+# A filter, two voices, a queue.
+filter name=echo kind=echo delay=0.05 decay=0.5
+sound_filter sound=laser slot=1 filter=echo
+play sound=laser as=e1
+play sound=laser as=e2 pan=-1 volume=0.5
+mix frames=4096
+mix frames=4096
+stop_all
+queue name=q rate=44100 channels=1
+play sound=q as=qv
+queue_add queue=q sound=p0_0
+queue_add queue=q sound=burst
+queue_add queue=q sound=loop
+mix frames=4096
+set h=qv seek=0.3
+mix frames=4096
+mix frames=4096
+queue_query queue=q
+
+init channels=2 rate=48000 buffer=6000
+sfxr name=x preset=2 seed=31
+play sound=x as=x
+mix frames=4096
+set h=x seek=0.3
+mix frames=4096
+mix frames=4096

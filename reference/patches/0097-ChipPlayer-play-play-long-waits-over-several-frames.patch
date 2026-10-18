@@ -1,0 +1,85 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:11:59 +0300
+Subject: [PATCH] ChipPlayer::play: play long waits over several frames
+
+play renders frames of about half its 8192-sample buffer, but a wait was
+played whole within its frame: a wait of more than about 8000 samples
+(0.18 seconds) overran the buffer onto its own samples, garbling the
+audio, and rendered all of its chip ticks in one read on the audio
+thread. A frame now takes at most twice its ticks of a wait, and the
+rest is played over the next frames. Dumps without such waits play as
+before.
+---
+ src/audiosource/ay/chipplayer.cpp | 22 ++++++++++++++++++----
+ src/audiosource/ay/chipplayer.h   |  2 ++
+ 2 files changed, 20 insertions(+), 4 deletions(-)
+
+diff --git a/src/audiosource/ay/chipplayer.cpp b/src/audiosource/ay/chipplayer.cpp
+index 218f121..873b3f3 100644
+--- a/src/audiosource/ay/chipplayer.cpp
++++ b/src/audiosource/ay/chipplayer.cpp
+@@ -42,6 +42,7 @@ void ChipPlayer::set_timings(unsigned aSystem_clock_rate, unsigned chip_clock_ra
+ 	chip.set_timings(system_clock_rate, chip_clock_rate, sample_rate);
+ 	chip2.set_timings(system_clock_rate, chip_clock_rate, sample_rate);
+ 	playtick = 0; playpos = 0;
++	pendingticks = 0;
+ 	buffer.reset();
+ }
+ 
+@@ -89,7 +90,7 @@ unsigned ChipPlayer::play(float *dst, unsigned need_samples, unsigned stride)
+ 		need_samples -= from_buffer;
+ 		if (!need_samples) return requested;
+ 
+-		if (mInstance->mPos >= mInstance->mParent->mLength)
++		if (mInstance->mPos >= mInstance->mParent->mLength && !pendingticks)
+ 			return requested - need_samples;
+ 
+ 		// render to buffer
+@@ -97,7 +98,13 @@ unsigned ChipPlayer::play(float *dst, unsigned need_samples, unsigned stride)
+ 		chip2.start_frame();
+ 
+ 		unsigned frame_tick = playtick;
+-		while ((unsigned)(playtick - frame_tick) < ticks_per_buffer && mInstance->mPos < mInstance->mParent->mLength)
++		// The buffer holds about twice a frame's ticks: a longer wait is
++		// played over several frames.
++		unsigned limit = ticks_per_buffer * 2;
++		unsigned step = pendingticks < limit ? pendingticks : limit;
++		playtick += step;
++		pendingticks -= step;
++		while (!pendingticks && (unsigned)(playtick - frame_tick) < ticks_per_buffer && mInstance->mPos < mInstance->mParent->mLength)
+ 		{
+ 			unsigned short rd;
+ 			do
+@@ -106,9 +113,16 @@ unsigned ChipPlayer::play(float *dst, unsigned need_samples, unsigned stride)
+ 				mInstance->mPos += 2;
+ 				if (rd & 0x8000)
+ 				{
+-					playtick += rd ^ 0x8000;
++					unsigned wait = rd ^ 0x8000;
++					unsigned room = limit - (unsigned)(playtick - frame_tick);
++					if (wait > room)
++					{
++						pendingticks = wait - room;
++						wait = room;
++					}
++					playtick += wait;
+ 				}
+-			} while ((rd & 0x8000) && !(mInstance->mPos >= mInstance->mParent->mLength));
++			} while ((rd & 0x8000) && !pendingticks && !(mInstance->mPos >= mInstance->mParent->mLength));
+ 
+ 			// Out of ops while waiting. A register write that is the last op
+ 			// is still played.
+diff --git a/src/audiosource/ay/chipplayer.h b/src/audiosource/ay/chipplayer.h
+index af31b89..9957693 100644
+--- a/src/audiosource/ay/chipplayer.h
++++ b/src/audiosource/ay/chipplayer.h
+@@ -32,6 +32,8 @@ class ChipPlayer
+ 
+    unsigned locate(unsigned tick);
+    unsigned playtick;
++   // ticks of a wait left for the next frames
++   unsigned pendingticks;
+    unsigned playpos;
+    unsigned system_clock_rate;
+    unsigned ticks_per_buffer;

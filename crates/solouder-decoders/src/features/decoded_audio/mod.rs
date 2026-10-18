@@ -8,6 +8,7 @@ mod detect;
 mod error;
 pub(crate) mod flac;
 pub(crate) mod mp3;
+mod reader;
 pub(crate) mod riff;
 pub(crate) mod vorbis;
 mod wav;
@@ -16,6 +17,7 @@ pub use detect::decode;
 pub use error::{DecodeError, DecodeLimits};
 pub use flac::decode_flac;
 pub use mp3::decode_mp3;
+pub use reader::decode_reader;
 pub use vorbis::decode_ogg;
 pub use wav::decode_wav;
 

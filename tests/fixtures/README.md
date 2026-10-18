@@ -39,4 +39,47 @@ repository's license and contain no third-party audio.
   only part of its first page, `bad_junk_prefix_*` bytes before the first
   MP3 frame, and `bad_not_audio` no audio at all.
 
+- `sfxr/` (and the other generator inputs): written by `python
+  scripts/gen_source_fixtures.py`, field by field in the layouts SoLoud's
+  loaders read; `--check` works as for WAV. Sfxr parameter files cover
+  versions 100, 101 and 102, every wave type and one without a waveform
+  (`wave_7`), a filter flag byte of 2 and trailing bytes; `bad_cut_*` ends
+  inside the fields, `bad_version_*` has an unknown version and `bad_empty`
+  is empty. Monotone songs: `demo` uses every effect, notes past 99 and
+  vibrato on note 1; `jumps` jumps into a missing pattern; `twelve` has
+  the most tracks; `no_end` has no end marker in its order; `long_title`
+  has title and comment lengths past their 40 bytes and a NUL;
+  `trailing` has bytes after its last cell. `bad_magic`, `bad_version_2`,
+  `bad_cell_size_1` and `bad_13_tracks` are refused; `bad_cut_*` end in
+  the title, the order and the cells; `bad_empty` is empty. Chip dumps
+  (`chipdump/`, the `CHIPTUNE` layout of SoLoud's `tedsid2dump`; `.zx7`
+  ones are compressed with the script's own zx7 encoder): a SID tune for
+  each model (`sid_6581`, `sid_8580`, `sid_8580db`, `sid_6581r1`), a TED
+  tune (`ted`), both chips over two chunks looping into the second from
+  an odd byte (`sidted`), chip type 6 with a later data offset
+  (`sidted_6`), and an odd length (`odd_length`). `bad_short`,
+  `bad_magic`, `bad_chip_1`, `bad_no_chunks`, `bad_loop_end` and
+  `bad_data_offset` have bad headers; `bad_cut` ends in its data;
+  `bad_no_wait` and `bad_zero_waits` loop without waiting;
+  `bad_zx7_overrun` decompresses past its length and `bad_zx7_cut` ends
+  in a compressed chunk. AY dumps (`ay_*`): one AY chip, a YM chip
+  (flag 64), TurboSound and TurboSound Next (chip types 2 and 3, with
+  writes to a second chip), the slowest tick rate and chip clock the
+  player renders (`ay_slow`), a fast tick rate (`ay_fast`), and several
+  chunks with the loop position at the end, which Ay does not use
+  (`ay_long`); each tune uses every tone, noise, mixer and envelope
+  setting, a pause longer than a frame and a last op that writes.
+  `bad_ay_chip_0` is a TedSid chip type, `bad_ay_cpu_0`, `bad_ay_cpu_10`
+  and `bad_ay_chip_speed` have speeds the player cannot render, and
+  `bad_ay_no_chunks`, `bad_ay_cut` and `bad_ay_zx7_cut` are damaged.
+  Speech texts (`speech/`, read byte for byte): a sentence with numbers,
+  a decimal point, a negative number and punctuation (`sentence`);
+  `[phonemes]` with stress marks, a byte that is no phoneme and an
+  unclosed bracket (`phonemes`); UTF-8, control bytes, spelled words,
+  numbers past the int range and suffix rules (`odd`); text after a 0
+  (`stops_at_zero`); and more than 128 elements (`long`).
+  Vizsn text (`vizsn/finnish.txt`, CP437): ä and ö as 0x84 and 0x94 and
+  as `{` and `|`, capitals, digits, punctuation, bytes from 0x80 that
+  are no letters, and text after a 0.
+
 Change a fixture by editing the generator and rerunning it, never by hand.

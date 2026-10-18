@@ -1,0 +1,36 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 03:54:51 +0300
+Subject: [PATCH] VizsnInstance::hasEnded: end once the buffered samples are
+ played
+
+hasEnded turned true once the last phone was buffered, with up to 800 of its samples unplayed, and the read that reached the end of the text filled the rest of its block with the buffer's old samples. A voice now ends after its buffered samples, and past the text a block is silent.
+---
+ src/audiosource/vizsn/soloud_vizsn.cpp | 7 ++++---
+ 1 file changed, 4 insertions(+), 3 deletions(-)
+
+diff --git a/src/audiosource/vizsn/soloud_vizsn.cpp b/src/audiosource/vizsn/soloud_vizsn.cpp
+index 6e169a2..a6af503 100644
+--- a/src/audiosource/vizsn/soloud_vizsn.cpp
++++ b/src/audiosource/vizsn/soloud_vizsn.cpp
+@@ -306,8 +306,8 @@ namespace SoLoud
+ 		}
+ 		for (; idx < aSamplesToRead; idx++)
+ 		{
+-			aBuffer[idx] = mBuf[mBufread];
+-			mBufread++;
++			// Past the text the block is silent, not the buffer's old samples.
++			aBuffer[idx] = mBufread < mBufwrite ? mBuf[mBufread++] : 0;
+ 		}
+ 		return aSamplesToRead;
+ 	}
+@@ -501,7 +501,8 @@ namespace SoLoud
+ 
+ 	bool VizsnInstance::hasEnded()
+ 	{
+-		return *mS == P_END;
++		// The text's end, once its buffered samples are played.
++		return *mS == P_END && mBufread >= mBufwrite;
+ 	}
+ 
+ 	Vizsn::Vizsn()

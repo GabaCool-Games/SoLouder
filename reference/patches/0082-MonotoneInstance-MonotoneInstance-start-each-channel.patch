@@ -1,0 +1,28 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: V <61495413+kelo221@users.noreply.github.com>
+Date: Sun, 18 Oct 2026 02:25:37 +0300
+Subject: [PATCH] MonotoneInstance::MonotoneInstance: start each channel's
+ frequencies at 0
+
+Each channel's frequencies and portamento were left uninitialised, and
+a portamento to a note on the channel's first row slides from the
+frequency it had. They now start at 0.
+---
+ src/audiosource/monotone/soloud_monotone.cpp | 4 ++++
+ 1 file changed, 4 insertions(+)
+
+diff --git a/src/audiosource/monotone/soloud_monotone.cpp b/src/audiosource/monotone/soloud_monotone.cpp
+index bc704dd..e0f3f53 100644
+--- a/src/audiosource/monotone/soloud_monotone.cpp
++++ b/src/audiosource/monotone/soloud_monotone.cpp
+@@ -59,6 +59,10 @@ namespace SoLoud
+ 			mOutput[i].mEnabled = i < mParent->mHardwareChannels && i < mParent->mSong.mTotalTracks;			
+ 			mChannel[i].mEnabled = i < mParent->mSong.mTotalTracks;
+ 			mChannel[i].mActive = 0;
++			mChannel[i].mFreq[0] = 0;
++			mChannel[i].mFreq[1] = 0;
++			mChannel[i].mFreq[2] = 0;
++			mChannel[i].mPortamento = 0;
+ 			mChannel[i].mArpCounter = 0;
+ 			mChannel[i].mLastNote = 0;
+ 			mChannel[i].mPortamentoToNote = 0;

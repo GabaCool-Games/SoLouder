@@ -4,13 +4,15 @@
 //! Audio files streamed from disk or memory (`WavStream` with dr_wav,
 //! dr_flac, stb_vorbis and dr_mp3).
 
+use std::any::Any;
 use std::fs::File;
-use std::io::Cursor;
+use std::io::{Cursor, Read};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
 use solouder_core::{StreamFormat, StreamReader, StreamSource};
 
+use super::StreamFile;
 use super::kind::{self, BoxedSource, Kind};
 use crate::DecodeError;
 use crate::features::decoded_audio::vorbis::FileKind;
@@ -21,6 +23,9 @@ enum Origin {
     Memory(Arc<[u8]>),
     /// Opened again by every voice (`load`).
     File(PathBuf),
+    /// Opened by every voice through the caller's [`StreamFile`]
+    /// (`loadFile`).
+    Custom(Box<dyn StreamFile>),
 }
 
 /// An audio file decoded while it plays (SoLoud's `WavStream`): wrap it in
@@ -86,6 +91,39 @@ impl WavStream {
         let bytes = std::fs::read(path).map_err(DecodeError::Io)?;
         Self::from_bytes(bytes)
     }
+
+    /// Reads `reader` to its end and streams from those bytes
+    /// (`WavStream::loadFileToMem`). Nothing caps the read: the caller picks
+    /// the reader.
+    pub fn from_reader(mut reader: impl Read) -> Result<Self, DecodeError> {
+        let mut bytes = Vec::new();
+        reader.read_to_end(&mut bytes).map_err(DecodeError::Io)?;
+        Self::from_bytes(bytes)
+    }
+
+    /// A stream each voice opens through `file` (`WavStream::loadFile`); the
+    /// header is read now. A path behaves as [`WavStream::open`] and bytes
+    /// as [`WavStream::from_bytes`]. Any other file is read as SoLoud reads
+    /// a `MemoryFile`: Ogg Vorbis sees the end of the data where it ends
+    /// (SoLoud's `DiskFile` reads one byte past it). A voice whose file
+    /// fails to open ends at once. Unlike SoLoud, voices do not share one
+    /// cursor (see [`StreamFile`]).
+    pub fn from_file(file: impl StreamFile) -> Result<Self, DecodeError> {
+        let any: &dyn Any = &file;
+        if let Some(path) = any.downcast_ref::<PathBuf>() {
+            return Self::open(path);
+        }
+        if let Some(bytes) = any.downcast_ref::<Arc<[u8]>>() {
+            return Self::from_bytes(Arc::clone(bytes));
+        }
+        let input = file.open().map_err(DecodeError::Io)?;
+        let (kind, format) = kind::probe(input, FileKind::Memory)?;
+        Ok(Self {
+            origin: Origin::Custom(Box::new(file)),
+            kind,
+            format,
+        })
+    }
 }
 
 impl StreamSource for WavStream {
@@ -97,6 +135,7 @@ impl StreamSource for WavStream {
         let (input, file): (BoxedSource, _) = match &self.origin {
             Origin::Memory(bytes) => (Box::new(Cursor::new(Arc::clone(bytes))), FileKind::Memory),
             Origin::File(path) => (Box::new(File::open(path).ok()?), FileKind::Disk),
+            Origin::Custom(file) => (file.open().ok()?, FileKind::Memory),
         };
         kind::open(self.kind, self.format, input, file)
     }

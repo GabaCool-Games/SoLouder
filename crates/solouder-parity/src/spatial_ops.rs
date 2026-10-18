@@ -42,6 +42,8 @@ macro_rules! with_source {
             $body
         } else if let Some($source) = $state.queues.get_mut($name) {
             $body
+        } else if let Some($source) = $state.synths.get_mut($name) {
+            $body
         }
     };
 }
@@ -173,6 +175,7 @@ impl State {
             Source::Stream(stream) => start(mixer, stream, &how),
             Source::Bus(bus) => start(mixer, bus, &how),
             Source::Queue(queue) => start(mixer, queue, &how),
+            Source::Synth(synth) => start(mixer, synth, &how),
         };
         let sound_name = step.text("sound")?.to_owned();
         self.played.entry(sound_name).or_default().push(handle);

@@ -1,5 +1,5 @@
-//! Audio assets: decoded PCM, or audio decoded while it plays, loaded
-//! through the asset server.
+//! Audio assets: decoded PCM, audio decoded while it plays, or a
+//! generator's audio; files are loaded through the asset server.
 
 use std::sync::Arc;
 
@@ -7,15 +7,17 @@ use bevy::asset::io::Reader;
 use bevy::asset::{Asset, AssetApp, AssetLoader, LoadContext};
 use bevy::prelude::*;
 use serde::{Deserialize, Serialize};
-use solouder_core::{Pcm, Stream};
+use solouder_core::{Generator, Pcm, Stream, Synth, SynthError};
 use solouder_decoders::{DecodeError, DecodeLimits, WavStream, decode};
 
 /// Immutable audio, shared by every entity that plays it: decoded samples,
-/// or a stream that each voice decodes as it plays.
+/// a stream that each voice decodes as it plays, or a generator (a
+/// [`Synth`]) whose voices compute their audio as they play.
 ///
-/// Playing a decoded clip shares its samples with the voice, and a streamed
-/// clip's encoded bytes with its reader, so removing or reloading the asset
-/// never affects audio already playing.
+/// Playing a decoded clip shares its samples with the voice, a streamed
+/// clip's encoded bytes with its reader, and a generated clip's generator
+/// with the voice's instance, so removing or reloading the asset never
+/// affects audio already playing.
 #[derive(Asset, TypePath, Clone, Debug)]
 pub struct AudioClip {
     audio: ClipAudio,
@@ -25,6 +27,7 @@ pub struct AudioClip {
 enum ClipAudio {
     Decoded(Pcm),
     Streamed(Stream),
+    Generated(Synth),
 }
 
 impl AudioClip {
@@ -42,29 +45,55 @@ impl AudioClip {
         }
     }
 
+    /// Wraps a synth: a generator with its playback defaults (volume,
+    /// filters, 3D settings). Its voices share the generator, so a
+    /// generator whose parameters are live (a `Vic`'s registers, a
+    /// `Speech`'s voice) can still be changed through a clone kept by the
+    /// caller.
+    pub fn generated(synth: Synth) -> Self {
+        Self {
+            audio: ClipAudio::Generated(synth),
+        }
+    }
+
+    /// Wraps a generator with the default playback settings.
+    pub fn from_generator(generator: impl Generator + 'static) -> Result<Self, SynthError> {
+        Synth::new(Arc::new(generator)).map(Self::generated)
+    }
+
     /// The samples of a decoded clip.
     pub fn pcm(&self) -> Option<&Pcm> {
         match &self.audio {
             ClipAudio::Decoded(pcm) => Some(pcm),
-            ClipAudio::Streamed(_) => None,
+            _ => None,
         }
     }
 
     /// The stream of a streamed clip.
     pub fn stream(&self) -> Option<&Stream> {
         match &self.audio {
-            ClipAudio::Decoded(_) => None,
             ClipAudio::Streamed(stream) => Some(stream),
+            _ => None,
         }
     }
 
-    /// Length in seconds at the clip's own sample rate.
-    pub fn duration_seconds(&self) -> f64 {
+    /// The synth of a generated clip.
+    pub fn synth(&self) -> Option<&Synth> {
+        match &self.audio {
+            ClipAudio::Generated(synth) => Some(synth),
+            _ => None,
+        }
+    }
+
+    /// Length in seconds at the clip's own sample rate; `None` for a
+    /// generated clip, whose generator decides when it ends.
+    pub fn duration_seconds(&self) -> Option<f64> {
         let (frames, rate) = match &self.audio {
             ClipAudio::Decoded(pcm) => (pcm.frames(), pcm.sample_rate()),
             ClipAudio::Streamed(stream) => (stream.format().frames, stream.format().sample_rate),
+            ClipAudio::Generated(_) => return None,
         };
-        f64::from(frames) / f64::from(rate)
+        Some(f64::from(frames) / f64::from(rate))
     }
 }
 

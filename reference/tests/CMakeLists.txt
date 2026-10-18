@@ -124,6 +124,48 @@ set(REFERENCE_TESTS
   oggstream_seek_lands_on_target
   oggstream_seek_past_end_ends
   oggstream_cut_first_page_fails
+  noise_zero_octave_sum_is_silent
+  wavstream_reload_stops_voices
+  vic_register_index_in_range
+  sfxr_short_file_fails
+  sfxr_filter_flag_is_a_bool
+  sfxr_ended_sound_stays_silent
+  monotone_empty_song_is_silent
+  monotone_short_file_fails
+  monotone_long_title_is_cut
+  monotone_at_most_12_channels
+  monotone_indices_in_range
+  monotone_note_table_is_filled
+  monotone_slow_rate_does_not_divide_by_zero
+  monotone_first_slide_starts_at_zero
+  tedsid_model_from_dump
+  tedsid_reload_stops_voices
+  tedsid_header_is_checked
+  tedsid_loop_without_wait_fails
+  tedsid_zx7_stays_in_bounds
+  sid_envelope_rate_starts_in_range
+  sid_attack_from_full_level_wraps
+  ay_right_channel_at_buffer_stride
+  ay_reload_stops_voices
+  ay_header_is_checked
+  ay_zx7_stays_in_bounds
+  ay_speeds_are_checked
+  ay_chip_starts_at_zero
+  ay_last_write_is_played
+  ay_long_wait_is_spread
+  ay_tail_is_played
+  ay_rewind_restarts
+  speech_speed_is_checked
+  speech_voice_keeps_its_speed
+  speech_stress_lookahead_in_bounds
+  speech_phoneme_lookup_in_bounds
+  speech_stress_marks_apply
+  vizsn_voices_are_deterministic
+  vizsn_without_text_ends
+  vizsn_tail_is_played
+  vizsn_long_reads_stay_in_bounds
+  vizsn_rewind_restarts
+  vizsn_loops
 )
 
 enable_testing()

@@ -20,6 +20,15 @@ impl Default for DecodeLimits {
     }
 }
 
+impl DecodeLimits {
+    /// Largest file read through a reader
+    /// ([`decode_reader`](crate::decode_reader)): 8 bytes per sample (64-bit
+    /// WAV samples are the widest) plus 1 MiB for headers and other chunks.
+    pub fn max_file_bytes(&self) -> u64 {
+        self.max_samples.saturating_mul(8).saturating_add(1 << 20)
+    }
+}
+
 /// Why a file could not be decoded.
 #[derive(Debug)]
 #[non_exhaustive]
@@ -41,6 +50,12 @@ pub enum DecodeError {
         /// Samples (frames times channels) the file needs, as far as known.
         samples: u64,
         /// The configured limit.
+        limit: u64,
+    },
+    /// A file read through a reader is longer than
+    /// [`DecodeLimits::max_file_bytes`].
+    FileTooLarge {
+        /// The limit, in bytes.
         limit: u64,
     },
     /// Allocating the decoded audio failed.
@@ -66,6 +81,7 @@ impl fmt::Display for DecodeError {
             Self::TooLarge { samples, limit } => {
                 write!(f, "{samples} samples exceed the limit of {limit}")
             }
+            Self::FileTooLarge { limit } => write!(f, "the file is longer than {limit} bytes"),
             Self::OutOfMemory => write!(f, "out of memory while decoding"),
             Self::Io(error) => write!(f, "reading the audio failed: {error}"),
         }
