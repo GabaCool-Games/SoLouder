@@ -26,6 +26,9 @@ pub struct Stats {
     /// Samples that match only because one side is subnormal and the other
     /// zero.
     pub flushed: usize,
+    /// Samples whose bits differ (after counting subnormals as zero); within
+    /// a tolerance they may still match.
+    pub differing: usize,
 }
 
 /// Zero for any zero or subnormal value: the C++ reference runs with
@@ -67,15 +70,28 @@ pub fn load_golden(dir: &Path, name: &str) -> io::Result<Option<Golden>> {
     Ok(Some(Golden { samples, log }))
 }
 
+/// Compares a Rust run with the reference output at the scenario's own
+/// tolerance; see [`compare_within`].
+pub fn compare(rendered: &Rendered, golden: &Golden) -> Result<Stats, String> {
+    compare_within(rendered, golden, rendered.tolerance)
+}
+
 /// Compares a Rust run with the reference output. With a tolerance of 0 the
 /// samples must have identical bits, except that zero and subnormal values
 /// all count as zero; otherwise they may differ by up to the tolerance.
 /// Non-finite samples on either side, and scenarios without samples, are
-/// always a mismatch.
-pub fn compare(rendered: &Rendered, golden: &Golden) -> Result<Stats, String> {
+/// always a mismatch. A mismatch reports the first offending sample and the
+/// statistics over every sample.
+pub fn compare_within(
+    rendered: &Rendered,
+    golden: &Golden,
+    tolerance: f32,
+) -> Result<Stats, String> {
     if rendered.log != golden.log {
         return Err(format!(
-            "log differs\n  rust: {:?}\n  c++:  {:?}",
+            "log differs
+  rust: {:?}
+  c++:  {:?}",
             rendered.log, golden.log
         ));
     }
@@ -89,38 +105,47 @@ pub fn compare(rendered: &Rendered, golden: &Golden) -> Result<Stats, String> {
     if rendered.samples.is_empty() {
         return Err("the scenario renders no samples, so it checks no audio".to_owned());
     }
+    let exact = tolerance == 0.0;
     let mut max_abs = 0.0_f32;
     let mut sum_squares = 0.0_f64;
-    let mut flushed = 0;
+    let (mut flushed, mut differing, mut failing) = (0, 0, 0);
+    let mut first = None;
     for (index, (&rust, &cpp)) in rendered.samples.iter().zip(&golden.samples).enumerate() {
         let difference = (rust - cpp).abs();
-        let exact = rendered.tolerance == 0.0;
-        let matches = if exact {
-            flush(rust).to_bits() == flush(cpp).to_bits()
-        } else {
-            difference <= rendered.tolerance
-        };
+        let same = flush(rust).to_bits() == flush(cpp).to_bits();
+        let matches = same || (!exact && difference <= tolerance);
         if !rust.is_finite() || !cpp.is_finite() || !matches {
-            return Err(format!(
-                "sample {index}: rust {rust:e} ({:08x}), c++ {cpp:e} ({:08x}) (tolerance {})",
+            failing += 1;
+            first.get_or_insert(format!(
+                "sample {index}: rust {rust:e} ({:08x}), c++ {cpp:e} ({:08x})",
                 rust.to_bits(),
                 cpp.to_bits(),
-                rendered.tolerance
             ));
         }
-        if exact && rust.to_bits() != cpp.to_bits() {
+        if same && rust.to_bits() != cpp.to_bits() {
             flushed += 1;
         }
-        max_abs = max_abs.max(difference);
-        sum_squares += f64::from(difference) * f64::from(difference);
+        differing += usize::from(!same);
+        if difference.is_finite() {
+            max_abs = max_abs.max(difference);
+            sum_squares += f64::from(difference) * f64::from(difference);
+        }
     }
     let samples = rendered.samples.len();
-    Ok(Stats {
+    let stats = Stats {
         samples,
         max_abs,
         rms: (sum_squares / samples as f64).sqrt(),
         flushed,
-    })
+        differing,
+    };
+    match first {
+        None => Ok(stats),
+        Some(first) => Err(format!(
+            "{failing} of {samples} samples outside tolerance {tolerance:e} ({differing} differ; max abs diff {:e}, rms {:e}); first at {first}",
+            stats.max_abs, stats.rms
+        )),
+    }
 }
 
 #[cfg(test)]

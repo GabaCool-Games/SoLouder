@@ -6,6 +6,12 @@ tests/scenarios/*.scn into build/parity/cpp, then runs the solouder-parity
 tests with SOLOUDER_REQUIRE_PARITY=1 so a scenario without C++ output fails.
 Requires CMake, a C++ compiler, and the reference checkout from
 scripts/fetch_reference.py.
+
+With --cpp-dir, nothing is built: Rust is compared with C++ output rendered
+elsewhere, such as the Windows runner's output saved by CI. --profile names
+a profile in tests/scenarios/tolerances.txt whose declared tolerances apply
+(`gcc` for a GCC/glibc reference build, `cross` for Rust on another platform
+against the Windows output); other scenarios must still match exactly.
 """
 
 from __future__ import annotations
@@ -34,7 +40,12 @@ def main(argv: list[str] | None = None) -> int:
                         help="SoLoud checkout (default: reference/soloud)")
     parser.add_argument("--build-dir", type=Path, default=REPOSITORY_ROOT / "build" / "reference")
     parser.add_argument("--config", default="Release")
+    parser.add_argument("--cpp-dir", type=Path,
+                        help="compare with C++ output already in this directory instead of rendering it")
+    parser.add_argument("--profile", help="tolerance profile from tests/scenarios/tolerances.txt")
     args = parser.parse_args(argv)
+    if args.cpp_dir is not None:
+        return compare(args.cpp_dir.expanduser().resolve(), args.profile)
 
     reference = args.reference.expanduser().resolve()
     if not (reference / "contrib" / "CMakeLists.txt").exists():
@@ -67,7 +78,16 @@ def main(argv: list[str] | None = None) -> int:
         print("The C++ runner rejected a scenario (see above).", file=sys.stderr)
         return 1
 
+    return compare(output, args.profile)
+
+
+def compare(output: Path, profile: str | None) -> int:
+    if not any(output.glob("*.f32")):
+        print(f"No C++ output in {output}", file=sys.stderr)
+        return 1
     env = dict(os.environ, SOLOUDER_PARITY_DIR=str(output), SOLOUDER_REQUIRE_PARITY="1")
+    if profile:
+        env["SOLOUDER_PARITY_PROFILE"] = profile
     test = ["cargo", "test", "-p", "solouder-parity", "--test", "parity", "--", "--nocapture"]
     return subprocess.run(test, cwd=REPOSITORY_ROOT, env=env).returncode
 

@@ -37,6 +37,18 @@ all count as zero (the C++ build flushes subnormals). A scenario may declare
 a `tolerance` (maximum absolute difference) instead. Log lines must match
 exactly, and a scenario must render at least one sample.
 
+## Platforms
+
+The golden output is the Windows (MSVC) build's. `run_parity.py --cpp-dir
+<dir>` compares Rust with output rendered elsewhere instead of building the
+runner (CI saves the Windows output for the Linux and macOS jobs), and
+`--profile <name>` applies the tolerances `tolerances.txt` declares for that
+comparison: `gcc` for a GCC/glibc build of the reference, whose float math
+differs from MSVC's in a few scenarios, and `cross` for Rust on another
+platform against the Windows output. A scenario a profile does not list
+must still match exactly; a failure reports how many samples differ and by
+how much. `check_all.py --parity --parity-profile gcc` passes the profile on.
+
 ## Operations
 
 | Operation | Arguments | Effect | Log line |

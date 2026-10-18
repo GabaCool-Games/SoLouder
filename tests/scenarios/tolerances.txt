@@ -1,0 +1,18 @@
+# Declared tolerances for comparisons with output from another platform:
+# `scripts/run_parity.py --profile <name>` (see README.md, "Platforms").
+# Scenarios not listed under the profile must match exactly, as on Windows.
+#
+# profile  scenario          max abs diff  # why
+#
+# `gcc`: Rust against a GCC/glibc build of the C++ reference (Debian 13,
+# GCC 14.2, glibc 2.41, x86-64; measured 2026-10-18). SoLoud includes
+# <math.h>, so GCC calls the float versions of sin/cos/atan2/exp where MSVC
+# widens to double; Rust follows MSVC. Measured maxima in brackets.
+gcc        filters_spectral  1e-6   # the FFT filter's atan2/cos/sin [3.9e-7, 2321 of 32577 samples]
+gcc        ogg_decode        5e-4   # stb_vorbis's float math, low-quality files [1.2e-4, 623804 of 743882]
+gcc        stream_ogg        1e-5   # stb_vorbis, streamed [1.4e-6, 65639 of 78752]
+gcc        spatial_sources   1e-6   # its Ogg stream [6.0e-8, 25624 of 49814]
+#
+# `cross`: Rust on Linux or macOS against the Windows (MSVC) C++ output. Rust
+# on x86-64 Linux (glibc 2.41) renders every scenario exactly as on Windows,
+# so nothing is declared; add a line here only with a measured reason.

@@ -145,9 +145,8 @@ count as zero, because the C++ build flushes subnormals. Every scenario has
 an identical log and identical samples on Windows x86-64; `wav_decode` has
 one subnormal float sample that the C++ build writes as zero, and
 `wav_decode_u8` declares a tolerance of 1/128 for the 8-bit conversion. A
-scenario that renders no samples fails. The output of a Linux GCC build of
-the reference (Ubuntu 20.04) is identical to the Windows output for every
-scenario except `filters_spectral` (see "Math functions" below). Run with
+scenario that renders no samples fails. The Windows output is the golden;
+other platforms are in "Platforms" below. Run with
 `python scripts/run_parity.py` or
 `python scripts/check_all.py --reference --parity`.
 
@@ -178,9 +177,62 @@ harness, so they are checked by Rust tests instead of scenarios:
 
 Device tests skip on machines without audio output (as in CI) unless
 `SOLOUDER_REQUIRE_DEVICE=1`; only "no device", "device not available",
-"host unavailable" and "device busy" count as no output; they pass on a Windows WASAPI device. The
-workspace also builds, passes clippy and passes its tests on Linux (Docker,
-Rust 1.98.1, no device).
+"host unavailable" and "device busy" count as no output; they pass on a Windows WASAPI device.
+
+## Platforms
+
+Verified 2026-10-18. Windows ran on the development machine; Linux in Docker
+(`scripts/docker/linux.Dockerfile`: `rust:1.98`, Debian 13, GCC 14.2,
+glibc 2.41, Rust 1.98.1). CI (`.github/workflows/ci.yml`) is configured for
+every row but has not run: SoLouder is not pushed anywhere.
+
+| OS | Arch | Host | Builds | Tests | Parity | Device |
+|---|---|---|---|---|---|---|
+| Windows 10 (MSVC, Rust 1.98) | x86-64 | WASAPI | Verified | Verified: workspace, clippy, 71 C++ regression tests | Verified: the golden; every scenario exact | Verified: `device_lifecycle` and `plugin_lifecycle` with `SOLOUDER_REQUIRE_DEVICE=1` |
+| Linux (Debian 13, container) | x86-64 | ALSA, through its PulseAudio plugin | Verified | Verified: workspace, clippy, 71 C++ regression tests with GCC 14.2 | Verified: Rust exact against the Windows golden; the GCC reference within the `gcc` profile (below) | Partly: on a PulseAudio null sink 5 of 6 `device_lifecycle` tests pass; see below |
+| Linux | arm64 | ALSA | Not run | Not run | Not run | Not run |
+| macOS (CI `macos-latest`) | arm64 | CoreAudio | CI configured | CI configured: Rust tests and C++ regression tests | CI configured against the Windows golden, non-blocking until it has run | Unverified |
+| macOS | x86-64 | CoreAudio | Not run | Not run | Not run | Unverified |
+| Miri (nightly 2026-10-12, Linux container) | x86-64 | none | Verified | Verified: `dsp::` (16 tests) and `realtime::visual` (3 tests), no undefined behavior | n/a | n/a |
+
+Cross-platform parity, measured with `run_parity.py --cpp-dir` (compare
+against another machine's runner output) and `--profile` (per-scenario
+tolerances from `tests/scenarios/tolerances.txt`):
+
+- **Rust on Linux against the Windows C++ output:** all 46 scenarios match bit
+  for bit (the `cross` profile declares nothing). Rust's math follows the MSVC
+  build on both platforms, and nothing it calls through libm differed on
+  glibc in these scenarios.
+- **The GCC reference against the Windows one** (and so against Rust): four
+  scenarios differ, logs identical, because GCC resolves `sin`, `cos` and
+  `atan2` of a `float` to the `float` functions (see "Math functions"):
+
+  | Scenario | Samples differing | Max abs | RMS | Declared (`gcc`) |
+  |---|---|---|---|---|
+  | `filters_spectral` | 2,321 of 32,577 | 3.9e-7 | 1.6e-8 | 1e-6 |
+  | `spatial_sources` | 25,624 of 49,814 | 6.0e-8 | 7.8e-10 | 1e-6 |
+  | `stream_ogg` | 65,639 of 78,752 | 1.4e-6 | 3.4e-8 | 1e-5 |
+  | `ogg_decode` | 623,804 of 743,882 | 1.2e-4 | 7.3e-7 | 5e-4 |
+
+  `spatial_sources` plays an Ogg stream, so three of the four come from the
+  GCC build's Ogg decoding. Rust's port of stb_vorbis builds its tables with
+  `f64` `sin` and `cos` from the platform's libm and still matched Windows
+  exactly on glibc, so the GCC difference is in what the C++ compiler or its
+  `float` overloads do, not in glibc's double-precision functions; the exact
+  line was not isolated. `ogg_decode` exceeds 1e-6 because its fixtures are
+  long and loud and the decoder's error accumulates through the IMDCT.
+- The WAV fixture generator now rounds its float sine to `f32` before writing
+  64-bit files: glibc's `sin` differs from the Windows CRT's in the last bit
+  of one sample, which made `gen_wav_fixtures.py --check` fail on Linux.
+
+Device output on Linux: with PulseAudio's null sink and ALSA's `pulse`
+plugin, cpal reports `snd_pcm_avail_delay failed: I/O error (5)` about once
+per stream while the stream keeps rendering (the final events arrive). The
+cpal output treats any error other than an underrun, a device change or a
+denied real-time priority as fatal, so `Output::state` reports `Failed` and
+`repeated_open_play_close` (and Bevy's `device_apps_start_play_and_tear_down_repeatedly`)
+fail. Whether this happens on real ALSA hardware is unknown; the CI device
+job is non-blocking until it is.
 
 ## Deliberate differences from the reference
 
@@ -194,7 +246,7 @@ Rust 1.98.1, no device).
 | Filter objects | `setFilter` keeps a pointer: changed settings reach later plays, and deleting the filter first leaves the sound with a dangling pointer | Sounds hold an `Arc<dyn Filter>` whose settings are fixed; set a new filter to change them | No dangling filters, and no locking between the game and audio threads |
 | Biquad type | `setParams` takes an `int` and accepts 0 to 3 (3 acts as lowpass) | `BiquadType` has the three real types; the live `TYPE` parameter still takes any value | A type that does not exist is not a setting |
 | Filters in real time | Filter instances are created, and their delay lines and FFT buffers allocated, on the audio thread, under the engine mutex | `Controller` creates a voice's filter instances, and the global and bus instances it sets, on the game thread, and reserves their buffers' memory for the channels and rate they will run at (`FilterInstance::prepare`); the buffers are still sized at their first use, inside that memory, so the output matches the reference. Replaced instances are retired to the game thread | The audio thread neither allocates nor frees in normal use (see "Real-time coverage" for what needs more than was reserved) |
-| Math functions | SoLoud's sources include `math.h`, not `cmath`, so on MSVC `sin`, `cos`, `atan2` and `sqrt` of a `float` run in double precision; with GCC's libstdc++ they resolve to the `float` versions | Follows the MSVC build: the value is widened to `f64`, the function runs, and the result is rounded to `f32` | The Windows reference is the one the scenarios compare against. A Linux GCC build of the reference renders every scenario identically except `filters_spectral` (the FFT filter's `atan2`, `cos` and `sin`), which differs in the last bits |
+| Math functions | SoLoud's sources include `math.h`, not `cmath`, so on MSVC `sin`, `cos`, `atan2` and `sqrt` of a `float` run in double precision; with GCC's libstdc++ they resolve to the `float` versions | Follows the MSVC build: the value is widened to `f64`, the function runs, and the result is rounded to `f32` | The Windows reference is the one the scenarios compare against. A Linux GCC build of the reference differs in four scenarios, by at most 1.2e-4 (see "Platforms"); Rust renders the Windows output on Linux too |
 | Robotize waveform | `setParams` takes the waveform as an `int` | Also an `i32`, with the waveforms as `dsp::waveform` constants; indices without a waveform act as square, as in C++ | Keeps the live `WAVE` parameter and the setting in step |
 | FFT filter buffers | Sized for the channel count of the first call; a later call with more channels writes past them | Grow to the larger count | Memory safety; unreachable from the mixer, which keeps a voice's channel count |
 | Flanger line allocation | A failed `new` leaves the audio unfiltered; a line of 2^32 samples or more wraps its size | `try_reserve_exact`; on failure the audio is left unfiltered | Same outcome without the wrap |
@@ -336,8 +388,9 @@ Limits:
 
 ## Not yet covered
 
-- Device reconnection, and device output outside Windows WASAPI (checked only to
-  build and skip on Linux).
+- Device reconnection; device output outside Windows WASAPI (a PulseAudio
+  null sink in a container only, ending in the `Failed` state described in
+  "Platforms"); CoreAudio and arm64 (CI configured, never run).
 - Voice groups, voice getters, bus voice counts, queue counts, and filter
   parameter reads through the `Controller` (see "Real-time
   coverage").

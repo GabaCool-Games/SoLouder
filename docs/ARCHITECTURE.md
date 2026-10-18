@@ -489,3 +489,13 @@ A slice is complete only when enabled code compiles, parity/lifecycle tests
 pass, callback behavior is bounded, and every authored Rust file satisfies the
 400-line limit. The migration milestones and full validation checklist live
 in [PORTING.md](PORTING.md#milestones-and-acceptance-gates).
+
+The Windows (MSVC) reference output is the parity golden. Rust follows the
+MSVC build's math on every platform, so its output is expected to be the same
+everywhere; other platforms compare against the Windows runner's output with
+`run_parity.py --cpp-dir`. Where another platform's C++ build differs from the
+golden, the difference is declared per scenario and platform in
+`tests/scenarios/tolerances.txt` (`--profile`), with what was measured, rather
+than loosening the scenario itself. The supported OS, architecture and host
+combinations, and what has been verified on each, are in
+[port-status.md](port-status.md#platforms).

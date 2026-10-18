@@ -22,6 +22,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--reference", action="store_true", help="also run the C++ regression tests")
     parser.add_argument("--parity", action="store_true", help="also compare scenarios with C++")
+    parser.add_argument("--parity-profile",
+                        help="tolerance profile for --parity (tests/scenarios/tolerances.txt), such as gcc")
     args = parser.parse_args(argv)
 
     python = sys.executable
@@ -41,7 +43,8 @@ def main(argv: list[str] | None = None) -> int:
     if args.reference:
         checks.append([python, "scripts/test_reference.py"])
     if args.parity:
-        checks.append([python, "scripts/run_parity.py"])
+        profile = ["--profile", args.parity_profile] if args.parity_profile else []
+        checks.append([python, "scripts/run_parity.py", *profile])
 
     failed = []
     for check in checks:

@@ -97,7 +97,11 @@ def float_frames(frames: int, channels: int, seed: int) -> list[list[float]]:
             if i < len(specials):
                 value = specials[(i + c) % len(specials)]
             elif i % 2:
-                value = math.sin(i * 0.01 * (c + 1)) * 0.9
+                # Rounded to f32 so the files are the same everywhere: the C
+                # libraries' f64 `sin` differ in the last bit (glibc and the
+                # Windows CRT disagree for f64_mono_96000.wav). The noise
+                # values keep full f64 precision.
+                value = struct.unpack("<f", struct.pack("<f", math.sin(i * 0.01 * (c + 1)) * 0.9))[0]
             else:
                 value = (next(noise) / 0x3FFFFFFF) - 1.0
             frame.append(value)
